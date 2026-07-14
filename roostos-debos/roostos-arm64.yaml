@@ -1,0 +1,25 @@
+architecture: arm64
+
+actions:
+  - action: recipe
+    recipe: roostos-base.yaml
+
+  - action: apt
+    description: Install Linux kernel and U-Boot firmwares for ARM64 targets
+    packages:
+      - linux-image-arm64
+      - u-boot-menu
+      - u-boot-tools
+      - initramfs-tools
+
+  - action: run
+    description: Configure ARM U-Boot console serial defaults
+    chroot: true
+    command: |
+      echo "U_BOOT_PARAMETERS=\"console=ttyAMA0,115200 console=tty0\"" >> /etc/default/u-boot
+      u-boot-update
+
+  - action: pack
+    description: Package system image as a raw flashable sector-aligned SD card image
+    file: roostos-arm64.img
+    compression: gzip

@@ -1,0 +1,22 @@
+[project]
+name = "roostos-dns-technitium"
+version = "0.1.0"
+description = "Technitium DNS Sidecar Bridge for RoostOS"
+readme = "../readme.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dbus-next>=0.2.3",
+    "roostos-sdk",
+    "httpx>=0.24.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.uv.sources]
+roostos-sdk = { workspace = true }

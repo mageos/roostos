@@ -1,0 +1,14 @@
+id: wireguard
+name: WireGuard VPN
+known_services:
+  - vpnServer
+  - vpnClient
+network_mode: host
+ui_entrypoint: /app/ui/ui.js
+containers:
+  - name: vpn-wireguard
+    image: linuxserver/wireguard:latest
+    volumes:
+      - host_path: /var/lib/roostos/plugins/wireguard/config
+        container_path: /config
+        mode: rw

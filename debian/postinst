@@ -1,0 +1,163 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        echo "Configuring RoostOS..."
+
+        # Create system folders
+        mkdir -p /etc/roostos
+        mkdir -p /var/lib/roostos
+
+        # Create roostos system group if it doesn't exist
+        if ! getent group roostos >/dev/null; then
+            echo "Creating roostos group..."
+            groupadd -r roostos
+        fi
+
+        # Create default configuration files if missing
+        if [ ! -f /etc/roostos/system.yaml ]; then
+            echo "Creating default system.yaml..."
+            cat << 'EOF' > /etc/roostos/system.yaml
+system:
+  hostname: roost-router
+  domain: local
+  timezone: UTC
+users: []
+EOF
+        fi
+
+        if [ ! -f /etc/roostos/network.yaml ]; then
+            echo "Detecting host network interfaces..."
+            wan_iface=""
+            lan_iface=""
+            for iface in $(ls /sys/class/net 2>/dev/null | grep -v -E "lo|br|docker|veth|wlan|wg|virtual" || true); do
+                if [ -d "/sys/class/net/$iface" ]; then
+                    if [ -z "$wan_iface" ]; then
+                        wan_iface="$iface"
+                    elif [ -z "$lan_iface" ]; then
+                        lan_iface="$iface"
+                    fi
+                fi
+            done
+            if [ -z "$wan_iface" ]; then
+                wan_iface="eth0"
+            fi
+            if [ -z "$lan_iface" ]; then
+                lan_iface="eth1"
+            fi
+            echo "Auto-detected WAN: $wan_iface, LAN: $lan_iface"
+
+            echo "Creating default network.yaml..."
+            cat << EOF > /etc/roostos/network.yaml
+network:
+  interfaces:
+  - name: $wan_iface
+    role: wan
+    dhcp: true
+  - name: $lan_iface
+    role: lan
+    bridge: br0
+  bridges:
+  - name: br0
+    ip: 192.168.1.1/24
+    dhcp_enabled: true
+    dhcp_pool_start: 192.168.1.100
+    dhcp_pool_end: 192.168.1.250
+  vlans: []
+  gateways: []
+wifi:
+  access_points: []
+vpns: []
+EOF
+        fi
+
+        if [ ! -f /etc/roostos/devices.yaml ]; then
+            echo "Creating default devices.yaml..."
+            cat << 'EOF' > /etc/roostos/devices.yaml
+people: []
+buildings: []
+rooms: []
+devices: []
+EOF
+        fi
+
+        if [ ! -f /etc/roostos/schedules.yaml ]; then
+            echo "Creating default schedules.yaml..."
+            cat << 'EOF' > /etc/roostos/schedules.yaml
+firewall:
+  schedules: []
+  rules: []
+  port_forwards: []
+EOF
+        fi
+
+        if [ ! -f /etc/roostos/plugins.yaml ]; then
+            echo "Creating default plugins.yaml..."
+            cat << 'EOF' > /etc/roostos/plugins.yaml
+plugins: []
+EOF
+        fi
+
+        # Create virtualenv and install packaged wheels offline
+        echo "Creating Python virtual environment..."
+        python3 -m venv /opt/roostos/venv
+
+        echo "Installing Python packages offline..."
+        /opt/roostos/venv/bin/pip install --upgrade --force-reinstall --no-cache-dir --no-index --find-links=/opt/roostos/wheels /opt/roostos/wheels/*.whl
+        # Create symlinks to globally expose daemons/CLI
+        echo "Configuring executable symlinks..."
+        ln -sf /opt/roostos/venv/bin/roostd /usr/local/bin/roostd
+        ln -sf /opt/roostos/venv/bin/roostctl /usr/local/bin/roostctl
+        ln -sf /opt/roostos/venv/bin/roostos-web /usr/local/bin/roostos-web
+        ln -sf /opt/roostos/venv/bin/roostos-setup /usr/local/bin/roostos-setup
+
+        # Enable services
+        echo "Enabling systemd networks and services..."
+        systemctl daemon-reload || true
+        systemctl enable systemd-networkd || true
+        if systemctl list-unit-files | grep -q systemd-resolved; then
+            systemctl enable systemd-resolved || true
+        fi
+        systemctl enable nftables || true
+        systemctl enable roostd.service || true
+        systemctl enable roostos-web.service || true
+ 
+        # Add AppArmor exceptions for Kea DHCPv4 socket lockfile if AppArmor is active
+        if [ -d /etc/apparmor.d/local ]; then
+            echo "Adding AppArmor policy overrides for Kea DHCP..."
+            if [ -f /etc/apparmor.d/local/usr.sbin.kea-dhcp4 ]; then
+                # Clean up any legacy overrides
+                sed -i '/kea-dhcp4-ctrl.sock/d' /etc/apparmor.d/local/usr.sbin.kea-dhcp4
+                sed -i '/roost-dhcp-hook/d' /etc/apparmor.d/local/usr.sbin.kea-dhcp4
+                echo "/run/kea/kea-dhcp4-ctrl.sock* rwk," >> /etc/apparmor.d/local/usr.sbin.kea-dhcp4
+                echo "/usr/local/bin/roost-dhcp-hook ux," >> /etc/apparmor.d/local/usr.sbin.kea-dhcp4
+            fi
+        fi
+
+        # Start service if systemd is running (not in a chroot/build environment)
+        if [ -d /run/systemd/system ]; then
+            if systemctl is-active --quiet apparmor; then
+                systemctl reload apparmor || true
+            fi
+            pkill -HUP dbus-daemon || true
+            systemctl start nftables || true
+            systemctl restart systemd-networkd || true
+            if systemctl list-unit-files | grep -q systemd-resolved; then
+                systemctl restart systemd-resolved || true
+            fi
+            systemctl restart roostd.service || true
+            systemctl restart roostos-web.service || true
+        fi
+        ;;
+
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

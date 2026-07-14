@@ -1,0 +1,27 @@
+id: technitium-dns
+name: Technitium DNS
+known_services:
+  - dnsServer
+  - dnsFilter
+network_mode: bridge
+ui_entrypoint: /app/ui/ui.js
+containers:
+  - name: dns-server
+    image: technitium/dns-server:latest
+    ports:
+      - host_port: 53
+        container_port: 53
+        protocol: udp
+      - host_port: 5380
+        container_port: 5380
+        protocol: tcp
+    volumes:
+      - host_path: /var/lib/roostos/plugins/technitium-dns/config
+        container_path: /etc/technitium
+        mode: rw
+  - name: dns-bridge
+    image: roostos-dns-technitium:latest
+    environment:
+      TECHNITIUM_API_URL: "http://localhost:5380"
+      TECHNITIUM_API_TOKEN: ""
+      ROOSTOS_SESSION_BUS: "1"

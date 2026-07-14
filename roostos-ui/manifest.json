@@ -1,0 +1,11 @@
+{
+  "name": "roostos",
+  "version": "0.1.0",
+  "menu": {
+    "system": {
+      "label": "RoostOS Router",
+      "order": 50
+    }
+  },
+  "path": "system.html"
+}
