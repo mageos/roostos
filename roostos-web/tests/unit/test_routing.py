@@ -84,6 +84,7 @@ def test_get_devices_endpoint(mock_dependencies, auth_headers):
     json_data = response.json()
     assert "devices" in json_data
     assert "active_leases" in json_data
+    assert "active_arp" in json_data
 
 
 def test_get_network_endpoint(mock_dependencies, auth_headers):

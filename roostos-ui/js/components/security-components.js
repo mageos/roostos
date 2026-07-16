@@ -1,4 +1,4 @@
-const FIREWALL_TEMPLATE = `
+const FIREWALL_TEMPLATE = /* html */ `
     <div id="firewall-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('firewall', 'basic')">Basic</button>
@@ -413,7 +413,7 @@ class FirewallComponent {
     }
 }
 
-const PARENTAL_TEMPLATE = `
+const PARENTAL_TEMPLATE = /* html */ `
     <div id="parental-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('parental', 'basic')">Basic</button>
@@ -526,7 +526,7 @@ class ParentalComponent {
     }
 }
 
-const DNS_TEMPLATE = `
+const DNS_TEMPLATE = /* html */ `
     <div id="dns-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('dns', 'basic')">Basic</button>

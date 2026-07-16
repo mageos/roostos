@@ -266,7 +266,7 @@ window.loadDashboard = async function() {
 
         // Compile metrics
         const connectedEl = document.getElementById("metric-connected");
-        if (connectedEl) connectedEl.textContent = activeLeases.length;
+        if (connectedEl) connectedEl.textContent = (devData.active_arp || []).length;
 
         window.deviceComponent.render();
         window.dhcpComponent.render();

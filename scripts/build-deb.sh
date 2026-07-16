@@ -7,7 +7,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$SRC_DIR/build-deb-tmp"
 STAGE_DIR="$BUILD_DIR/stage"
 DEBIAN_DIR="$SRC_DIR/debian"
-PACKAGE_VERSION=0.1.51
+PACKAGE_VERSION=0.1.52
 
 echo "============================================="
 echo "Building RoostOS Debian Package"

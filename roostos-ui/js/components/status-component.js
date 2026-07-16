@@ -1,4 +1,4 @@
-const STATUS_TEMPLATE = `
+const STATUS_TEMPLATE = /* html */ `
     <div id="status-view" class="view-pane">
         <div id="system-warnings-container" style="display: none; margin-bottom: 20px;"></div>
 

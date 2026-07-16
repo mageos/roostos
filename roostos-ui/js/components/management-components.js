@@ -1,5 +1,5 @@
 // DHCP Component
-const DHCP_TEMPLATE = `
+const DHCP_TEMPLATE = /* html */ `
     <div id="dhcp-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('dhcp', 'basic')">Basic</button>
@@ -307,7 +307,7 @@ class DhcpComponent {
 }
 
 // VPN Component
-const VPN_TEMPLATE = `
+const VPN_TEMPLATE = /* html */ `
     <div id="vpn-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('vpn', 'basic')">Basic</button>
@@ -542,7 +542,7 @@ class VpnComponent {
 }
 
 // People Component
-const PEOPLE_TEMPLATE = `
+const PEOPLE_TEMPLATE = /* html */ `
     <div id="people-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('people', 'basic')">Basic</button>
@@ -913,7 +913,7 @@ class PeopleComponent {
 }
 
 // Locations Component
-const LOCATIONS_TEMPLATE = `
+const LOCATIONS_TEMPLATE = /* html */ `
     <div id="locations-view" class="view-pane">
         <div class="card-grid">
             <div class="card">
@@ -1257,7 +1257,7 @@ class LocationsComponent {
 }
 
 // System Component
-const SYSTEM_TEMPLATE = `
+const SYSTEM_TEMPLATE = /* html */ `
     <div id="system-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('system', 'basic')">Basic</button>
@@ -1469,7 +1469,7 @@ class SystemComponent {
 }
 
 // Plugins Component
-const PLUGINS_TEMPLATE = `
+const PLUGINS_TEMPLATE = /* html */ `
     <div id="plugins-view" class="view-pane">
         <div class="card">
             <h2>Core Router Services</h2>

@@ -1,4 +1,4 @@
-const DEVICE_TEMPLATE = `
+const DEVICE_TEMPLATE = /* html */ `
     <div id="devices-view" class="view-pane">
         <div class="filter-row">
             <label class="checkbox-container">

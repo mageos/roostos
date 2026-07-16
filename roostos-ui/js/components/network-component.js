@@ -1,4 +1,4 @@
-const NETWORK_TEMPLATE = `
+const NETWORK_TEMPLATE = /* html */ `
     <div id="networks-view" class="view-pane">
         <div class="view-tabs-header">
             <button class="tab-btn active" onclick="switchSubTab('networks', 'basic')">Basic</button>

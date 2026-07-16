@@ -90,15 +90,61 @@ class SystemService:
         except Exception:
             pass
 
-        # 4b. Alert for unrecognized devices in active leases
+        # 4b. Alert for unrecognized devices in active leases or active ARP cache
         try:
-            leases = await self.dbus.get_active_leases()
             registered_macs = {d.mac.lower() for d in config.devices}
-            for lease in leases:
-                mac = lease.get("mac", "").lower()
-                if mac and mac not in registered_macs:
-                    hostname = lease.get("hostname") or "Unknown"
-                    ip = lease.get("ip", "")
+            seen_macs = set()
+            all_observed = []
+            
+            # 1. Parse active ARP table
+            if os.path.exists("/proc/net/arp"):
+                with open("/proc/net/arp", "r") as f:
+                    lines = f.readlines()
+                    for line in lines[1:]:
+                        parts = line.split()
+                        if len(parts) >= 6:
+                            ip = parts[0]
+                            flags = parts[2]
+                            mac = parts[3].lower()
+                            if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac:
+                                if mac not in seen_macs:
+                                    seen_macs.add(mac)
+                                    all_observed.append({
+                                        "mac": mac,
+                                        "ip": ip,
+                                        "hostname": "Active IP client"
+                                    })
+            
+            # Mock entries fallback if in mock mode
+            is_mock = getattr(self.dbus, "mock", False) or os.environ.get("ROOSTOS_MOCK", "false").lower() in ("true", "1")
+            if not all_observed and is_mock:
+                mock_arp = [
+                    {"mac": "a4:83:e7:12:34:56", "ip": "192.168.1.10", "hostname": "Mom's Laptop"},
+                    {"mac": "4c:32:75:98:76:54", "ip": "192.168.1.50", "hostname": "Alice's iPad"}
+                ]
+                for d in mock_arp:
+                    mac = d["mac"].lower()
+                    if mac not in seen_macs:
+                        seen_macs.add(mac)
+                        all_observed.append(d)
+
+            # 2. Get active DHCP leases
+            leases = await self.dbus.get_active_leases()
+            for l in leases:
+                mac = l.get("mac", "").lower()
+                if mac and mac not in seen_macs:
+                    seen_macs.add(mac)
+                    all_observed.append({
+                        "mac": mac,
+                        "ip": l.get("ip", ""),
+                        "hostname": l.get("hostname", "Unknown")
+                    })
+                    
+            for device in all_observed:
+                mac = device["mac"]
+                if mac not in registered_macs:
+                    hostname = device.get("hostname") or "Unknown"
+                    ip = device.get("ip", "")
                     ip_str = f" ({ip})" if ip else ""
                     warnings.append(f"Unrecognized device connected to network: {hostname}{ip_str} [MAC: {mac.upper()}]")
         except Exception:

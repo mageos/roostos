@@ -16,12 +16,14 @@ async def get_devices(
     current_user: UserSession = Depends(get_current_user),
     device_service: DeviceService = Depends()
 ):
-    """Returns registered device list along with active DHCP leases."""
+    """Returns registered device list along with active DHCP leases and active ARP table entries."""
     config = device_service.get_devices_config()
     active_leases = await device_service.get_active_leases()
+    active_arp = device_service.get_active_arp()
     return {
         "devices": [d.model_dump() for d in config.devices],
-        "active_leases": active_leases
+        "active_leases": active_leases,
+        "active_arp": active_arp
     }
 
 @router.post("/api/devices")
