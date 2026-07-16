@@ -48,6 +48,27 @@ const DEVICE_TEMPLATE = /* html */ `
         <div style="display: flex; justify-content: flex-end; margin-top: 12px;">
             <button class="btn btn-primary" onclick="showAddDeviceForm('bottom')">+ Add Device</button>
         </div>
+        
+        <div style="margin-top: 40px;">
+            <h3 style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--text-primary);">Unregistered Connected Devices</h3>
+            <div class="device-table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MAC Address</th>
+                            <th>Current IP</th>
+                            <th>Interface / Hostname</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unregistered-device-table-body">
+                        <tr>
+                            <td colspan="4" class="empty-state">No unregistered devices connected.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 `;
 
@@ -72,6 +93,7 @@ class DeviceComponent {
         window.editDevice = (mac, name, owner, location, tags, upnp, staticIp, maxUpload, maxDownload) => 
             this.editDevice(mac, name, owner, location, tags, upnp, staticIp, maxUpload, maxDownload);
         window.deleteDevice = (mac) => this.deleteDevice(mac);
+        window.registerUnrecognizedDevice = (mac, ip, hostname) => this.registerUnrecognizedDevice(mac, ip, hostname);
     }
 
     render(devicesData) {
@@ -138,27 +160,77 @@ class DeviceComponent {
 
         if (filtered.length === 0) {
             tableBody.innerHTML = '<tr><td colspan="6" class="empty-state">No matching registered devices found.</td></tr>';
-            return;
+        } else {
+            tableBody.innerHTML = filtered.map(dev => {
+                const isOnline = window.activeLeases.some(l => l.mac.toLowerCase() === dev.mac.toLowerCase());
+                const tagsHtml = (dev.tags || []).map(t => `<span class="badge badge-offline" style="margin-right: 4px;">${escapeHtml(t)}</span>`).join("");
+                
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(dev.name)}</strong></td>
+                        <td><code>${escapeHtml(dev.mac.toUpperCase())}</code></td>
+                        <td>${escapeHtml(dev.static_ip || "DHCP")} <br><span style="font-size: 11px; color: var(--text-secondary);">Owner: ${escapeHtml(dev.owner || "None")}</span>${(dev.max_download_kbps || dev.max_upload_kbps) ? `<br><span style="font-size: 11px; color: var(--accent-blue); font-weight: 500;">Limits: ↓${dev.max_download_kbps || '∞'} kbps | ↑${dev.max_upload_kbps || '∞'} kbps</span>` : ''}</td>
+                        <td>${escapeHtml(dev.location || "-")} <br> ${tagsHtml}</td>
+                        <td><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${isOnline ? 'ONLINE' : 'OFFLINE'}</span></td>
+                        <td>
+                            <button class="btn btn-secondary" onclick="editDevice('${dev.mac}', '${escapeJs(dev.name)}', '${escapeJs(dev.owner || "")}', '${escapeJs(dev.location || "")}', '${escapeJs((dev.tags || []).join(","))}', ${dev.upnp_trusted || false}, '${escapeJs(dev.static_ip || "")}', ${dev.max_upload_kbps || 'null'}, ${dev.max_download_kbps || 'null'})">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteDevice('${dev.mac}')">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
         }
 
-        tableBody.innerHTML = filtered.map(dev => {
-            const isOnline = window.activeLeases.some(l => l.mac.toLowerCase() === dev.mac.toLowerCase());
-            const tagsHtml = (dev.tags || []).map(t => `<span class="badge badge-offline" style="margin-right: 4px;">${escapeHtml(t)}</span>`).join("");
-            
-            return `
-                <tr>
-                    <td><strong>${escapeHtml(dev.name)}</strong></td>
-                    <td><code>${escapeHtml(dev.mac.toUpperCase())}</code></td>
-                    <td>${escapeHtml(dev.static_ip || "DHCP")} <br><span style="font-size: 11px; color: var(--text-secondary);">Owner: ${escapeHtml(dev.owner || "None")}</span>${(dev.max_download_kbps || dev.max_upload_kbps) ? `<br><span style="font-size: 11px; color: var(--accent-blue); font-weight: 500;">Limits: ↓${dev.max_download_kbps || '∞'} kbps | ↑${dev.max_upload_kbps || '∞'} kbps</span>` : ''}</td>
-                    <td>${escapeHtml(dev.location || "-")} <br> ${tagsHtml}</td>
-                    <td><span class="badge ${isOnline ? 'badge-online' : 'badge-offline'}">${isOnline ? 'ONLINE' : 'OFFLINE'}</span></td>
-                    <td>
-                        <button class="btn btn-secondary" onclick="editDevice('${dev.mac}', '${escapeJs(dev.name)}', '${escapeJs(dev.owner || "")}', '${escapeJs(dev.location || "")}', '${escapeJs((dev.tags || []).join(","))}', ${dev.upnp_trusted || false}, '${escapeJs(dev.static_ip || "")}', ${dev.max_upload_kbps || 'null'}, ${dev.max_download_kbps || 'null'})">Edit</button>
-                        <button class="btn btn-danger" onclick="deleteDevice('${dev.mac}')">Delete</button>
-                    </td>
-                </tr>
-            `;
-        }).join("");
+        // Render Unregistered Devices list
+        const registeredMacs = new Set(window.allDevices.map(d => d.mac.toLowerCase()));
+        const seenMacs = new Set();
+        const unregistered = [];
+
+        // 1. Add active ARP devices
+        (window.activeArp || []).forEach(d => {
+            const mac = d.mac.toLowerCase();
+            if (!registeredMacs.has(mac) && !seenMacs.has(mac)) {
+                seenMacs.add(mac);
+                unregistered.push({
+                    mac: d.mac,
+                    ip: d.ip,
+                    hostname: "Active IP client",
+                    interface: d.interface
+                });
+            }
+        });
+
+        // 2. Add active DHCP leases
+        (window.activeLeases || []).forEach(l => {
+            const mac = l.mac.toLowerCase();
+            if (!registeredMacs.has(mac) && !seenMacs.has(mac)) {
+                seenMacs.add(mac);
+                unregistered.push({
+                    mac: l.mac,
+                    ip: l.ip,
+                    hostname: l.hostname || "Unknown",
+                    interface: "-"
+                });
+            }
+        });
+
+        const unregTableBody = document.getElementById("unregistered-device-table-body");
+        if (unregTableBody) {
+            if (unregistered.length === 0) {
+                unregTableBody.innerHTML = '<tr><td colspan="4" class="empty-state">No unregistered devices connected.</td></tr>';
+            } else {
+                unregTableBody.innerHTML = unregistered.map(dev => `
+                    <tr>
+                        <td><code>${escapeHtml(dev.mac.toUpperCase())}</code></td>
+                        <td>${escapeHtml(dev.ip)}</td>
+                        <td>${escapeHtml(dev.hostname)} ${dev.interface !== "-" ? `<br><span style="font-size: 11px; color: var(--text-secondary);">Interface: ${escapeHtml(dev.interface)}</span>` : ""}</td>
+                        <td>
+                            <button class="btn btn-primary" onclick="registerUnrecognizedDevice('${dev.mac}', '${dev.ip}', '${escapeJs(dev.hostname)}')">Register</button>
+                        </td>
+                    </tr>
+                `).join("");
+            }
+        }
     }
 
     closeInlineForm() {
@@ -377,6 +449,29 @@ class DeviceComponent {
             } catch (err) {
                 alert(`Error: ${err.message}`);
             }
+        }
+    }
+
+    registerUnrecognizedDevice(mac, ip, hostname) {
+        this.showAddDeviceForm('top');
+        const macInput = document.getElementById("dev-mac");
+        const nameInput = document.getElementById("dev-name");
+        const ipInput = document.getElementById("dev-static-ip");
+        
+        if (macInput) {
+            macInput.value = mac;
+            macInput.readOnly = true;
+            macInput.style.opacity = "0.7";
+        }
+        if (nameInput) {
+            nameInput.value = hostname && hostname !== "Unknown" && hostname !== "Active IP client" ? hostname : `New Device (${mac.substring(12, 17)})`;
+        }
+        if (ipInput) {
+            ipInput.value = ip;
+        }
+        const inlineRow = document.getElementById("inline-edit-row");
+        if (inlineRow) {
+            inlineRow.scrollIntoView({ behavior: "smooth" });
         }
     }
 }

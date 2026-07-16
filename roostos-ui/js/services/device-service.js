@@ -5,6 +5,7 @@ class DeviceService {
             const data = await res.json();
             window.allDevices = data.devices || [];
             window.activeLeases = data.active_leases || [];
+            window.activeArp = data.active_arp || [];
             return data;
         }
         throw new Error("Failed to fetch devices");

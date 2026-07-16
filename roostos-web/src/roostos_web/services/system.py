@@ -96,6 +96,17 @@ class SystemService:
             seen_macs = set()
             all_observed = []
             
+            # Load WAN interfaces from config
+            wan_interfaces = set()
+            try:
+                for interface in config.network.interfaces:
+                    if interface.role == "wan":
+                        wan_interfaces.add(interface.name)
+                        if interface.vlan_tag:
+                            wan_interfaces.add(f"{interface.name}.{interface.vlan_tag}")
+            except Exception:
+                pass
+            
             # 1. Parse active ARP table
             if os.path.exists("/proc/net/arp"):
                 with open("/proc/net/arp", "r") as f:
@@ -106,7 +117,10 @@ class SystemService:
                             ip = parts[0]
                             flags = parts[2]
                             mac = parts[3].lower()
-                            if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac:
+                            iface = parts[5]
+                            
+                            is_wan = iface in wan_interfaces or iface.startswith("ppp")
+                            if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac and not is_wan:
                                 if mac not in seen_macs:
                                     seen_macs.add(mac)
                                     all_observed.append({

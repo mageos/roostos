@@ -30,6 +30,7 @@ actions:
       - curl
       - gnupg
       - ca-certificates
+      - mdns-repeater
 
   - action: overlay
     description: Copy network and service configuration files to filesystem

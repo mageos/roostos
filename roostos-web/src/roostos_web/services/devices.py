@@ -32,6 +32,19 @@ class DeviceService:
     def get_active_arp(self) -> List[Dict[str, Any]]:
         import os
         devices = []
+        
+        # Load WAN interfaces from config
+        wan_interfaces = set()
+        try:
+            config = self.repo.get_config()
+            for interface in config.network.interfaces:
+                if interface.network == "wan":
+                    wan_interfaces.add(interface.name)
+                    if interface.vlan_tag:
+                        wan_interfaces.add(f"{interface.name}.{interface.vlan_tag}")
+        except Exception:
+            pass
+
         try:
             if os.path.exists("/proc/net/arp"):
                 with open("/proc/net/arp", "r") as f:
@@ -43,7 +56,9 @@ class DeviceService:
                             flags = parts[2]
                             mac = parts[3].lower()
                             iface = parts[5]
-                            if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac:
+                            
+                            is_wan = iface in wan_interfaces or iface.startswith("ppp")
+                            if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac and not is_wan:
                                 devices.append({
                                     "ip": ip,
                                     "mac": mac,

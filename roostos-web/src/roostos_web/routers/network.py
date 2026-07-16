@@ -27,9 +27,9 @@ async def get_network_config(
     config = network_service.get_network_config()
     vpns = network_service.get_vpns()
     return {
-        "network": config.network.model_dump(exclude_none=True) if config.network else {},
-        "wifi": config.wifi.model_dump(exclude_none=True) if config.wifi else {},
-        "vpns": [v.model_dump() for v in vpns]
+        "network": config.network.model_dump(exclude_none=True, by_alias=True) if config.network else {},
+        "wifi": config.wifi.model_dump(exclude_none=True, by_alias=True) if config.wifi else {},
+        "vpns": [v.model_dump(by_alias=True) for v in vpns]
     }
 
 @router.post("/api/network")

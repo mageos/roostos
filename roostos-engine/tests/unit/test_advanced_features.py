@@ -96,3 +96,48 @@ def test_qos_manager_ruleset(temp_config_dir):
     # Verify device rate class and filter
     assert any("class add dev eth0 parent 1:1 classid 1:100 htb rate 10000kbit" in cmd for cmd in captured_commands)
     assert any("filter add dev eth0 protocol ip parent 1: prio 2 u32 match ip src 192.168.1.50 flowid 1:100" in cmd for cmd in captured_commands)
+
+
+def test_mdns_repeater_service_generation(temp_config_dir):
+    """Tests the mdns-repeater systemd service config generation logic."""
+    from roostos_engine.daemon import RoostDaemonInterface
+    from roostos_engine.repository import YAMLConfigRepository
+    import tempfile
+    
+    repo = YAMLConfigRepository(temp_config_dir)
+    config = repo.get_config()
+    
+    from roostos_engine.config import NetworkConfig, NetworkBridge, NetworkVlan
+    
+    # Configure at least 2 local interfaces (1 bridge, 1 VLAN) using models
+    config.network.bridges = [
+        NetworkBridge(name="br0", ip="192.168.1.1/24")
+    ]
+    config.network.vlans = [
+        NetworkVlan(name="vlan-iot", id=10, interface="eth1", ip="192.168.10.1/24")
+    ]
+    repo.save_network_config(NetworkConfig(network=config.network))
+    
+    # Initialize Daemon (in mock mode)
+    daemon = RoostDaemonInterface(name="org.roostos.Daemon", config_dir=temp_config_dir, mock=True)
+    
+    # Execute mdns-repeater update with a temp service path
+    temp_service = tempfile.mktemp(suffix=".service")
+    os.environ["ROOSTOS_MDNS_REPEATER_SERVICE"] = temp_service
+    try:
+        mdns_sub = next(s for s in daemon.subsystems if s.name == "mdns")
+        mdns_sub.update()
+        
+        # Verify the service file was generated
+        assert os.path.exists(temp_service)
+        with open(temp_service, "r") as f:
+            content = f.read()
+            
+        # Verify it includes ExecStart with both br0 and vlan-iot
+        assert "ExecStart=/usr/sbin/mdns-repeater br0 vlan-iot" in content
+        assert "Description=mDNS Repeater between local interfaces" in content
+    finally:
+        if os.path.exists(temp_service):
+            os.remove(temp_service)
+        if "ROOSTOS_MDNS_REPEATER_SERVICE" in os.environ:
+            del os.environ["ROOSTOS_MDNS_REPEATER_SERVICE"]
