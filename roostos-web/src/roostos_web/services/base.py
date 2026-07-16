@@ -11,7 +11,12 @@ def get_repository() -> ConfigRepository:
     global _config_repo
     if _config_repo is None:
         config_dir = os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos")
-        _config_repo = YAMLConfigRepository(config_dir)
+        staged_dir = os.environ.get(
+            "ROOSTOS_STAGED_CONFIG_DIR",
+            os.path.join(os.path.dirname(config_dir.rstrip("/")), "staged_config") if config_dir != "/etc/roostos" else "/var/lib/roostos/staged_config"
+        )
+        from roostos_engine.repository import StagingConfigRepository
+        _config_repo = StagingConfigRepository(config_dir, staged_dir)
     return _config_repo
 
 def set_repository(repo: ConfigRepository):

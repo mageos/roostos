@@ -7,7 +7,7 @@ SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="$SRC_DIR/build-deb-tmp"
 STAGE_DIR="$BUILD_DIR/stage"
 DEBIAN_DIR="$SRC_DIR/debian"
-PACKAGE_VERSION=0.1.42
+PACKAGE_VERSION=0.1.51
 
 echo "============================================="
 echo "Building RoostOS Debian Package"
@@ -52,19 +52,30 @@ cp -r "$SRC_DIR/roostos-ui/"* "$STAGE_DIR/usr/share/roostos/web/"
 
 # 4. Compile python wheels for all packages and their requirements offline
 echo "Compiling and caching Python wheels..."
-if [ -d "$SRC_DIR/.venv" ] && [ -f "$SRC_DIR/.venv/bin/pip" ]; then
+if [ -d "$SRC_DIR/.venv" ]; then
     PYTHON="$SRC_DIR/.venv/bin/python"
-    PIP="$SRC_DIR/.venv/bin/pip"
+    if [ ! -f "$SRC_DIR/.venv/bin/pip" ]; then
+        echo "Bootstrapping pip in virtual environment..."
+        "$PYTHON" -m ensurepip --default-pip || true
+    fi
+    PIP=("$SRC_DIR/.venv/bin/pip")
+    if [ ! -f "$SRC_DIR/.venv/bin/pip" ]; then
+        PIP=("$PYTHON" -m pip)
+    fi
 else
     PYTHON="python3"
-    PIP="pip3"
+    if python3 -m pip --version >/dev/null 2>&1; then
+        PIP=(python3 -m pip)
+    else
+        PIP=(pip3)
+    fi
 fi
 
 # Ensure pip is up to date and wheel package is available
-"$PIP" install --upgrade pip wheel
+"${PIP[@]}" install --upgrade pip wheel
 
 # Build wheels for local components and download dependencies
-"$PIP" wheel --wheel-dir="$STAGE_DIR/opt/roostos/wheels" \
+"${PIP[@]}" wheel --wheel-dir="$STAGE_DIR/opt/roostos/wheels" \
     "$SRC_DIR/roostos-sdk" \
     "$SRC_DIR/roostos-engine" \
     "$SRC_DIR/roostos-dns-technitium" \
@@ -79,7 +90,7 @@ Version: $PACKAGE_VERSION
 Section: admin
 Priority: optional
 Architecture: $Architecture
-Depends: systemd, dbus, python3, python3-venv, kea-dhcp4-server, nftables, docker.io
+Depends: systemd, dbus, python3, python3-venv, kea-dhcp4-server, nftables, docker.io, git, ppp, pppoe
 Maintainer: RoostOS Core Team <info@roostos.org>
 Description: Core services and Web UI for the RoostOS family router
  RoostOS provides a secure, intuitive family-oriented router and firewall,

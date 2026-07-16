@@ -33,21 +33,50 @@ async def register_device(
     tags: List[str] = Body([]),
     static_ip: str = Body(""),
     upnp_trusted: bool = Body(False),
+    max_upload_kbps: Optional[int] = Body(None),
+    max_download_kbps: Optional[int] = Body(None),
     current_user: UserSession = Depends(get_current_parent),
-    dbus: RoostClient = Depends(get_dbus_client)
+    device_service: DeviceService = Depends()
 ):
-    """Registers or updates a device profile by invoking the D-Bus daemon."""
-    success = await dbus.update_device(
-        mac=mac,
-        name=name,
-        owner_id=owner,
-        location_id=location,
-        tags=tags,
-        static_ip=static_ip,
-        upnp_trusted=upnp_trusted
-    )
-    if not success:
-        raise HTTPException(status_code=400, detail="Failed to register device. Verify MAC format and references.")
+    """Registers or updates a device profile by saving configuration and triggering daemon reload."""
+    config = device_service.get_devices_config()
+    
+    try:
+        norm_mac = DeviceConfig.normalize_mac(mac)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid MAC address: {e}")
+
+    if owner and not any(p.id == owner for p in config.people):
+        raise HTTPException(status_code=400, detail=f"Owner '{owner}' does not exist.")
+    if location and not any(r.id == location for r in config.rooms):
+        raise HTTPException(status_code=400, detail=f"Location '{location}' does not exist.")
+
+    device = next((d for d in config.devices if d.mac == norm_mac), None)
+    if device:
+        device.name = name
+        device.owner = owner if owner else None
+        device.location = location if location else None
+        device.tags = tags
+        device.static_ip = static_ip if static_ip else None
+        device.upnp_trusted = upnp_trusted
+        device.max_upload_kbps = max_upload_kbps
+        device.max_download_kbps = max_download_kbps
+    else:
+        new_device = DeviceConfig(
+            mac=norm_mac,
+            name=name,
+            owner=owner if owner else None,
+            location=location if location else None,
+            tags=tags,
+            static_ip=static_ip if static_ip else None,
+            upnp_trusted=upnp_trusted,
+            max_upload_kbps=max_upload_kbps,
+            max_download_kbps=max_download_kbps
+        )
+        config.devices.append(new_device)
+
+    device_service.save_devices_config(config)
+    await device_service.trigger_config_reload()
     return {"status": "success"}
 
 @router.delete("/api/devices/{mac}")

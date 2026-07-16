@@ -87,7 +87,7 @@ body {
     width: 260px;
     background-color: var(--sidebar-bg);
     color: var(--sidebar-text);
-    padding: 30px 20px;
+    padding: 20px 16px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
@@ -99,7 +99,7 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 40px;
+    margin-bottom: 20px;
 }
 
 .logo-dot {
@@ -314,14 +314,14 @@ body {
 }
 
 .app-header {
-    height: 70px;
+    height: 52px;
     border-bottom: 1px solid var(--card-border);
     background-color: var(--card-bg);
     backdrop-filter: blur(10px);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 40px;
+    padding: 0 24px;
 }
 
 .system-status {
@@ -349,7 +349,7 @@ body {
 
 .view-container {
     flex-grow: 1;
-    padding: 40px;
+    padding: 20px 24px;
     overflow-y: auto;
 }
 
@@ -365,14 +365,14 @@ body {
 .metrics-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 24px;
-    margin-bottom: 32px;
+    gap: 16px;
+    margin-bottom: 20px;
 }
 
 .metric-card {
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    padding: 24px;
+    padding: 16px;
     border-radius: 16px;
     box-shadow: var(--shadow-glow);
 }
@@ -393,7 +393,7 @@ body {
 .card-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    gap: 16px;
 }
 
 @media (max-width: 900px) {
@@ -407,26 +407,26 @@ body {
     border: 1px solid var(--card-border);
     border-radius: 16px;
     box-shadow: var(--shadow-glow);
-    padding: 24px;
-    margin-bottom: 24px;
+    padding: 16px;
+    margin-bottom: 16px;
 }
 
 .card h2 {
     font-size: 18px;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
     font-weight: 600;
 }
 
 .card-footer {
-    margin-top: 24px;
-    padding-top: 20px;
+    margin-top: 16px;
+    padding-top: 12px;
     border-top: 1px solid var(--card-border);
 }
 
 .card-footer h3 {
     font-size: 14px;
     color: var(--text-secondary);
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 /* 7. Tables, Forms, Filtering Controls */
@@ -434,11 +434,11 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 16px;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     align-items: center;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
-    padding: 16px 24px;
+    padding: 10px 16px;
     border-radius: 12px;
 }
 
@@ -479,7 +479,7 @@ table {
 }
 
 th, td {
-    padding: 16px 24px;
+    padding: 10px 16px;
     border-bottom: 1px solid var(--card-border);
 }
 

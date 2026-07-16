@@ -115,6 +115,11 @@ def generate_mock_configs(target_dir):
                 {"name": "Plex Server Port", "protocol": "tcp", "external_port": 32400, "internal_ip": "192.168.1.100", "internal_port": 32400},
                 {"name": "Minecraft Server LAN", "protocol": "tcp", "external_port": 25565, "internal_ip": "192.168.1.150", "internal_port": 25565}
             ],
+            "rules": [
+                {"name": "Allow SSH from Internet", "interface": "eth0", "protocol": "tcp", "port": 22, "action": "accept", "enabled": True},
+                {"name": "Allow HTTPS from Internet", "interface": "eth0", "protocol": "tcp", "port": 443, "action": "accept", "enabled": True},
+                {"name": "Allow WireGuard VPN", "interface": "eth0", "protocol": "udp", "port": 51820, "action": "accept", "enabled": False}
+            ],
             "schedules": [
                 {
                     "name": "Kids School Night Bedtime",

@@ -59,26 +59,45 @@ class SystemConfig(BaseModel):
 # 2. network.yaml Schemas
 # ==========================================
 
+class PPPoEConfig(BaseModel):
+    username: str
+    password: str
+
 class NetworkInterface(BaseModel):
     name: str
-    role: str
+    network: str = Field(alias="role")  # maps role/network
+    protocol: Optional[str] = None      # "dhcp", "static", "pppoe", "pptp", "l2tp"
+    vlan_tag: Optional[int] = None
+    pppoe: Optional[PPPoEConfig] = None
     dhcp: Optional[bool] = None
     bridge: Optional[str] = None
     ip: Optional[str] = None
     gateway: Optional[str] = None
     ipv6: Optional[bool] = None
 
+    model_config = {
+        "populate_by_name": True
+    }
 
-    @field_validator("role")
+    @field_validator("network", mode="before")
     @classmethod
-    def validate_role(cls, v: str) -> str:
+    def validate_network(cls, v: str) -> str:
         if v not in ("wan", "lan"):
-            raise ValueError("role must be 'wan' or 'lan'")
+            raise ValueError("network must be 'wan' or 'lan'")
         return v
+
+    @property
+    def role(self) -> str:
+        return self.network
+
+    @role.setter
+    def role(self, value: str) -> None:
+        self.network = value
 
 class NetworkBridge(BaseModel):
     name: str
     ip: str
+    isolate: bool = False
     dhcp_enabled: bool = True
     dhcp_pool_start: Optional[str] = None
     dhcp_pool_end: Optional[str] = None
@@ -100,17 +119,33 @@ class NetworkGateway(BaseModel):
     type: str = "dhcp"
     metric: int = 10
 
+class QoSConfig(BaseModel):
+    enabled: bool = False
+    wan_upload_kbps: Optional[int] = None
+    wan_download_kbps: Optional[int] = None
+    prioritize_tags: List[str] = Field(default_factory=list)
+
 class NetworkSettings(BaseModel):
     interfaces: List[NetworkInterface] = Field(default_factory=list)
     bridges: List[NetworkBridge] = Field(default_factory=list)
     vlans: List[NetworkVlan] = Field(default_factory=list)
     gateways: List[NetworkGateway] = Field(default_factory=list)
+    qos: Optional[QoSConfig] = Field(default_factory=QoSConfig)
+
+class WifiRadio(BaseModel):
+    interface: str
+    band: str # "2.4ghz", "5ghz", "both"
+    channel: Union[str, int] = "auto"
+    width: int = 20 # 20, 40, 80, 160
+    tx_power: str = "high" # "low", "medium", "high"
 
 class WifiAccessPoint(BaseModel):
+    name: Optional[str] = None # Friendly name
     ssid: str
-    interface: str
+    interface: Optional[str] = None # Deprecated/Optional
     passphrase: str
-    security: str = "wpa3"
+    security: str = "wpa3-sae" # "wpa2-psk", "wpa3-sae", "mixed"
+    radio: Optional[str] = None # The physical radio interface it binds to (e.g. wlan0)
     bridge: Optional[str] = None
     vlan: Optional[int] = None
 
@@ -122,6 +157,7 @@ class WifiMesh(BaseModel):
     frequency: int = 5180
 
 class WifiSettings(BaseModel):
+    radios: List[WifiRadio] = Field(default_factory=list)
     access_points: List[WifiAccessPoint] = Field(default_factory=list)
     mesh: Optional[WifiMesh] = None
 
@@ -177,6 +213,8 @@ class DeviceConfig(BaseModel):
     upnp_trusted: bool = False
     upnp_allowed_ports: List[UPnPAllowedPort] = Field(default_factory=list)
     gateway: Optional[str] = None
+    max_download_kbps: Optional[int] = None
+    max_upload_kbps: Optional[int] = None
 
     @field_validator("mac")
     @classmethod
@@ -233,8 +271,32 @@ class ScheduleConfig(BaseModel):
             raise ValueError("action must be 'block_internet' or 'block_all'")
         return v
 
+class InputRuleConfig(BaseModel):
+    name: str
+    interface: str = "*"          # "*" = all interfaces, or "eth0", "br0", etc.
+    protocol: str = "tcp"         # "tcp", "udp", "tcp/udp"
+    port: int
+    source: Optional[str] = None  # Optional source IP/CIDR filter, e.g. "10.0.0.0/8"
+    action: str = "accept"        # "accept" or "drop"
+    enabled: bool = True
+
+    @field_validator("protocol")
+    @classmethod
+    def validate_protocol(cls, v: str) -> str:
+        if v.lower() not in ("tcp", "udp", "tcp/udp"):
+            raise ValueError("protocol must be 'tcp', 'udp', or 'tcp/udp'")
+        return v.lower()
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        if v.lower() not in ("accept", "drop"):
+            raise ValueError("action must be 'accept' or 'drop'")
+        return v.lower()
+
 class FirewallSettings(BaseModel):
     port_forwards: List[PortForwardConfig] = Field(default_factory=list)
+    rules: List[InputRuleConfig] = Field(default_factory=list)
     schedules: List[ScheduleConfig] = Field(default_factory=list)
 
 class SchedulesConfig(BaseModel):

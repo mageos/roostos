@@ -1,6 +1,7 @@
 import os
 import sys
 from typing import Optional
+from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,9 +10,23 @@ from fastapi.staticfiles import StaticFiles
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_sdk.client import RoostClient
 
-from roostos_web.routers import auth, system, devices, network, schedules, plugins
+from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config
 
-app = FastAPI(title="RoostOS Core Management Web API", version="0.1.0")
+from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        # Validate connection to local D-Bus daemon on startup
+        await get_dbus_client()
+        print("Connected to RoostOS D-Bus Daemon successfully.")
+    except Exception as e:
+        print(f"Warning: Could not connect to RoostOS D-Bus daemon: {e}", file=sys.stderr)
+    yield
+
+
+app = FastAPI(title="RoostOS Core Management Web API", version="0.1.0", lifespan=lifespan)
 
 # Enable CORS for developer environments
 app.add_middleware(
@@ -22,19 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
-
-
-@app.on_event("startup")
-async def startup_event():
-    try:
-        # Validate connection to local D-Bus daemon on startup
-        await get_dbus_client()
-        print("Connected to RoostOS D-Bus Daemon successfully.")
-    except Exception as e:
-        print(f"Warning: Could not connect to RoostOS D-Bus daemon: {e}", file=sys.stderr)
-
-
 # Mount modular routes
 app.include_router(auth.router)
 app.include_router(system.router)
@@ -42,6 +44,8 @@ app.include_router(devices.router)
 app.include_router(network.router)
 app.include_router(schedules.router)
 app.include_router(plugins.router)
+app.include_router(diagnostics.router)
+app.include_router(config.router)
 
 # Mount Static Files (the Single Page Application UI)
 web_assets_path = os.environ.get("ROOSTOS_WEB_ASSETS", "/usr/share/roostos/web")

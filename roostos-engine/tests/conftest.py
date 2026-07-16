@@ -101,6 +101,24 @@ def temp_config_dir(tmp_path):
     with open(tmp_path / "schedules.yaml", "w") as f:
         yaml.safe_dump({
             "firewall": {
+                "rules": [
+                    {
+                        "name": "Allow SSH from Internet",
+                        "interface": "eth0",
+                        "protocol": "tcp",
+                        "port": 22,
+                        "action": "accept",
+                        "enabled": True
+                    },
+                    {
+                        "name": "Block HTTP on WAN",
+                        "interface": "eth0",
+                        "protocol": "tcp",
+                        "port": 80,
+                        "action": "drop",
+                        "enabled": False
+                    }
+                ],
                 "schedules": [
                     {
                         "name": "Kids Bedtime Block",

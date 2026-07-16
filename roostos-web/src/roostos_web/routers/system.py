@@ -131,3 +131,12 @@ async def delete_user(
     repo.save_system_config(system_config_obj)
     await dbus.get_config()
     return {"status": "success", "message": f"User {username} deleted successfully."}
+
+@router.get("/api/system/services")
+async def get_system_services(
+    current_user: UserSession = Depends(get_current_parent),
+    system_service: SystemService = Depends()
+):
+    """Returns active state and substate for core system services."""
+    return await system_service.get_services_status()
+

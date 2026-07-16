@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from roostos_engine.config import (
     NetworkSettings, WifiSettings, VPNConfig, NetworkConfig,
-    SystemDNSConfig, SystemConfig
+    SystemDNSConfig, SystemConfig, NetworkBridge, WifiAccessPoint
 )
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
@@ -42,6 +42,73 @@ async def update_network_config(
 ):
     await network_service.save_network_config(network, wifi, vpns)
     return {"status": "success", "message": "Network configuration updated successfully."}
+
+class GuestNetworkSchema(BaseModel):
+    ssid: str
+    passphrase: str
+    subnet: str = "192.168.10.0/24"
+
+@router.post("/api/wifi/guest/create")
+async def create_guest_network(
+    data: GuestNetworkSchema,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Depends(get_repository),
+    dbus: RoostClient = Depends(get_dbus_client)
+):
+    """Dynamically registers an isolated Guest AP and guest bridge network."""
+    import ipaddress
+    try:
+        net = ipaddress.ip_network(data.subnet, strict=False)
+        gateway_ip = str(list(net.hosts())[0])
+        hosts = list(net.hosts())
+        if len(hosts) < 200:
+            raise ValueError("Subnet is too small. Need at least /24 range.")
+        dhcp_start = str(hosts[99])
+        dhcp_end = str(hosts[-2])
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=f"Invalid subnet address pool: {e}")
+
+    config = repo.get_config()
+    net_settings = config.network.network or NetworkSettings()
+    wifi_settings = config.network.wifi or WifiSettings()
+    vpns = config.network.vpns or []
+
+    guest_bridge_name = "br-guest"
+    existing_bridge = next((b for b in net_settings.bridges if b.name == guest_bridge_name), None)
+    if not existing_bridge:
+        new_bridge = NetworkBridge(
+            name=guest_bridge_name,
+            ip=f"{gateway_ip}/{net.prefixlen}",
+            isolate=True,
+            dhcp_enabled=True,
+            dhcp_pool_start=dhcp_start,
+            dhcp_pool_end=dhcp_end
+        )
+        net_settings.bridges.append(new_bridge)
+
+    existing_ap = next((ap for ap in wifi_settings.access_points if ap.ssid == data.ssid), None)
+    if not existing_ap:
+        new_ap = WifiAccessPoint(
+            name="Guest Wi-Fi",
+            ssid=data.ssid,
+            passphrase=data.passphrase,
+            security="wpa2-psk",
+            radio="wlan0",
+            bridge=guest_bridge_name
+        )
+        wifi_settings.access_points.append(new_ap)
+
+    network_config_obj = NetworkConfig(
+        network=net_settings,
+        wifi=wifi_settings,
+        vpns=vpns
+    )
+    repo.save_network_config(network_config_obj)
+    await dbus.get_config()
+
+    return {"status": "success", "message": f"Guest Wi-Fi network '{data.ssid}' created successfully."}
+
 
 @router.get("/api/dns/config")
 async def get_dns_config(

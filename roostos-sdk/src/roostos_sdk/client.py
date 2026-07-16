@@ -80,6 +80,30 @@ class RoostClient:
         res = await self._interface.call_get_schedules()
         return json.loads(res)
 
+    async def get_firewall_rules(self) -> List[Dict[str, Any]]:
+        """Returns list of configured firewall input rules."""
+        res = await self._interface.call_get_firewall_rules()
+        return json.loads(res)
+
+    async def update_firewall_rule(
+        self,
+        name: str,
+        interface: str = "*",
+        protocol: str = "tcp",
+        port: int = 0,
+        source: str = "",
+        action: str = "accept",
+        enabled: bool = True
+    ) -> bool:
+        """Creates or updates a firewall input rule by name."""
+        return await self._interface.call_update_firewall_rule(
+            name, interface, protocol, port, source, action, enabled
+        )
+
+    async def delete_firewall_rule(self, name: str) -> bool:
+        """Deletes a firewall input rule by name."""
+        return await self._interface.call_delete_firewall_rule(name)
+
     async def update_device(
         self,
         mac: str,

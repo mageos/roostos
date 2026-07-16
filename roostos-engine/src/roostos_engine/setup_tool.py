@@ -5,7 +5,16 @@ import socket
 import ipaddress
 import subprocess
 import click
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+
+from prompt_toolkit.shortcuts import (
+    yes_no_dialog,
+    input_dialog,
+    radiolist_dialog,
+    checkboxlist_dialog,
+    message_dialog,
+    button_dialog,
+)
 
 from roostos_engine.config import (
     load_config_directory,
@@ -14,8 +23,22 @@ from roostos_engine.config import (
     NetworkInterface,
     NetworkBridge,
     SystemDNSConfig,
+    SchedulesConfig,
+    FirewallSettings,
+    InputRuleConfig,
     save_config_file,
 )
+
+def has_existing_config(config_dir: str) -> bool:
+    """Check if main configuration files already exist in the target directory."""
+    expected_files = ["system.yaml", "network.yaml", "schedules.yaml"]
+    return any(os.path.exists(os.path.join(config_dir, f)) for f in expected_files)
+
+def handle_cancel(val: Any) -> None:
+    if val is None:
+        click.echo("Setup cancelled. Configuration files were NOT written.")
+        sys.exit(0)
+
 
 def list_interfaces() -> List[str]:
     """Scan /sys/class/net to find available physical network interfaces."""
@@ -49,6 +72,18 @@ def is_valid_cidr(cidr_str: str) -> bool:
     except ValueError:
         return False
 
+def get_interface_mac(name: str) -> str:
+    """Read the MAC address of a network interface from sysfs."""
+    try:
+        path = f"/sys/class/net/{name}/address"
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                return f.read().strip()
+    except Exception:
+        pass
+    return ""
+
+
 def prompt_choice(question: str, choices: List[str], default: str) -> str:
     """Prompt user to choose from a list of options."""
     choice_str = "/".join([f"[{c}]" if c == default else c for c in choices])
@@ -81,15 +116,33 @@ def prompt_bool(question: str, default: bool) -> bool:
 @click.option("--non-interactive", is_flag=True, help="Run without user interaction (uses defaults/env variables)")
 def main(config_dir: str, non_interactive: bool) -> None:
     """RoostOS Guided Setup Wizard."""
+    if not non_interactive and has_existing_config(config_dir):
+        choice = button_dialog(
+            title="Existing Configuration Found",
+            text=f"Existing RoostOS configuration files were found in '{config_dir}'.\n\nDo you want to use the existing configuration and exit, or re-run the setup wizard?",
+            buttons=[
+                ("Use Existing & Exit", "use_existing"),
+                ("Re-run Wizard", "rerun"),
+            ]
+        ).run()
+        if choice == "use_existing" or choice is None:
+            click.echo("Using existing configuration. Exiting.")
+            sys.exit(0)
+
     click.clear()
     click.secho("===================================================", fg="cyan", bold=True)
     click.secho("         RoostOS Initial Guided Setup Wizard        ", fg="cyan", bold=True)
     click.secho("===================================================", fg="cyan", bold=True)
     
     if os.getuid() != 0 and config_dir == "/etc/roostos":
-        click.secho("WARNING: You are not running as root. Writing configurations to /etc/roostos will likely fail.", fg="yellow")
-        if not non_interactive and not prompt_bool("Do you want to continue anyway?", True):
-            sys.exit(0)
+        if not non_interactive:
+            cont = yes_no_dialog(
+                title="Warning: Not Running as Root",
+                text="You are not running as root. Writing configurations to /etc/roostos will likely fail.\n\nDo you want to continue anyway?"
+            ).run()
+            if not cont:
+                click.echo("Setup cancelled.")
+                sys.exit(0)
 
     # 1. Discover interfaces
     ifaces = list_interfaces()
@@ -111,29 +164,19 @@ def main(config_dir: str, non_interactive: bool) -> None:
     if non_interactive:
         wan_iface = os.environ.get("ROOSTOS_WAN_INTERFACE", default_wan)
     else:
-        click.echo("Please select the WAN (Internet) interface:")
-        for idx, name in enumerate(ifaces, 1):
-            click.echo(f"  {idx}) {name}")
-        while True:
-            val = input(f"Select WAN interface [default: {default_wan}]: ").strip()
-            if not val:
-                wan_iface = default_wan
-                break
-            if val in ifaces:
-                wan_iface = val
-                break
-            try:
-                idx_val = int(val)
-                if 1 <= idx_val <= len(ifaces):
-                    wan_iface = ifaces[idx_val - 1]
-                    break
-            except ValueError:
-                pass
-            # Allow custom string if not in list
-            if val:
-                wan_iface = val
-                break
-            print("Invalid interface. Please select a valid name or number.")
+        choices = []
+        for name in ifaces:
+            mac = get_interface_mac(name)
+            mac_str = f" ({mac})" if mac else ""
+            choices.append((name, f"{name}{mac_str}"))
+        
+        wan_iface = radiolist_dialog(
+            title="WAN Interface Selection",
+            text="Please select the WAN (Internet) interface:",
+            values=choices,
+            default=default_wan
+        ).run()
+        handle_cancel(wan_iface)
 
     click.echo(f"Selected WAN interface: {wan_iface}")
 
@@ -144,21 +187,51 @@ def main(config_dir: str, non_interactive: bool) -> None:
         wan_ip = os.environ.get("ROOSTOS_WAN_IP", "")
         wan_gw = os.environ.get("ROOSTOS_WAN_GATEWAY", "")
     else:
-        wan_proto = prompt_choice("How should the WAN interface be configured?", ["dhcp", "static"], "dhcp")
-        ipv6_enabled = prompt_bool("Should IPv6 be enabled?", True)
+        wan_proto = radiolist_dialog(
+            title="WAN Protocol",
+            text="How should the WAN interface be configured?",
+            values=[("dhcp", "DHCP (Dynamic IP)"), ("static", "Static IP")],
+            default="dhcp"
+        ).run()
+        handle_cancel(wan_proto)
+
+        ipv6_enabled = yes_no_dialog(
+            title="WAN IPv6",
+            text="Should IPv6 be enabled?"
+        ).run()
+        if ipv6_enabled is None:
+            handle_cancel(None)
+
         wan_ip = ""
         wan_gw = ""
         if wan_proto == "static":
             while True:
-                wan_ip = input("Enter static WAN IP address and netmask (e.g. 192.168.0.100/24): ").strip()
+                wan_ip = input_dialog(
+                    title="Static WAN IP",
+                    text="Enter static WAN IP address and netmask (e.g. 192.168.0.100/24):"
+                ).run()
+                handle_cancel(wan_ip)
+                wan_ip = wan_ip.strip()
                 if is_valid_cidr(wan_ip):
                     break
-                print("Invalid format. Please enter an IP with subnet mask in CIDR notation (e.g., 192.168.0.100/24).")
+                message_dialog(
+                    title="Error",
+                    text="Invalid format. Please enter an IP with subnet mask in CIDR notation (e.g., 192.168.0.100/24)."
+                ).run()
+
             while True:
-                wan_gw = input("Enter static WAN Gateway IP address (e.g. 192.168.0.1): ").strip()
+                wan_gw = input_dialog(
+                    title="Static WAN Gateway",
+                    text="Enter static WAN Gateway IP address (e.g. 192.168.0.1):"
+                ).run()
+                handle_cancel(wan_gw)
+                wan_gw = wan_gw.strip()
                 if is_valid_ip(wan_gw):
                     break
-                print("Invalid format. Please enter a valid gateway IP address.")
+                message_dialog(
+                    title="Error",
+                    text="Invalid format. Please enter a valid gateway IP address."
+                ).run()
 
     # 4. LAN Interface Selection
     click.secho("\n--- LAN Interface Configuration ---", fg="cyan")
@@ -171,35 +244,26 @@ def main(config_dir: str, non_interactive: bool) -> None:
         lan_env = os.environ.get("ROOSTOS_LAN_INTERFACES", ",".join(default_lan))
         lan_ifaces = [x.strip() for x in lan_env.split(",") if x.strip()]
     else:
-        click.echo("Please select one or more LAN interfaces (separated by commas):")
-        for idx, name in enumerate(remaining_ifaces, 1):
-            click.echo(f"  {idx}) {name}")
+        choices = []
+        for name in remaining_ifaces:
+            mac = get_interface_mac(name)
+            mac_str = f" ({mac})" if mac else ""
+            choices.append((name, f"{name}{mac_str}"))
+
         while True:
-            val = input(f"Select LAN interface(s) [default: {','.join(default_lan)}]: ").strip()
-            if not val:
-                lan_ifaces = default_lan
+            lan_ifaces = checkboxlist_dialog(
+                title="LAN Interface(s) Selection",
+                text="Please select one or more LAN interfaces:",
+                values=choices,
+                default_values=default_lan
+            ).run()
+            handle_cancel(lan_ifaces)
+            if lan_ifaces:
                 break
-            # Split and resolve
-            parts = [p.strip() for p in val.split(",") if p.strip()]
-            resolved = []
-            valid = True
-            for p in parts:
-                if p in remaining_ifaces:
-                    resolved.append(p)
-                else:
-                    try:
-                        idx_val = int(p)
-                        if 1 <= idx_val <= len(remaining_ifaces):
-                            resolved.append(remaining_ifaces[idx_val - 1])
-                        else:
-                            valid = False
-                    except ValueError:
-                        # Allow custom if not in list
-                        resolved.append(p)
-            if valid and resolved:
-                lan_ifaces = resolved
-                break
-            print("Invalid selection. Please choose valid interface names or index numbers.")
+            message_dialog(
+                title="Error",
+                text="You must select at least one LAN interface."
+            ).run()
 
     click.echo(f"Selected LAN interface(s): {', '.join(lan_ifaces)}")
 
@@ -209,17 +273,28 @@ def main(config_dir: str, non_interactive: bool) -> None:
         lan_ip_str = os.environ.get("ROOSTOS_LAN_IP", "192.168.1.1")
     else:
         while True:
-            lan_net_str = input("What is the default network for the LAN? [default: 192.168.1.0/24]: ").strip()
-            if not lan_net_str:
-                lan_net_str = "192.168.1.0/24"
+            lan_net_str = input_dialog(
+                title="LAN Network Subnet",
+                text="What is the default network for the LAN?",
+                default="192.168.1.0/24"
+            ).run()
+            handle_cancel(lan_net_str)
+            lan_net_str = lan_net_str.strip()
             if is_valid_cidr(lan_net_str):
                 break
-            print("Invalid subnet. Please use CIDR notation (e.g. 192.168.1.0/24).")
+            message_dialog(
+                title="Error",
+                text="Invalid subnet. Please use CIDR notation (e.g. 192.168.1.0/24)."
+            ).run()
 
         while True:
-            lan_ip_str = input(f"What is the IP address of the LAN side of the router? [default: 192.168.1.1]: ").strip()
-            if not lan_ip_str:
-                lan_ip_str = "192.168.1.1"
+            lan_ip_str = input_dialog(
+                title="LAN Router IP Address",
+                text="What is the IP address of the LAN side of the router?",
+                default="192.168.1.1"
+            ).run()
+            handle_cancel(lan_ip_str)
+            lan_ip_str = lan_ip_str.strip()
             if is_valid_ip(lan_ip_str):
                 # Verify LAN IP is in the default network
                 net = ipaddress.ip_network(lan_net_str, strict=False)
@@ -227,9 +302,15 @@ def main(config_dir: str, non_interactive: bool) -> None:
                 if ip in net:
                     break
                 else:
-                    print(f"Error: LAN IP {lan_ip_str} does not belong to the LAN network {lan_net_str}.")
+                    message_dialog(
+                        title="Error",
+                        text=f"Error: LAN IP {lan_ip_str} does not belong to the LAN network {lan_net_str}."
+                    ).run()
             else:
-                print("Invalid IP address format.")
+                message_dialog(
+                    title="Error",
+                    text="Invalid IP address format."
+                ).run()
 
     # Calculate default DHCP Pool ranges
     net = ipaddress.ip_network(lan_net_str, strict=False)
@@ -259,29 +340,58 @@ def main(config_dir: str, non_interactive: bool) -> None:
             dhcp_start = os.environ.get("ROOSTOS_LAN_DHCP_START", default_dhcp_start)
             dhcp_end = os.environ.get("ROOSTOS_LAN_DHCP_END", default_dhcp_end)
         else:
-            dhcp_enabled = prompt_bool("Should DHCP Server be enabled on LAN?", True)
+            dhcp_enabled = yes_no_dialog(
+                title="LAN DHCP Server",
+                text="Should DHCP Server be enabled on LAN?"
+            ).run()
+            if dhcp_enabled is None:
+                handle_cancel(None)
+
             if dhcp_enabled:
-                confirm_dhcp = prompt_bool(f"Use default DHCP pool {default_dhcp_start} - {default_dhcp_end}?", True)
+                confirm_dhcp = yes_no_dialog(
+                    title="LAN DHCP Pool",
+                    text=f"Use default DHCP pool {default_dhcp_start} - {default_dhcp_end}?"
+                ).run()
+                if confirm_dhcp is None:
+                    handle_cancel(None)
+
                 if not confirm_dhcp:
                     while True:
-                        dhcp_start = input(f"Enter DHCP pool start IP [default: {default_dhcp_start}]: ").strip()
-                        if not dhcp_start:
-                            dhcp_start = default_dhcp_start
+                        dhcp_start = input_dialog(
+                            title="DHCP Pool Start IP",
+                            text="Enter DHCP pool start IP:",
+                            default=default_dhcp_start
+                        ).run()
+                        handle_cancel(dhcp_start)
+                        dhcp_start = dhcp_start.strip()
                         if is_valid_ip(dhcp_start) and ipaddress.ip_address(dhcp_start) in net:
                             break
-                        print(f"IP must be valid and belong to the network {lan_net_str}.")
+                        message_dialog(
+                            title="Error",
+                            text=f"IP must be valid and belong to the network {lan_net_str}."
+                        ).run()
+
                     while True:
-                        dhcp_end = input(f"Enter DHCP pool end IP [default: {default_dhcp_end}]: ").strip()
-                        if not dhcp_end:
-                            dhcp_end = default_dhcp_end
+                        dhcp_end = input_dialog(
+                            title="DHCP Pool End IP",
+                            text="Enter DHCP pool end IP:",
+                            default=default_dhcp_end
+                        ).run()
+                        handle_cancel(dhcp_end)
+                        dhcp_end = dhcp_end.strip()
                         if is_valid_ip(dhcp_end) and ipaddress.ip_address(dhcp_end) in net:
-                            # Verify start <= end
                             if ipaddress.ip_address(dhcp_start) <= ipaddress.ip_address(dhcp_end):
                                 break
                             else:
-                                print("DHCP pool end IP must be greater than or equal to start IP.")
+                                message_dialog(
+                                    title="Error",
+                                    text="DHCP pool end IP must be greater than or equal to start IP."
+                                ).run()
                         else:
-                            print(f"IP must be valid and belong to the network {lan_net_str}.")
+                            message_dialog(
+                                title="Error",
+                                text=f"IP must be valid and belong to the network {lan_net_str}."
+                            ).run()
     else:
         dhcp_enabled = False
 
@@ -291,7 +401,13 @@ def main(config_dir: str, non_interactive: bool) -> None:
     if non_interactive:
         dns_input = os.environ.get("ROOSTOS_DNS_SERVERS", default_dns)
     else:
-        dns_input = input(f"What are the upstream DNS servers (comma-separated)? [default: {default_dns}]: ").strip()
+        dns_input = input_dialog(
+            title="Upstream DNS Configuration",
+            text="What are the upstream DNS servers (comma-separated)?",
+            default=default_dns
+        ).run()
+        handle_cancel(dns_input)
+    
     if not dns_input:
         dns_input = default_dns
     dns_servers = [x.strip() for x in dns_input.replace(" ", ",").split(",") if x.strip()]
@@ -306,30 +422,54 @@ def main(config_dir: str, non_interactive: bool) -> None:
     if not valid_dns:
         valid_dns = ["1.1.1.1", "8.8.8.8"]
 
-    # 7. Review and Apply Settings
-    bridge_ip_full = f"{lan_ip_str}/{prefix_len}"
+    # 7. WAN Access Configuration
+    click.secho("\n--- WAN Access Configuration ---", fg="cyan")
+    click.echo("By default, no services are accessible from the WAN side for security.")
 
-    click.secho("\n===================================================", fg="cyan", bold=True)
-    click.secho("               Configuration Summary               ", fg="cyan", bold=True)
-    click.secho("===================================================", fg="cyan", bold=True)
-    click.echo(f"WAN Interface:      {wan_iface}")
-    click.echo(f"WAN Configuration:  {wan_proto.upper()}" + (f" ({wan_ip}, Gateway: {wan_gw})" if wan_proto == "static" else ""))
-    click.echo(f"WAN IPv6 Enabled:   {ipv6_enabled}")
-    click.echo(f"LAN Interface(s):   {', '.join(lan_ifaces)}")
-    click.echo(f"LAN Network:        {lan_net_str}")
-    click.echo(f"LAN IP (Router):    {bridge_ip_full}")
-    if dhcp_enabled:
-        click.echo(f"LAN DHCP Server:    ENABLED ({dhcp_start} to {dhcp_end})")
+    if non_interactive:
+        wan_web_access = os.environ.get("ROOSTOS_WAN_WEB_ACCESS", "false").lower() in ("true", "1", "yes")
+        wan_ssh_access = os.environ.get("ROOSTOS_WAN_SSH_ACCESS", "false").lower() in ("true", "1", "yes")
     else:
-        click.echo("LAN DHCP Server:    DISABLED")
-    click.echo(f"Upstream DNS:       {', '.join(valid_dns)}")
-    click.echo(f"Config Directory:   {config_dir}")
-    click.secho("===================================================", fg="cyan", bold=True)
+        wan_web_access = yes_no_dialog(
+            title="WAN Web UI Access",
+            text="Allow RoostOS Web UI (port 8000) from WAN?"
+        ).run()
+        if wan_web_access is None:
+            handle_cancel(None)
+
+        wan_ssh_access = yes_no_dialog(
+            title="WAN SSH Access",
+            text="Allow SSH (port 22) from WAN?"
+        ).run()
+        if wan_ssh_access is None:
+            handle_cancel(None)
+
+    # 8. Review and Apply Settings
+    bridge_ip_full = f"{lan_ip_str}/{prefix_len}"
 
     if non_interactive:
         apply_config = True
     else:
-        apply_config = prompt_bool("Do you want to write and apply these settings now?", True)
+        review_text = (
+            f"WAN Interface:      {wan_iface}\n"
+            f"WAN Configuration:  {wan_proto.upper()}" + (f" ({wan_ip}, Gateway: {wan_gw})" if wan_proto == "static" else "") + "\n"
+            f"WAN IPv6 Enabled:   {ipv6_enabled}\n"
+            f"LAN Interface(s):   {', '.join(lan_ifaces)}\n"
+            f"LAN Network:        {lan_net_str}\n"
+            f"LAN IP (Router):    {bridge_ip_full}\n"
+            f"LAN DHCP Server:    {'ENABLED (' + dhcp_start + ' to ' + dhcp_end + ')' if dhcp_enabled else 'DISABLED'}\n"
+            f"Upstream DNS:       {', '.join(valid_dns)}\n"
+            f"WAN SSH Access:     {'ENABLED' if wan_ssh_access else 'DISABLED'}\n"
+            f"WAN Web UI Access:  {'ENABLED' if wan_web_access else 'DISABLED'}\n"
+            f"Config Directory:   {config_dir}\n\n"
+            "Do you want to write and apply these settings now?"
+        )
+        apply_config = yes_no_dialog(
+            title="Review and Apply Settings",
+            text=review_text
+        ).run()
+        if apply_config is None:
+            handle_cancel(None)
 
     if not apply_config:
         click.echo("Setup cancelled. Configuration files were NOT written.")
@@ -401,9 +541,47 @@ def main(config_dir: str, non_interactive: bool) -> None:
     system_config_obj = SystemConfig(system=config.system, users=config.users)
     network_config_obj = NetworkConfig(network=config.network, wifi=config.wifi, vpns=config.vpns)
 
+    # Build firewall rules for WAN access
+    wan_rules = []
+    if wan_ssh_access:
+        wan_rules.append(InputRuleConfig(
+            name="WAN SSH Access",
+            interface=wan_iface,
+            protocol="tcp",
+            port=22,
+            action="accept",
+            enabled=True
+        ))
+    if wan_web_access:
+        wan_rules.append(InputRuleConfig(
+            name="WAN Web UI Access",
+            interface=wan_iface,
+            protocol="tcp",
+            port=8000,
+            action="accept",
+            enabled=True
+        ))
+
+    # Load existing schedules config to preserve port_forwards and schedules
+    existing_firewall = getattr(config, 'firewall', None) or FirewallSettings()
+    # Merge: keep existing rules that don't conflict with WAN access rule names
+    wan_rule_names = {r.name for r in wan_rules}
+    preserved_rules = [r.model_dump() for r in existing_firewall.rules if r.name not in wan_rule_names]
+    new_rules = [r.model_dump() for r in wan_rules]
+    merged_rules = preserved_rules + new_rules
+
+    schedules_config_obj = SchedulesConfig(
+        firewall=FirewallSettings(
+            port_forwards=[pf.model_dump() for pf in existing_firewall.port_forwards],
+            rules=merged_rules,
+            schedules=[s.model_dump() for s in existing_firewall.schedules]
+        )
+    )
+
     try:
         save_config_file(config_dir, "system.yaml", system_config_obj)
         save_config_file(config_dir, "network.yaml", network_config_obj)
+        save_config_file(config_dir, "schedules.yaml", schedules_config_obj)
         click.secho("\n✓ Configuration files written successfully.", fg="green")
     except Exception as e:
         click.secho(f"\n✗ Error saving configuration files: {e}", fg="red", err=True)

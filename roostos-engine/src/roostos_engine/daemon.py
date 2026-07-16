@@ -15,7 +15,7 @@ from dbus_next import BusType
 import datetime
 import subprocess
 
-from roostos_engine.config import DevicesConfig, SystemConfig, SchedulesConfig, DeviceConfig
+from roostos_engine.config import DevicesConfig, SystemConfig, SchedulesConfig, DeviceConfig, InputRuleConfig, FirewallSettings
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_engine.state_db import StateDB
 from roostos_engine.firewall_manager import FirewallManager
@@ -55,9 +55,12 @@ class RoostDaemonInterface(ServiceInterface):
         
         try:
             # Start background enforcer loop
-            self.enforcer_task = asyncio.create_task(self.scheduler_loop())
+            coro = self.scheduler_loop()
+            self.enforcer_task = asyncio.create_task(coro)
             self.run_scheduler_check()
         except Exception as e:
+            coro.close()  # Prevent "coroutine was never awaited" warning
+            self.enforcer_task = None
             print(f"Warning: Failed to start enforcer: {e}", file=sys.stderr)
 
     def apply_system_settings(self):
@@ -124,7 +127,9 @@ class RoostDaemonInterface(ServiceInterface):
         self.firewall_manager = FirewallManager(self._config)
         self.apply_system_settings()
         self.update_network_interfaces()
+        self.update_wifi_services()
         self.update_dhcp_services()
+        self.update_qos_services()
         self.update_firewall_services()
 
     def reload_config(self):
@@ -132,7 +137,9 @@ class RoostDaemonInterface(ServiceInterface):
         self.firewall_manager = FirewallManager(self._config)
         self.apply_system_settings()
         self.update_network_interfaces()
+        self.update_wifi_services()
         self.update_dhcp_services()
+        self.update_qos_services()
         self.update_firewall_services()
         self.sync_plugins()
 
@@ -195,40 +202,108 @@ class RoostDaemonInterface(ServiceInterface):
                     f.write(f"[Match]\nName={bridge.name}\n\n[Network]\nAddress={bridge.ip}\nIPMasquerade=yes\nIPForward=yes\n")
 
             # 2. Generate Physical Interface configs
+            etc_dir = os.environ.get("ROOSTOS_ETC_DIR", "/etc")
+            pppoe_active = False
+            pppoe_iface = ""
+
             for interface in self._config.network.interfaces:
-                if interface.role == "wan":
-                    network_file = f"10-{interface.name}.network"
+                if interface.network == "wan":
+                    target_iface_name = interface.name
+                    
+                    # If VLAN tag is present, create a netdev and write network config for parent
+                    if interface.vlan_tag:
+                        target_iface_name = f"{interface.name}.{interface.vlan_tag}"
+                        
+                        netdev_file = f"10-{interface.name}.{interface.vlan_tag}.netdev"
+                        netdev_path = os.path.join(network_dir, netdev_file)
+                        generated_files.add(netdev_file)
+                        with open(netdev_path, "w") as f:
+                            f.write(f"[NetDev]\nName={target_iface_name}\nKind=vlan\n\n[VLAN]\nId={interface.vlan_tag}\n")
+                        
+                        # Parent interface only needs matching and linking the VLAN
+                        parent_file = f"10-{interface.name}.network"
+                        parent_path = os.path.join(network_dir, parent_file)
+                        generated_files.add(parent_file)
+                        with open(parent_path, "w") as f:
+                            f.write(f"[Match]\nName={interface.name}\nKernelCommandLine=!nfsroot\n\n[Network]\nVLAN={target_iface_name}\n")
+                    
+                    network_file = f"10-{target_iface_name}.network"
                     network_path = os.path.join(network_dir, network_file)
                     generated_files.add(network_file)
                     
                     with open(network_path, "w") as f:
-                        f.write(f"[Match]\nName={interface.name}\nKernelCommandLine=!nfsroot\n\n[Network]\n")
-                        if interface.dhcp is not False:
-                            if interface.ipv6 is False:
-                                f.write("DHCP=ipv4\nIPv6AcceptRA=no\nLinkLocalAddressing=ipv4\n")
-                            else:
-                                f.write("DHCP=yes\nIPv6AcceptRA=yes\n")
+                        if interface.protocol == "pppoe":
+                            # Standard systemd-networkd profile to just bring the physical/VLAN link UP
+                            f.write(f"[Match]\nName={target_iface_name}\n\n[Network]\nKeepConfiguration=yes\nLinkLocalAddressing=no\n")
+                            pppoe_active = True
+                            pppoe_iface = target_iface_name
                         else:
-                            if interface.ip:
-                                f.write(f"Address={interface.ip}\n")
-                            if interface.gateway:
-                                f.write(f"Gateway={interface.gateway}\n")
-                            if self._config.system.dns and self._config.system.dns.forwarders:
-                                for dns in self._config.system.dns.forwarders:
-                                    f.write(f"DNS={dns}\n")
-                            if interface.ipv6 is False:
-                                f.write("IPv6AcceptRA=no\nLinkLocalAddressing=ipv4\n")
-                            else:
-                                f.write("IPv6AcceptRA=yes\n")
-
+                            f.write(f"[Match]\nName={target_iface_name}\nKernelCommandLine=!nfsroot\n\n[Network]\n")
+                            if interface.protocol == "dhcp" or (interface.protocol is None and interface.dhcp is not False):
+                                if interface.ipv6 is False:
+                                    f.write("DHCP=ipv4\nIPv6AcceptRA=no\nLinkLocalAddressing=ipv4\n")
+                                else:
+                                    f.write("DHCP=yes\nIPv6AcceptRA=yes\n")
+                            else:  # Static config
+                                if interface.ip:
+                                    f.write(f"Address={interface.ip}\n")
+                                if interface.gateway:
+                                    f.write(f"Gateway={interface.gateway}\n")
+                                if self._config.system.dns and self._config.system.dns.forwarders:
+                                    for dns in self._config.system.dns.forwarders:
+                                        f.write(f"DNS={dns}\n")
+                                if interface.ipv6 is False:
+                                    f.write("IPv6AcceptRA=no\nLinkLocalAddressing=ipv4\n")
+                                else:
+                                    f.write("IPv6AcceptRA=yes\n")
                 
-                elif interface.role == "lan" and interface.bridge:
+                elif interface.network == "lan" and interface.bridge:
                     network_file = f"25-{interface.name}.network"
                     network_path = os.path.join(network_dir, network_file)
                     generated_files.add(network_file)
                     
                     with open(network_path, "w") as f:
                         f.write(f"[Match]\nName={interface.name}\n\n[Network]\nBridge={interface.bridge}\n")
+
+            # PPPoE configuration writing
+            if pppoe_active:
+                wan_if = next((i for i in self._config.network.interfaces if i.network == "wan" and i.protocol == "pppoe"), None)
+                if wan_if and wan_if.pppoe:
+                    username = wan_if.pppoe.username
+                    password = wan_if.pppoe.password
+                    
+                    ppp_dir = os.path.join(etc_dir, "ppp", "peers")
+                    try:
+                        os.makedirs(ppp_dir, exist_ok=True)
+                        peer_path = os.path.join(ppp_dir, "roost-wan")
+                        with open(peer_path, "w") as f:
+                            f.write(f'plugin rp-pppoe.so\n{pppoe_iface}\nuser "{username}"\nnoipdefault\nusepeerdns\ndefaultroute\npersist\nmaxfail 0\n')
+                        
+                        # Update chap-secrets / pap-secrets
+                        for secret_file in ["chap-secrets", "pap-secrets"]:
+                            secret_path = os.path.join(etc_dir, "ppp", secret_file)
+                            secret_line = f'"{username}" * "{password}"\n'
+                            lines = []
+                            if os.path.exists(secret_path):
+                                with open(secret_path, "r") as sf:
+                                    lines = sf.readlines()
+                            lines = [l for l in lines if username not in l]
+                            lines.append(secret_line)
+                            with open(secret_path, "w") as sf:
+                                sf.writelines(lines)
+                            os.chmod(secret_path, 0o600)
+                    except Exception as e:
+                        print(f"Warning: Failed to write PPPoE configuration: {e}", file=sys.stderr)
+                    
+                    if os.getuid() == 0 and not self.mock:
+                        print("Starting PPPoE connection...")
+                        subprocess.run(["pon", "roost-wan"], check=False)
+            else:
+                if os.getuid() == 0 and not self.mock:
+                    peer_file = os.path.join(etc_dir, "ppp", "peers", "roost-wan")
+                    if os.path.exists(peer_file):
+                        print("Stopping PPPoE connection...")
+                        subprocess.run(["poff", "roost-wan"], check=False)
 
             # 3. Clean up any stale configuration files starting with 10-, 20-, or 25-
             for filename in os.listdir(network_dir):
@@ -245,6 +320,81 @@ class RoostDaemonInterface(ServiceInterface):
                 subprocess.run(["systemctl", "restart", "systemd-networkd"], check=True)
         except Exception as e:
             print(f"Error updating network interfaces: {e}", file=sys.stderr)
+
+    def update_wifi_services(self):
+        """Generates IWD Access Point configurations for wireless interfaces."""
+        if not self._config.wifi:
+            return
+
+        iwd_dir = os.environ.get("ROOSTOS_IWD_DIR")
+        if not iwd_dir:
+            if self.mock:
+                import tempfile
+                iwd_dir = os.path.join(tempfile.gettempdir(), "iwd")
+            else:
+                iwd_dir = "/var/lib/iwd"
+
+        try:
+            os.makedirs(iwd_dir, exist_ok=True)
+            print(f"Generating IWD AP configurations in {iwd_dir}...")
+            
+            # Map radios for quick lookup
+            radios_map = {r.interface: r for r in self._config.wifi.radios}
+            
+            # Generate AP profile file for each access point
+            for ap in self._config.wifi.access_points:
+                if ap.interface:
+                    iface_name = ap.interface
+                elif ap.radio:
+                    if ap.bridge == "br0":
+                        iface_name = ap.radio
+                    else:
+                        iface_name = f"{ap.radio}_guest"
+                else:
+                    iface_name = "wlan0"
+
+                ap_file = f"{iface_name}.ap"
+                ap_path = os.path.join(iwd_dir, ap_file)
+                
+                radio_iface = ap.radio or ap.interface or "wlan0"
+                radio = radios_map.get(radio_iface)
+                
+                with open(ap_path, "w") as f:
+                    f.write("[General]\n")
+                    f.write(f"Name={ap.ssid}\n")
+                    f.write("Mode=ap\n")
+                    
+                    if radio:
+                        if radio.channel != "auto":
+                            f.write(f"Channel={radio.channel}\n")
+                        if "5ghz" in radio.band.lower():
+                            f.write("Band=5g\n")
+                        elif "2.4ghz" in radio.band.lower():
+                            f.write("Band=2.4g\n")
+                    
+                    f.write("\n[AP]\n")
+                    if ap.security == "wpa3-sae":
+                        f.write("Security=sae\n")
+                    elif ap.security == "wpa2-psk":
+                        f.write("Security=psk\n")
+                    
+                    f.write(f"Passphrase={ap.passphrase}\n")
+                
+                if os.getuid() == 0 and not self.mock:
+                    if iface_name != radio_iface:
+                        try:
+                            subprocess.run(["ip", "link", "show", iface_name], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        except subprocess.CalledProcessError:
+                            print(f"Creating virtual wireless AP interface {iface_name} on {radio_iface}...")
+                            subprocess.run(["iw", "dev", radio_iface, "interface", "add", iface_name, "type", "__ap"], check=True)
+                            subprocess.run(["ip", "link", "set", iface_name, "up"], check=True)
+
+            if os.getuid() == 0 and not self.mock:
+                print("Restarting IWD service...")
+                subprocess.run(["systemctl", "restart", "iwd"], check=True)
+                
+        except Exception as e:
+            print(f"Error updating Wi-Fi services: {e}", file=sys.stderr)
 
     def update_dhcp_services(self):
         """Compiles the Kea DHCP4 configuration and restarts the kea-dhcp4-server service."""
@@ -292,6 +442,16 @@ class RoostDaemonInterface(ServiceInterface):
                 subprocess.run(["systemctl", "restart", "kea-dhcp4-server"], check=True)
         except Exception as e:
             print(f"Error updating DHCP services: {e}", file=sys.stderr)
+
+    def update_qos_services(self):
+        """Re-compiles and applies traffic shaping rules (tc/fq_codel)."""
+        try:
+            from roostos_engine.qos_manager import QoSManager
+            active_leases = self.state_db.get_active_leases() if hasattr(self, "state_db") and self.state_db else []
+            manager = QoSManager(self._config, mock=self.mock, active_leases=active_leases)
+            manager.update_qos()
+        except Exception as e:
+            print(f"Error updating QoS services: {e}", file=sys.stderr)
 
     def sync_plugins(self):
         # For local plugin development: sync local ui.js assets directly if they exist
@@ -601,6 +761,72 @@ class RoostDaemonInterface(ServiceInterface):
         return json.dumps(self._config.firewall.model_dump(exclude_none=True))
 
     @method()
+    def GetFirewallRules(self) -> 's':
+        """Returns JSON array of configured firewall input rules."""
+        self.reload_config()
+        return json.dumps([r.model_dump() for r in self._config.firewall.rules])
+
+    @method()
+    def UpdateFirewallRule(self, name: 's', interface: 's', protocol: 's', port: 'i', source: 's', action: 's', enabled: 'b') -> 'b':
+        """Creates or updates a firewall input rule by name."""
+        try:
+            self.reload_config()
+
+            new_rule = InputRuleConfig(
+                name=name,
+                interface=interface if interface else "*",
+                protocol=protocol if protocol else "tcp",
+                port=port,
+                source=source if source else None,
+                action=action if action else "accept",
+                enabled=enabled
+            )
+
+            rules_list = [r.model_dump() for r in self._config.firewall.rules]
+            rule_idx = next((i for i, r in enumerate(rules_list) if r["name"] == name), -1)
+            if rule_idx >= 0:
+                rules_list[rule_idx] = new_rule.model_dump()
+            else:
+                rules_list.append(new_rule.model_dump())
+
+            schedules_config_obj = SchedulesConfig(
+                firewall=FirewallSettings(
+                    port_forwards=self._config.firewall.port_forwards,
+                    rules=rules_list,
+                    schedules=self._config.firewall.schedules
+                )
+            )
+            self.repository.save_schedules_config(schedules_config_obj)
+            self.reload_config()
+            self.SchedulesUpdated()
+            return True
+        except Exception as e:
+            print(f"Error updating firewall rule: {e}", file=sys.stderr)
+            return False
+
+    @method()
+    def DeleteFirewallRule(self, name: 's') -> 'b':
+        """Deletes a firewall input rule by name."""
+        try:
+            self.reload_config()
+            rules_list = [r.model_dump() for r in self._config.firewall.rules if r.name != name]
+
+            schedules_config_obj = SchedulesConfig(
+                firewall=FirewallSettings(
+                    port_forwards=self._config.firewall.port_forwards,
+                    rules=rules_list,
+                    schedules=self._config.firewall.schedules
+                )
+            )
+            self.repository.save_schedules_config(schedules_config_obj)
+            self.reload_config()
+            self.SchedulesUpdated()
+            return True
+        except Exception as e:
+            print(f"Error deleting firewall rule: {e}", file=sys.stderr)
+            return False
+
+    @method()
     def UpdateDevice(self, mac: 's', name: 's', owner_id: 's', location_id: 's', tags: 'as', static_ip: 's', upnp_trusted: 'b', upnp_allowed_ports_json: 's') -> 'b':
         try:
             self.reload_config()
@@ -802,7 +1028,7 @@ class RoostDaemonInterface(ServiceInterface):
             restore_staged = os.path.join(tmp_dir, "restore_staged")
             try:
                 with tarfile.open(decrypted_tar, "r:gz") as tar:
-                    tar.extractall(path=restore_staged)
+                    tar.extractall(path=restore_staged, filter="data")
             except Exception as e:
                 print(f"Restore failed: Failed to extract archive: {e}", file=sys.stderr)
                 return False

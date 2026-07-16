@@ -70,7 +70,7 @@ def test_restore_corrupt_manifest(temp_config_dir):
         # Extract
         extract_dir = os.path.join(tmp_dir, "extracted")
         with tarfile.open(decrypted_tar, "r:gz") as tar:
-            tar.extractall(path=extract_dir)
+            tar.extractall(path=extract_dir, filter="data")
 
         # Tamper with system.yaml (change a character to cause a checksum mismatch)
         system_file = os.path.join(extract_dir, "roostos", "system.yaml")

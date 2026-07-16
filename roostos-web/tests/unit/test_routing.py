@@ -3,7 +3,10 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
-from roostos_engine.config import RoostConfig, SystemSettings, SystemConfig, UserConfig
+from roostos_engine.config import (
+    RoostConfig, SystemSettings, SystemConfig, UserConfig,
+    NetworkSettings, WifiSettings
+)
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 
@@ -19,10 +22,8 @@ class DummyConfigRepository(ConfigRepository):
         self.config.devices = []
         self.config.firewall = MagicMock()
         self.config.firewall.model_dump.return_value = {"schedules": []}
-        self.config.network = MagicMock()
-        self.config.network.model_dump.return_value = {"interfaces": []}
-        self.config.wifi = MagicMock()
-        self.config.wifi.model_dump.return_value = {"access_points": []}
+        self.config.network = NetworkSettings()
+        self.config.wifi = WifiSettings()
         self.config.vpns = []
         self.config.plugins = []
         self.config.people = []
@@ -309,5 +310,27 @@ def test_dns_config_endpoints(mock_dependencies, auth_headers):
     # Verify settings stored in config
     assert repo.config.system.dns.forwarders == ["1.1.1.1", "8.8.8.8"]
     assert repo.config.system.dns.ad_blocking_enabled is True
+
+
+def test_system_services_status_endpoint(mock_dependencies, auth_headers):
+    client = TestClient(app)
+    response = client.get("/api/system/services", headers=auth_headers)
+    assert response.status_code == 200
+    services = response.json()
+    assert isinstance(services, list)
+    assert len(services) > 0
+    assert any(s["id"] == "roostd" for s in services)
+
+
+def test_firewall_blocks_endpoint(mock_dependencies, auth_headers):
+    client = TestClient(app)
+    response = client.get("/api/firewall/blocks", headers=auth_headers)
+    assert response.status_code == 200
+    blocks = response.json()
+    assert isinstance(blocks, list)
+    assert len(blocks) > 0
+    assert "timestamp" in blocks[0]
+    assert "rule" in blocks[0]
+
 
 

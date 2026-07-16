@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from roostos_engine.repository import ConfigRepository
 
-SECRET_KEY = os.environ.get("ROOSTOS_JWT_SECRET", "super-secret-dev-key-if-not-set")
+SECRET_KEY = os.environ.get("ROOSTOS_JWT_SECRET", "super-secret-dev-key-not-for-prod")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 

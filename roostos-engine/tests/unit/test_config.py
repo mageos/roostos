@@ -196,3 +196,51 @@ def test_plugin_known_services_parsing(temp_config_dir):
     # The deduplicated combined list
     assert set(config.plugins[0].known_services) == {"dnsServer", "dnsFilter"}
 
+
+def test_input_rule_config_parsing(temp_config_dir):
+    """Verifies that InputRuleConfig entries are correctly parsed from schedules.yaml."""
+    config = load_config_directory(temp_config_dir)
+
+    # The conftest fixture includes 2 rules
+    assert len(config.firewall.rules) == 2
+
+    ssh_rule = config.firewall.rules[0]
+    assert ssh_rule.name == "Allow SSH from Internet"
+    assert ssh_rule.interface == "eth0"
+    assert ssh_rule.protocol == "tcp"
+    assert ssh_rule.port == 22
+    assert ssh_rule.action == "accept"
+    assert ssh_rule.enabled is True
+    assert ssh_rule.source is None
+
+    disabled_rule = config.firewall.rules[1]
+    assert disabled_rule.name == "Block HTTP on WAN"
+    assert disabled_rule.enabled is False
+    assert disabled_rule.action == "drop"
+
+
+def test_input_rule_protocol_validation():
+    """Verifies InputRuleConfig rejects invalid protocol values."""
+    from roostos_engine.config import InputRuleConfig
+
+    # Valid protocols
+    r = InputRuleConfig(name="test", port=22, protocol="tcp")
+    assert r.protocol == "tcp"
+
+    r = InputRuleConfig(name="test", port=22, protocol="udp")
+    assert r.protocol == "udp"
+
+    r = InputRuleConfig(name="test", port=22, protocol="tcp/udp")
+    assert r.protocol == "tcp/udp"
+
+    # Invalid protocol
+    with pytest.raises(ValueError, match="protocol must be"):
+        InputRuleConfig(name="test", port=22, protocol="icmp")
+
+
+def test_input_rule_action_validation():
+    """Verifies InputRuleConfig rejects invalid action values."""
+    from roostos_engine.config import InputRuleConfig
+
+    with pytest.raises(ValueError, match="action must be"):
+        InputRuleConfig(name="test", port=22, action="reject")

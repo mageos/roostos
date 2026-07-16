@@ -1,11 +1,72 @@
 from fastapi import APIRouter, Depends, Body, HTTPException
+from pydantic import BaseModel
+from typing import Optional
 
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, get_current_admin, UserSession
-from roostos_web.services import get_repository, get_dbus_client
+from roostos_web.services import get_repository, get_dbus_client, SystemService
 
 router = APIRouter(tags=["schedules"])
+
+# ==========================================
+# Firewall Input Rules
+# ==========================================
+
+class FirewallRuleSchema(BaseModel):
+    name: str
+    interface: str = "*"
+    protocol: str = "tcp"
+    port: int
+    source: Optional[str] = None
+    action: str = "accept"
+    enabled: bool = True
+
+@router.get("/api/firewall/rules")
+async def get_firewall_rules(
+    current_user: UserSession = Depends(get_current_user),
+    repo: ConfigRepository = Depends(get_repository)
+):
+    """Returns list of configured firewall input rules."""
+    config = repo.get_config()
+    return [r.model_dump() for r in config.firewall.rules]
+
+@router.post("/api/firewall/rules")
+async def update_firewall_rule(
+    rule: FirewallRuleSchema,
+    current_user: UserSession = Depends(get_current_admin),
+    dbus: RoostClient = Depends(get_dbus_client)
+):
+    """Creates or updates a firewall input rule by name."""
+    success = await dbus.update_firewall_rule(
+        name=rule.name,
+        interface=rule.interface,
+        protocol=rule.protocol,
+        port=rule.port,
+        source=rule.source or "",
+        action=rule.action,
+        enabled=rule.enabled
+    )
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to save firewall rule.")
+    return {"status": "success", "message": f"Firewall rule '{rule.name}' saved."}
+
+@router.delete("/api/firewall/rules/{name}")
+async def delete_firewall_rule(
+    name: str,
+    current_user: UserSession = Depends(get_current_admin),
+    dbus: RoostClient = Depends(get_dbus_client)
+):
+    """Deletes a firewall input rule by name."""
+    success = await dbus.delete_firewall_rule(name)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to delete firewall rule.")
+    return {"status": "success", "message": f"Firewall rule '{name}' deleted."}
+
+# ==========================================
+# Schedules & Bypasses
+# ==========================================
+
 
 @router.get("/api/schedules")
 async def get_schedules(
@@ -63,3 +124,13 @@ async def restore_backup(
     if not success:
         raise HTTPException(status_code=400, detail="Failed to restore backup. Verify manifest and password.")
     return {"status": "success", "message": "Backup restored successfully."}
+
+@router.get("/api/firewall/blocks")
+async def get_firewall_blocks(
+    limit: int = 50,
+    current_user: UserSession = Depends(get_current_parent),
+    system_service: SystemService = Depends()
+):
+    """Returns recently blocked/dropped firewall packets parsing journalctl."""
+    return await system_service.get_firewall_blocks(limit)
+

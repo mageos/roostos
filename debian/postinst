@@ -112,6 +112,15 @@ EOF
         ln -sf /opt/roostos/venv/bin/roostos-web /usr/local/bin/roostos-web
         ln -sf /opt/roostos/venv/bin/roostos-setup /usr/local/bin/roostos-setup
 
+        # Run initial setup wizard on first install (interactive only)
+        if [ -d /run/systemd/system ] && [ -x /usr/local/bin/roostos-setup ]; then
+            # Only run interactive setup if stdin is a terminal
+            if [ -t 0 ]; then
+                echo "Running RoostOS initial configuration wizard..."
+                /usr/local/bin/roostos-setup --dir /etc/roostos || true
+            fi
+        fi
+
         # Enable services
         echo "Enabling systemd networks and services..."
         systemctl daemon-reload || true

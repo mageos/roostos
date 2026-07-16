@@ -13,7 +13,11 @@ class NetworkService:
 
     def get_network_config(self) -> NetworkConfig:
         config = self.repo.get_config()
-        return config.network
+        return NetworkConfig(
+            network=config.network,
+            wifi=config.wifi,
+            vpns=config.vpns
+        )
 
     async def save_network_config(self, network: NetworkSettings, wifi: WifiSettings, vpns: List[VPNConfig]):
         network_config_obj = NetworkConfig(

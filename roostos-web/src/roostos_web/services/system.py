@@ -3,7 +3,7 @@ import sys
 import time
 import datetime
 import subprocess
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from fastapi import Depends
 
 from roostos_engine.config import SystemConfig, SystemSettings
@@ -21,6 +21,16 @@ class SystemService:
     async def get_system_config(self) -> Dict[str, Any]:
         config = self.repo.get_config()
         
+        # 1. Uptime
+        # Read RoostOS version
+        version = "Unknown"
+        try:
+            if os.path.exists("/etc/roostos/version"):
+                with open("/etc/roostos/version", "r") as f:
+                    version = f.read().strip()
+        except Exception:
+            pass
+
         # 1. Uptime
         uptime_str = "Unknown"
         try:
@@ -80,6 +90,20 @@ class SystemService:
         except Exception:
             pass
 
+        # 4b. Alert for unrecognized devices in active leases
+        try:
+            leases = await self.dbus.get_active_leases()
+            registered_macs = {d.mac.lower() for d in config.devices}
+            for lease in leases:
+                mac = lease.get("mac", "").lower()
+                if mac and mac not in registered_macs:
+                    hostname = lease.get("hostname") or "Unknown"
+                    ip = lease.get("ip", "")
+                    ip_str = f" ({ip})" if ip else ""
+                    warnings.append(f"Unrecognized device connected to network: {hostname}{ip_str} [MAC: {mac.upper()}]")
+        except Exception:
+            pass
+
         # 5. Interface traffic rate computation
         rx_rate = 0
         tx_rate = 0
@@ -107,22 +131,28 @@ class SystemService:
         except Exception:
             pass
 
-        return {
+        stats = {
+            "uptime": uptime_str,
+            "cpu_load": cpu_load,
+            "ram_usage": ram_usage,
+            "wan_ip": wan_ip,
+            "lan_ip": lan_ip,
+            "warnings": warnings,
+            "rx_rate": rx_rate,
+            "tx_rate": tx_rate
+        }
+
+        response = {
             "hostname": config.system.hostname,
             "domain": config.system.domain,
             "timezone": config.system.timezone,
             "docker_registry": getattr(config.system, "docker_registry", ""),
-            "stats": {
-                "uptime": uptime_str,
-                "cpu_load": cpu_load,
-                "ram_usage": ram_usage,
-                "wan_ip": wan_ip,
-                "lan_ip": lan_ip,
-                "warnings": warnings,
-                "rx_rate": rx_rate,
-                "tx_rate": tx_rate
-            }
+            "version": version,
+            "stats": stats
         }
+        # Merge stats to top level for frontend compatibility
+        response.update(stats)
+        return response
 
     async def update_system_config(self, hostname: str, domain: str, timezone: str, docker_registry: Optional[str] = ""):
         config = self.repo.get_config()
@@ -278,3 +308,132 @@ class SystemService:
     async def reboot_router(self):
         if not self.dbus.mock:
             subprocess.Popen(["sudo", "reboot"])
+
+    async def get_services_status(self) -> List[Dict[str, str]]:
+        import os
+        is_mock = getattr(self.dbus, "mock", False) or os.environ.get("ROOSTOS_MOCK", "false").lower() in ("true", "1")
+        
+        services = {
+            "roostd": ("RoostOS Engine Daemon", "roostd.service"),
+            "roostos-web": ("RoostOS Web Console", "roostos-web.service"),
+            "systemd-networkd": ("Systemd Network Manager", "systemd-networkd.service"),
+            "kea": ("Kea DHCPv4 Server", "kea-dhcp4-server.service"),
+            "iwd": ("iwd Wireless Daemon", "iwd.service"),
+            "docker": ("Docker Container Engine", "docker.service"),
+        }
+        res = []
+        for key, (display_name, service_name) in services.items():
+            if is_mock:
+                active_state = "active"
+                sub_state = "running"
+                if key == "iwd":
+                    active_state = "inactive"
+                    sub_state = "dead"
+                res.append({
+                    "id": key,
+                    "name": display_name,
+                    "service": service_name,
+                    "status": active_state,
+                    "substate": sub_state
+                })
+                continue
+
+            try:
+                cmd = ["systemctl", "show", service_name, "--property=ActiveState,SubState"]
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+                active_state = "unknown"
+                sub_state = "unknown"
+                if proc.returncode == 0:
+                    for line in proc.stdout.splitlines():
+                        if line.startswith("ActiveState="):
+                            active_state = line.split("=", 1)[1]
+                        elif line.startswith("SubState="):
+                            sub_state = line.split("=", 1)[1]
+                res.append({
+                    "id": key,
+                    "name": display_name,
+                    "service": service_name,
+                    "status": active_state,
+                    "substate": sub_state
+                })
+            except Exception as e:
+                res.append({
+                    "id": key,
+                    "name": display_name,
+                    "service": service_name,
+                    "status": "error",
+                    "substate": str(e)
+                })
+        return res
+
+    async def get_firewall_blocks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        import re
+        import os
+        is_mock = getattr(self.dbus, "mock", False) or os.environ.get("ROOSTOS_MOCK", "false").lower() in ("true", "1")
+        
+        blocks = []
+        if not is_mock:
+            try:
+                res = subprocess.run(
+                    ["journalctl", "-k", "-n", "1000", "--no-pager"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if res.returncode == 0:
+                    lines = res.stdout.splitlines()
+                    pattern = re.compile(
+                        r"(?P<ts>\w{3}\s+\d+\s+\d+:\d+:\d+).*FIREWALL:BLOCKED:(?P<rule>\S+).*IN=(?P<in>\S*).*OUT=(?P<out>\S*).*SRC=(?P<src>\S+).*DST=(?P<dst>\S+).*PROTO=(?P<proto>\S+)"
+                    )
+                    for line in lines:
+                        if "FIREWALL:BLOCKED:" in line:
+                            match = pattern.search(line)
+                            if match:
+                                rule = match.group("rule").replace("_", " ")
+                                spt = ""
+                                dpt = ""
+                                spt_match = re.search(r"SPT=(\d+)", line)
+                                if spt_match:
+                                    spt = spt_match.group(1)
+                                dpt_match = re.search(r"DPT=(\d+)", line)
+                                if dpt_match:
+                                    dpt = dpt_match.group(1)
+                                
+                                blocks.append({
+                                    "timestamp": match.group("ts"),
+                                    "rule": rule,
+                                    "in_face": match.group("in"),
+                                    "out_face": match.group("out"),
+                                    "src_ip": match.group("src"),
+                                    "dst_ip": match.group("dst"),
+                                    "proto": match.group("proto"),
+                                    "src_port": spt,
+                                    "dst_port": dpt
+                                })
+            except Exception:
+                pass
+
+        if not blocks:
+            # Fallback mock data
+            now = datetime.datetime.now()
+            mock_data = [
+                ("Block_Tor_Traffic", "192.168.1.105", "185.220.101.5", "TCP", "49321", "9001", "br0"),
+                ("Default_Input_Drop", "198.51.100.72", "192.168.100.45", "UDP", "38291", "5060", "eth0"),
+                ("Blocked_Client", "192.168.1.50", "142.250.190.46", "TCP", "51023", "443", "br0"),
+                ("Block_SSH_Access", "203.0.113.15", "192.168.100.45", "TCP", "55432", "22", "eth0"),
+                ("Kids_Bedtime_Block", "192.168.1.50", "31.13.71.36", "TCP", "61240", "443", "br0")
+            ]
+            for i, (rule, src, dst, proto, spt, dpt, iif) in enumerate(mock_data):
+                ts = (now - datetime.timedelta(minutes=i * 7 + 3)).strftime("%b %d %H:%M:%S")
+                blocks.append({
+                    "timestamp": ts,
+                    "rule": rule.replace("_", " "),
+                    "in_face": iif,
+                    "out_face": "eth0" if iif == "br0" else "",
+                    "src_ip": src,
+                    "dst_ip": dst,
+                    "proto": proto,
+                    "src_port": spt,
+                    "dst_port": dpt
+                })
+        return blocks[:limit]

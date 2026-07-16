@@ -19,11 +19,13 @@ actions:
       - iptables
       - nftables
       - kea-dhcp4-server
-      - cockpit
       - python3-pip
       - python3-venv
       - python3-yaml
       - python3-pydantic
+      - git
+      - ppp
+      - pppoe
       - sudo
       - curl
       - gnupg

@@ -13,7 +13,6 @@ echo "127.0.0.1 localhost roost-router" > /etc/hosts
 # Enable systemd-networkd and systemd-resolved
 systemctl enable systemd-networkd
 systemctl enable systemd-resolved
-systemctl enable cockpit.socket
 
 # 2. Build and install local python packages inside an isolated virtual environment
 if [ -d "/tmp/src/roostos" ]; then
@@ -30,11 +29,6 @@ if [ -d "/tmp/src/roostos" ]; then
     # Create symlinks to /usr/local/bin so they are globally accessible
     ln -sf /opt/roostos/venv/bin/roostd /usr/local/bin/roostd
     ln -sf /opt/roostos/venv/bin/roostctl /usr/local/bin/roostctl
-
-    # Deploy Cockpit Custom UI
-    echo "Deploying Cockpit custom dashboard pages..."
-    mkdir -p /usr/share/cockpit/roostos
-    cp -r /tmp/src/roostos/roostos-ui/* /usr/share/cockpit/roostos/
 
     # Clean up temporary sources
     rm -rf /tmp/src/roostos

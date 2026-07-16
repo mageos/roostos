@@ -34,9 +34,12 @@ class FirewallManager:
         iot_ifs: List[str] = []
         
         if hasattr(self.config, "network") and self.config.network:
-            # Check bridges (always LAN)
+            # Check bridges
             for bridge in self.config.network.bridges:
-                lan_ifs.append(bridge.name)
+                if getattr(bridge, "isolate", False):
+                    guest_ifs.append(bridge.name)
+                else:
+                    lan_ifs.append(bridge.name)
                      
             # Check VLAN interfaces
             for vlan in self.config.network.vlans:
@@ -75,7 +78,28 @@ class FirewallManager:
                 lines.append(f"        iifname \"{iif}\" tcp dport {{ 22, 443, 9090, 53 }} accept")
                 lines.append(f"        iifname \"{iif}\" udp dport {{ 53, 67 }} accept")
 
+        # User-defined firewall input rules (from schedules.yaml firewall.rules)
+        if hasattr(self.config, "firewall") and self.config.firewall:
+            for rule in self.config.firewall.rules:
+                if not rule.enabled:
+                    continue
+                protos = ["tcp", "udp"] if rule.protocol == "tcp/udp" else [rule.protocol]
+                for proto in protos:
+                    parts = ["       "]
+                    if rule.interface != "*":
+                        parts.append(f"iifname \"{rule.interface}\"")
+                    if rule.source:
+                        parts.append(f"ip saddr {rule.source}")
+                    parts.append(f"{proto} dport {rule.port}")
+                    action = rule.action
+                    if action in ("drop", "reject"):
+                        safe_name = rule.name.replace(" ", "_")
+                        action = f'log prefix "FIREWALL:BLOCKED:{safe_name} " {action}'
+                    parts.append(action)
+                    lines.append(" ".join(parts))
+
         lines.extend([
+            "        log prefix \"FIREWALL:BLOCKED:Default_Input_Drop \"",
             "    }",
             "",
             "    chain forward {",
@@ -83,7 +107,7 @@ class FirewallManager:
             "        ct state established,related accept",
             "        ",
             "        # Drop traffic from blocked/quarantined clients immediately",
-            "        ether saddr @blocked_clients drop",
+            "        ether saddr @blocked_clients log prefix \"FIREWALL:BLOCKED:Blocked_Client \" drop",
         ])
 
         # LAN zone: can access WAN and other zones
@@ -103,6 +127,7 @@ class FirewallManager:
             lines.append(f"        iifname \"{iot}\" oifname \"{wan_if}\" accept")
 
         lines.extend([
+            "        log prefix \"FIREWALL:BLOCKED:Default_Forward_Drop \"",
             "    }",
             "",
             "    chain output {",
