@@ -1,93 +1,92 @@
 # RoostOS Features & Tools Mapping
 
-RoostOS avoids "reinventing the wheel." Instead of writing a routing stack, a DNS server, or a firewall engine from scratch, it leverages mature, standard Linux open-source tools. The role of RoostOS is to act as the "orchestrator"—providing a unified configuration, a unified D-Bus API, and an intuitive Web UI (Cockpit).
+RoostOS avoids "reinventing the wheel." Instead of writing a routing stack, a DNS server, or a firewall engine from scratch, it leverages mature, standard Linux open-source tools. The role of RoostOS is to act as the orchestrator—providing a unified configuration engine (`roostos-engine`), node management daemons (`roostos-core`), an MQTT messaging backbone, and an intuitive Web UI (`roostos-web`).
 
-This document outlines the mapping between RoostOS features, their underlying backend tools, and the custom code we must build.
+This document outlines the mapping between RoostOS features, their underlying backend tools, and the custom glue code built into RoostOS.
 
 ---
 
 ## Feature & Tool Matrix
 
-| Feature | Backend Tool | Role of Backend Tool | What We Must Build (The Glue) |
+| Feature | Backend Tool | Role of Backend Tool | What We Build (The Glue) |
 | :--- | :--- | :--- | :--- |
-| **Network Interfaces & VLANs** | `systemd-networkd` | Configures network interfaces, VLAN subinterfaces, bridges, and static routes. | YAML parser that writes `/etc/systemd/network/*.network` and `*.netdev` files. |
-| **Wi-Fi Access Point & MESH** | `IWD` (iNet Wireless Daemon) | Manages Wi-Fi interfaces, connections, AP mode, and 802.11s Mesh networks. | Generator for `/etc/iwd/*.link` and main config files. D-Bus commands to query signal strength and Wi-Fi networks. |
-| **DNS Resolution & Filtering** | **DNS Container Plugin** (Technitium by default) | Resolves DNS names, blocklists ads, and runs DNS-level client-filtering profiles. | A custom sidecar D-Bus bridge container that exposes the `org.roostos.DNSResolver` API and queries the local DNS server. |
-| **DHCP Address Allocation** | `Kea DHCP Server` | Handles IPv4/IPv6 leases, subnet pools, and static IP reservations. | Configuration generator for Kea (`/etc/kea/kea-dhcp4.conf`). A D-Bus notification hook script triggered by Kea on lease commits. |
-| **Firewall & NAT** | `nftables` | Packet filtering, NAT (masquerading), port forwarding, DNS hijacking, DoT/DoH blocking. | Core nftables ruleset template generator. Python integration utilizing `nft` commands to dynamically add/remove MACs from IP/MAC sets. |
-| **VPN Client & Server** | `Wireguard` | Kernel-level high-performance VPN tunnels. | Generator for Wireguard Netdev configurations in systemd-networkd, allowing routing policy adjustments for specific devices. |
-| **Containerized Plugins** | `Docker` & `Docker Compose` | Running third-party applications in isolated environments. | Docker compose orchestration. The config engine pulls, starts, and mounts D-Bus sockets for these containers. |
-| **Administration Web UI** | `Cockpit` | Provides the underlying web server, user authentication, and system bridge. | Cockpit package (HTML, CSS, Javascript) presenting the dashboard, configuration forms, and family device views. |
-| **Backup & Restore** | Standard Linux tools (`tar`, `gzip`) | File compression and archival. | Python utilities to bundle the split config files and the state cache, exposing backup/restore actions over the D-Bus interface. |
+| **Network Interfaces & VLANs** | `systemd-networkd` | Configures network interfaces, VLAN subinterfaces, bridges, and static routes. | YAML parser (`roostos-engine`) that compiles network definitions into `/etc/systemd/network/*.network` and `*.netdev` files via `roostos-core`. |
+| **Wi-Fi Access Point & MESH** | `IWD` (iNet Wireless Daemon) | Manages Wi-Fi interfaces, connections, AP mode, and 802.11s Mesh networks. | Generator for `/etc/iwd/*.link` and main config files. D-Bus/MQTT queries to monitor signal strength and Wi-Fi networks. |
+| **DNS Resolution & Filtering** | **DNS Container Plugin** (Technitium by default) | Resolves DNS names, blocks ads, and runs DNS-level client-filtering profiles. | A sidecar D-Bus bridge container (`org.roostos.DNSResolver`) bridged to MQTT (`roostos/dns/#`) by `roostos-core`. |
+| **DHCP Address Allocation** | `Kea DHCP Server` | Handles IPv4/IPv6 leases, subnet pools, and static IP reservations. | Configuration generator for Kea (`/etc/kea/kea-dhcp4.conf`). `roost-dhcp-hook` emitting lease events over D-Bus and MQTT. |
+| **Firewall & NAT** | `nftables` | Packet filtering, NAT masquerading, port forwarding, DNS hijacking, DoT/DoH blocking. | `nftables` ruleset generator using `firewall.yaml` and three dynamic sets (`quarantined`, `schedule_blocked`, `admin_blocked`). |
+| **VPN Client & Server** | `Wireguard` | Kernel-level high-performance VPN tunnels. | Generator for Wireguard Netdev configurations in `systemd-networkd`, enabling policy routing for target devices. |
+| **Containerized Plugins** | `Docker` / `Podman` | Running core service plugins and application container workloads. | Container orchestration in `roostos-engine`. Multi-arch OCI registry pulling, mTLS certificate provisioning, and scope enforcement. |
+| **Family Controls & Screen Time** | `systemd-logind` & `roostos-timeguardd` | Session tracking and locking on client systems. | `roostos-timeguardd` client daemon tracking local logind sessions, caching limits offline, and syncing via MQTT with `roostos-engine`. |
+| **Administration Web UI** | `FastAPI` & Vanilla JS / Web Components | Web server, API routing, and user interface. | Modern single-page console UI (`roostos-web`) providing dashboard, device management, schedules, and dynamic plugin UI extensions. |
+| **Backup & Restore** | Standard Linux tools (`tar`, `gzip`, `gpg`) | File compression and AES-256 encryption. | Python backup utilities in `roostos-engine` bundling 6 YAML files and state databases, exposed via REST API. |
 
 ---
 
 ## Detailed Tool Implementations
 
-### 1. Network Layer (systemd-networkd & IWD)
-To ensure reliable operation without high-level desktop-centric overhead, RoostOS uses **systemd-networkd** as its network manager.
-*   **VLAN Subnets**: For guest networks and IoT isolation, `systemd-networkd` natively creates VLANs using `.netdev` files (defining the VLAN ID) and `.network` files (assigning it to physical bridges).
-*   **MESH Wi-Fi**: **IWD** is a lightweight, modern Wi-Fi daemon that replaces `wpa_supplicant`. It has built-in support for WPA3, fast roaming, and 802.11s mesh networking.
-*   *Custom code*: RoostOS reads the split configurations, translates the VLAN and SSID setups into networkd/IWD config files, and executes `networkctl reload` and `systemctl restart iwd`.
+### 1. Network Layer (`systemd-networkd` & `IWD`)
+RoostOS uses **`systemd-networkd`** for low-overhead, deterministic network management.
+* **VLAN Subnets**: For guest networks and IoT isolation, `systemd-networkd` creates VLANs using `.netdev` (defining VLAN IDs) and `.network` (assigning to bridges).
+* **MESH Wi-Fi**: **`IWD`** replaces older wireless daemons, offering native support for WPA3, fast roaming, and 802.11s mesh networking.
+* *Custom code*: `roostos-core` reads `network.yaml` configuration payloads from `roostos-engine` via MQTT, generates networkd/IWD config files, and executes `networkctl reload` and `systemctl restart iwd`.
 
-#### Dynamic Interface Mapping (x86 & ARM Portability)
-Standard network interface names are unpredictable and change across platforms.
-To make RoostOS configurations completely portable, `roostd` dynamically discovers network interfaces using `udevadm` and `/sys/class/net/`:
-*   **Logical Mapping**: In `network.yaml`, interfaces can be targeted logically rather than by hardcoded name. The daemon matches interfaces using attributes:
-    *   `match: mac: "00:11:22:33:44:55"`
-    *   `match: driver: "iwlwifi"`
-    *   `match: path: "pci-0000:03:00.0"`
-*   **Logical Names**: The daemon maps matched hardware interfaces to logical names like `wan` and `lan1` in `systemd-networkd` config generations.
+### 2. DHCP (`Kea DHCP`)
+* **D-Bus & MQTT Hook**: Kea executes `libdhcp_run_script.so` (`roost-dhcp-hook`) on lease commits.
+* *Custom code*: `roostos-core` catches local lease commit signals, updates local SQLite `/var/lib/roostos/state.db`, and broadcasts MQTT events (`roostos/dhcp/lease/commit`) to `roostos-engine`.
 
-### 2. DHCP (Kea DHCP)
-RoostOS replaces older DHCP servers with **ISC Kea**.
-*   **D-Bus Hook**: Kea includes a hook library framework. We configure `libdhcp_run_script.so` to run a lightweight script (`/usr/local/bin/roost-dhcp-hook`) whenever a lease is committed or released.
-*   *Custom code*: The Python daemon writes Kea configuration files detailing subnet pools and static reservations, then reloads Kea.
+### 3. DNS (Decoupled Sidecar Plugin)
+* **Standard Interface**: `roostos-core` exposes `org.roostos.DNSResolver` over local D-Bus.
+* **Technitium sidecar**: The default DNS plugin runs Technitium alongside a custom **RoostOS D-Bus Bridge** sidecar in the same network namespace.
+* **MQTT Bridge**: `roostos-core` bridges local DNS D-Bus events to MQTT topics (`roostos/dns/#`) for cluster-wide management.
 
-### 3. DNS (Plugin Decoupled)
-DNS is fully decoupled from the core OS:
-*   **Standard Interface**: The Roost Daemon does not call Technitium API directly. Instead, it emits calls on the D-Bus system bus interface `org.roostos.DNSResolver`.
-*   **Technitium sidecar**: The default DNS plugin runs the official Technitium Docker container. Alongside it, a custom **RoostOS D-Bus Bridge** sidecar container runs inside the same network namespace.
+### 4. Firewall (`nftables` Security Rules)
 
-### 4. Firewall (nftables Security Rules)
-**nftables** provides clean syntax and native dynamic "sets".
+#### A. Three Dynamic Sets Strategy
+Instead of reloading the full firewall on every schedule tick, `roostos-core` dynamically adds/removes client MAC addresses across three `nftables` sets:
+1. `quarantined`: Unregistered MAC addresses when `unregistered_device_policy: deny` is set. Dropped completely at input and forward chains.
+2. `schedule_blocked`: MAC addresses with active schedule blocks or exhausted daily screen time limits. Dropped **only on WAN-bound forwarding** (LAN access retained).
+3. `admin_blocked`: MAC addresses permanently blocked from internet access by administrator policy. Dropped on WAN-bound forwarding.
 
-#### A. Dynamic Sets with Timeouts
-Instead of reloading the firewall whenever a device's time limit expires, `roostd` creates a set named `blocked_macs` in nftables:
-```
+#### B. Stateful Inter-Zone Connection Tracking
+Inter-zone routing defined by `allow_zones` in `network.yaml` enforces stateful connection tracking:
+1. **Connection Initiation**: `allow_zones` specifies destination zones where devices in the source zone can **initiate NEW connections** (`ct state new`).
+2. **Stateful Return Traffic**: `ct state established,related accept` is placed at the top of the forward chain. When a device on `lan` initiates a connection to an `iot` bulb, return packets are automatically allowed back to `lan`. Unsolicited new connection attempts from `iot` to `lan` are blocked.
+
+```nftables
 table inet filter {
-    set blocked_macs {
-        type ether_addr
-    }
     chain forward {
-        type filter hook forward priority filter; policy accept;
-        ether saddr @blocked_macs reject
+        type filter hook forward priority filter; policy drop;
+
+        # 1. Allow return packets for existing established connections
+        ct state established,related accept
+
+        # 2. Allow NEW connections based on allow_zones
+        iifname @zone_lan oifname @zone_wan ct state new accept
+        iifname @zone_lan oifname @zone_iot ct state new accept
+        iifname @zone_iot oifname @zone_wan ct state new accept
+
+        # 3. Drop unauthorized new connections
+        log prefix "FIREWALL:BLOCKED:Unauthorized_Zone_Forward " drop
     }
 }
 ```
 
-#### B. DNS Hijacking (Force Local DNS)
-To prevent users from changing their client device settings (e.g. setting DNS to `8.8.8.8`) to bypass parental blocklists, `roostd` compiles nftables destination NAT (DNAT) rules:
-```
+#### C. DNS Hijacking (Force Local DNS)
+To prevent clients from bypassing parental blocklists by manually setting DNS to `8.8.8.8`, `roostos-core` generates DNAT rules:
+```nftables
 table ip nat {
     chain prerouting {
         type filter hook prerouting priority dstnat; policy accept;
-        ip saddr 192.168.1.0/24 tcp dport 53 dnat to 192.168.1.1:53
-        ip saddr 192.168.1.0/24 udp dport 53 dnat to 192.168.1.1:53
+        iifname "br0" tcp dport 53 redirect to :53
+        iifname "br0" udp dport 53 redirect to :53
     }
 }
 ```
-*Exceptions are dynamically generated to allow the DNS resolver container/host to make outbound DNS queries.*
 
 #### C. Encrypted DNS Blocking (DoH / DoT)
-To prevent clients from using DNS-over-TLS (DoT) or DNS-over-HTTPS (DoH) to bypass filters:
-1.  **DoT Blocking**: Drop all outbound traffic to port `853` (TCP/UDP) at the firewall forward chain:
-    ```
-    tcp dport 853 reject
-    udp dport 853 reject
-    ```
-2.  **DoH Blocking**: Technitium DNS includes built-in blocklists containing domains of known public DoH providers (e.g. `cloudflare-dns.com`). Additionally, `roostd` populates an nftables set `doh_server_ips` with known public DoH resolver IP addresses and blocks outbound forwarding requests to them on port 443.
+- **DoT Blocking**: Drop outbound traffic to port `853` (TCP/UDP) at the forward chain.
+- **DoH Blocking**: Technitium DNS includes blocklists for known public DoH providers (e.g. `cloudflare-dns.com`). `roostos-core` populates an `nftables` set `doh_server_ips` with known public DoH resolver IPs and drops outbound port 443 traffic to them.
 
-### 5. Web UI (Cockpit)
-**Cockpit** is standard on Ubuntu Server, provides zero-overhead system administration, and authenticates using Linux system users (PAM).
-*   **D-Bus Bridge**: Cockpit's javascript library has a native D-Bus client. We define a custom Cockpit module (`/usr/share/cockpit/roostos/`) containing React or Vanilla JS code.
+### 5. Web UI (`roostos-web`)
+FastAPI serves the Web Console SPA, managing OAuth2 JWT tokens, PAM user authentication, HTTPS Let's Encrypt certificates, and dynamic plugin ES Module UI tab loading.

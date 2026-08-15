@@ -94,6 +94,17 @@ class PluginsSyncSubsystem(Subsystem):
                     if os.path.exists(system_socket):
                         volumes_dict[system_socket] = {"bind": system_socket, "mode": "rw"}
 
+                # Automatically issue and mount mTLS client certificate for plugin container
+                if hasattr(self.daemon, "cert_manager"):
+                    try:
+                        requested_scopes = getattr(plugin, "requested_scopes", [])
+                        self.daemon.cert_manager.issue_plugin_cert(plugin_id, requested_scopes)
+                        plugin_cert_dir = os.path.join(self.daemon.cert_manager.plugins_cert_dir, plugin_id)
+                        if os.path.exists(plugin_cert_dir):
+                            volumes_dict[plugin_cert_dir] = {"bind": "/etc/roostos/certs", "mode": "ro"}
+                    except Exception as e:
+                        print(f"Warning: Failed to issue cert for plugin {plugin_id}: {e}", file=sys.stderr)
+
                  # Start the container
                 image_name = c_cfg.image
                 registry = getattr(self.config.system, "docker_registry", None)

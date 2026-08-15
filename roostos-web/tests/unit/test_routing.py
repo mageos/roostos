@@ -46,6 +46,9 @@ class DummyConfigRepository(ConfigRepository):
     def save_schedules_config(self, data: any) -> None:
         pass
 
+    def save_firewall_config(self, data: any) -> None:
+        pass
+
     def save_plugins_config(self, data: any) -> None:
         pass
 

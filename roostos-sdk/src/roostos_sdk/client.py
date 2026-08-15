@@ -4,7 +4,6 @@ from dbus_next.aio import MessageBus
 from dbus_next import BusType
 
 BUS_NAME = "org.roostos.Daemon"
-OBJECT_PATH = "/org/org/roostos/Daemon" # Wait, path is /org/roostos/Daemon
 OBJECT_PATH = "/org/roostos/Daemon"
 
 class RoostClient:
@@ -161,6 +160,48 @@ class RoostClient:
     async def reboot_host(self) -> bool:
         """Commands the host OS to issue a system reboot."""
         return await self._interface.call_reboot_host()
+
+    # ==========================================
+    # Certificate Management Operations
+    # ==========================================
+
+    async def get_certificate_status(self) -> Dict[str, Any]:
+        """Returns status of Root CA, server cert, services, and plugins."""
+        res = await self._interface.call_get_certificate_status()
+        return json.loads(res)
+
+    async def issue_plugin_certificate(self, plugin_id: str, scopes: List[str]) -> Dict[str, str]:
+        """Issues an mTLS client certificate for a plugin container."""
+        res = await self._interface.call_issue_plugin_certificate(plugin_id, json.dumps(scopes))
+        return json.loads(res)
+
+    async def issue_service_certificate(self, service_name: str, scopes: List[str]) -> Dict[str, str]:
+        """Issues an mTLS client certificate for an internal service."""
+        res = await self._interface.call_issue_service_certificate(service_name, json.dumps(scopes))
+        return json.loads(res)
+
+    async def verify_certificate(self, cert_pem: str) -> Dict[str, Any]:
+        """Verifies a certificate against the Root CA."""
+        res = await self._interface.call_verify_certificate(cert_pem)
+        return json.loads(res)
+
+    async def renew_server_certificate(self) -> Dict[str, Any]:
+        """Renews the HTTPS server TLS certificate."""
+        res = await self._interface.call_renew_server_certificate()
+        return json.loads(res)
+
+    async def exchange_cert_for_token(self, api_url: str, cert_pem: str) -> Dict[str, Any]:
+        """Exchanges an X.509 client certificate for a scoped OAuth Bearer JWT."""
+        import httpx
+        url = f"{api_url.rstrip('/')}/oauth/token"
+        data = {
+            "grant_type": "client_certificate",
+            "client_certificate": cert_pem
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(url, data=data, timeout=10.0)
+            resp.raise_for_status()
+            return resp.json()
 
     # ==========================================
     # UPnP Gateway Operations

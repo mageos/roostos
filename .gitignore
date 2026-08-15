@@ -18,7 +18,7 @@ yarn-error.log*
 
 # Debian Build Artifacts
 build-deb-tmp/
-roostos_*.deb
+*.deb
 *.tar
 
 # Development Sandbox

@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_sdk.client import RoostClient
 
-from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config
+from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config, certificates
 
 from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
 
@@ -46,6 +46,7 @@ app.include_router(schedules.router)
 app.include_router(plugins.router)
 app.include_router(diagnostics.router)
 app.include_router(config.router)
+app.include_router(certificates.router)
 
 # Mount Static Files (the Single Page Application UI)
 web_assets_path = os.environ.get("ROOSTOS_WEB_ASSETS", "/usr/share/roostos/web")

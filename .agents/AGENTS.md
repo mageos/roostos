@@ -1,5 +1,12 @@
 # RoostOS UI Design Rules
 
+## Coding Statndards
+* Files should be kept to a maximum of 300 lines of code where possible
+* Type hinting in python for all codee
+* Use f-strings for string formatting where possible
+* Use pydantic models for DTOs
+
+
 ## Lists of Objects (People, Devices, Locations, etc.)
 
 *   **No Persistent Add Forms**: Do not display a permanent "Add" card or form at the bottom or side of lists.

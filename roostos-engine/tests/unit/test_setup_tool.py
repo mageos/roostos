@@ -82,6 +82,7 @@ def test_setup_tool_dhcp_flow(temp_config_dir, monkeypatch, mock_dialogs):
         "",              # LAN IP (default: 192.168.1.1)
         "y",             # Enable DHCP
         "y",             # Confirm default DHCP pool range
+        "y",             # Wireless support enabled
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
@@ -145,6 +146,7 @@ def test_setup_tool_static_flow(temp_config_dir, monkeypatch, mock_dialogs):
         "n",
         "192.168.20.50",
         "192.168.20.150",
+        "y",             # Wireless support enabled
         "8.8.4.4, 9.9.9.9",
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
@@ -204,6 +206,7 @@ def test_setup_tool_wan_access_prompts(temp_config_dir, monkeypatch, mock_dialog
         "",              # LAN IP (default: 192.168.1.1)
         "y",             # Enable DHCP
         "y",             # Confirm default DHCP pool range
+        "y",             # Wireless support enabled
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "y",             # Allow Web UI from WAN
         "y",             # Allow SSH from WAN
@@ -246,7 +249,7 @@ def test_setup_tool_wan_access_prompts(temp_config_dir, monkeypatch, mock_dialog
     assert web_rule.enabled is True
 
     # Verify the original schedules (from conftest) are preserved
-    assert len(config.firewall.schedules) > 0  # Kids Bedtime Block should still exist
+    assert len(config.schedules) > 0  # Kids Bedtime Block should still exist
 
 
 def test_setup_tool_existing_config_exit(temp_config_dir, monkeypatch, mock_dialogs):
@@ -295,6 +298,7 @@ def test_setup_tool_existing_config_rerun(temp_config_dir, monkeypatch, mock_dia
         "",              # LAN IP (default: 192.168.1.1)
         "y",             # Enable DHCP
         "y",             # Confirm default DHCP pool range
+        "y",             # Wireless support enabled
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
@@ -307,4 +311,39 @@ def test_setup_tool_existing_config_rerun(temp_config_dir, monkeypatch, mock_dia
 
     assert result.exit_code == 0
     assert "Configuration files written successfully" in result.output
+
+
+def test_setup_tool_wifi_disabled(temp_config_dir, monkeypatch, mock_dialogs):
+    """Test setup wizard flow when wireless/WiFi support is explicitly disabled."""
+    import roostos_engine.setup_tool
+    monkeypatch.setattr(roostos_engine.setup_tool, "list_interfaces", lambda: ["eth0", "eth1"])
+
+    inputs = [
+        "rerun",         # Choice for existing config
+        "",              # WAN interface (defaults to eth0)
+        "dhcp",          # WAN protocol
+        "y",             # IPv6 enabled
+        "eth1",          # LAN interfaces
+        "",              # LAN network (default: 192.168.1.0/24)
+        "",              # LAN IP (default: 192.168.1.1)
+        "y",             # Enable DHCP
+        "y",             # Confirm default DHCP pool range
+        "n",             # Wireless support DISABLED
+        "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
+        "n",             # Allow Web UI from WAN (no)
+        "n",             # Allow SSH from WAN (no)
+        "y"              # Apply config
+    ]
+    mock_dialogs(inputs)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--dir", str(temp_config_dir)])
+
+    assert result.exit_code == 0
+    assert "Configuration files written successfully" in result.output
+
+    # Load updated configurations and verify wifi is None
+    config = load_config_directory(str(temp_config_dir))
+    assert config.wifi is None
+
 

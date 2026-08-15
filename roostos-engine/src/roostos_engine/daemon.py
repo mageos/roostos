@@ -24,6 +24,8 @@ from roostos_engine.scheduler import is_schedule_active, resolve_schedule_target
 BUS_NAME = "org.roostos.Daemon"
 OBJECT_PATH = "/org/roostos/Daemon"
 
+from roostos_engine.cert_manager import CertificateManager
+
 class RoostDaemonInterface(ServiceInterface):
     def __init__(self, name: str, config_dir: str, mock: bool = False, repository: Optional[ConfigRepository] = None):
         super().__init__(name)
@@ -35,6 +37,9 @@ class RoostDaemonInterface(ServiceInterface):
             self.repository = YAMLConfigRepository(config_dir)
             self.config_dir = config_dir
         self._reboot_required = False
+        
+        certs_dir = os.path.join(self.config_dir, "certs")
+        self.cert_manager = CertificateManager(certs_dir)
         
         from roostos_engine.subsystems import discover_subsystems
         self.subsystems = discover_subsystems(self)
@@ -86,6 +91,47 @@ class RoostDaemonInterface(ServiceInterface):
 
 
 
+
+    @method()
+    def IssuePluginCertificate(self, plugin_id: 's', scopes_json: 's') -> 's':
+        try:
+            scopes = json.loads(scopes_json)
+            res = self.cert_manager.issue_plugin_cert(plugin_id, scopes)
+            return json.dumps(res)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @method()
+    def IssueServiceCertificate(self, service_name: 's', scopes_json: 's') -> 's':
+        try:
+            scopes = json.loads(scopes_json)
+            res = self.cert_manager.issue_service_cert(service_name, scopes)
+            return json.dumps(res)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    @method()
+    def VerifyCertificate(self, cert_pem: 's') -> 's':
+        try:
+            res = self.cert_manager.verify_client_cert(cert_pem)
+            return json.dumps(res)
+        except Exception as e:
+            return json.dumps({"valid": False, "error": str(e)})
+
+    @method()
+    def RenewServerCertificate(self) -> 's':
+        try:
+            res = self.cert_manager.issue_server_cert(
+                hostname=self._config.system.hostname,
+                domain=getattr(self._config.system, "domain", "lan")
+            )
+            return json.dumps({"status": "success", "cert_status": self.cert_manager.get_cert_status()})
+        except Exception as e:
+            return json.dumps({"status": "error", "error": str(e)})
+
+    @method()
+    def GetCertificateStatus(self) -> 's':
+        return json.dumps(self.cert_manager.get_cert_status())
 
     @method()
     async def ExtractPluginUI(self, image_name: 's', ui_entrypoint: 's', plugin_id: 's') -> 'b':
@@ -274,7 +320,7 @@ class RoostDaemonInterface(ServiceInterface):
     @method()
     def GetSchedules(self) -> 's':
         self.reload_config()
-        return json.dumps(self._config.firewall.model_dump(exclude_none=True))
+        return json.dumps([s.model_dump() for s in self._config.schedules])
 
     @method()
     def GetFirewallRules(self) -> 's':
@@ -305,14 +351,13 @@ class RoostDaemonInterface(ServiceInterface):
             else:
                 rules_list.append(new_rule.model_dump())
 
-            schedules_config_obj = SchedulesConfig(
+            firewall_config_obj = FirewallConfig(
                 firewall=FirewallSettings(
                     port_forwards=self._config.firewall.port_forwards,
-                    rules=rules_list,
-                    schedules=self._config.firewall.schedules
+                    rules=rules_list
                 )
             )
-            self.repository.save_schedules_config(schedules_config_obj)
+            self.repository.save_firewall_config(firewall_config_obj)
             self.reload_config()
             self.SchedulesUpdated()
             return True
@@ -327,14 +372,13 @@ class RoostDaemonInterface(ServiceInterface):
             self.reload_config()
             rules_list = [r.model_dump() for r in self._config.firewall.rules if r.name != name]
 
-            schedules_config_obj = SchedulesConfig(
+            firewall_config_obj = FirewallConfig(
                 firewall=FirewallSettings(
                     port_forwards=self._config.firewall.port_forwards,
-                    rules=rules_list,
-                    schedules=self._config.firewall.schedules
+                    rules=rules_list
                 )
             )
-            self.repository.save_schedules_config(schedules_config_obj)
+            self.repository.save_firewall_config(firewall_config_obj)
             self.reload_config()
             self.SchedulesUpdated()
             return True
@@ -774,8 +818,8 @@ class RoostDaemonInterface(ServiceInterface):
         blocked_by_schedules = set()
         active_schedules_with_limits = []
 
-        if hasattr(self._config, "firewall") and self._config.firewall:
-            for sched in self._config.firewall.schedules:
+        if hasattr(self._config, "schedules") and self._config.schedules:
+            for sched in self._config.schedules:
                 if is_schedule_active(sched, now):
                     targets = resolve_schedule_targets(sched, self._config)
                     blocked_by_schedules.update(targets)

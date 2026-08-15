@@ -37,7 +37,12 @@ METHOD_MAP = {
     "RejectUPnPRequest": "reject_u_pn_p_request",
     "GetFirewallRules": "get_firewall_rules",
     "UpdateFirewallRule": "update_firewall_rule",
-    "DeleteFirewallRule": "delete_firewall_rule"
+    "DeleteFirewallRule": "delete_firewall_rule",
+    "GetCertificateStatus": "get_certificate_status",
+    "IssuePluginCertificate": "issue_plugin_certificate",
+    "IssueServiceCertificate": "issue_service_certificate",
+    "VerifyCertificate": "verify_certificate",
+    "RenewServerCertificate": "renew_server_certificate"
 }
 
 PROPERTY_MAP = {
@@ -110,7 +115,7 @@ def config_validate(dir):
         click.echo(f"  Registered users: {len(config.users)}")
         click.echo(f"  Registered devices: {len(config.devices)}")
         click.echo(f"  Port forwards: {len(config.firewall.port_forwards)}")
-        click.echo(f"  Schedules: {len(config.firewall.schedules)}")
+        click.echo(f"  Schedules: {len(config.schedules)}")
         click.echo(f"  Active plugins: {len([p for p in config.plugins if p.enabled])}")
         
     except Exception as e:
@@ -382,6 +387,9 @@ def firewall_delete(name, session):
             sys.exit(1)
 
     run_async(run())
+
+from roostos_engine.cli_certs import register_certs_commands
+register_certs_commands(main, call_dbus_method, run_async)
 
 if __name__ == "__main__":
     main()

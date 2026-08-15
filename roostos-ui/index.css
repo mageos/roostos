@@ -619,3 +619,44 @@ select option {
 .stat-value {
     font-weight: 600;
 }
+
+/* Inline Add/Edit Table Expansion Styles */
+.table-action-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    margin-bottom: 10px;
+}
+
+.inline-edit-row, .inline-add-row {
+    background: rgba(59, 130, 246, 0.08) !important;
+    border-left: 3px solid var(--accent-blue);
+    animation: fadeInRow 0.25s ease-in-out;
+}
+
+.inline-edit-row td, .inline-add-row td {
+    padding: 8px 10px !important;
+    vertical-align: middle;
+}
+
+.inline-form-controls {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.inline-input {
+    width: 100%;
+    padding: 6px 10px;
+    font-size: 13px;
+    border-radius: 6px;
+    border: 1px solid var(--card-border);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+@keyframes fadeInRow {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}

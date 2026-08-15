@@ -31,9 +31,9 @@ bump-version:
 
 deb: bump-version
 	@echo "============================================="
-	@echo "Building RoostOS Debian Package"
+	@echo "Building RoostOS Debian Packages"
 	@echo "============================================="
-	bash scripts/build-deb.sh
+	bash scripts/build-all-debs.sh
 
 install-ui-deps:
 	npm install --prefix roostos-ui

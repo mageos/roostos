@@ -24,6 +24,8 @@ from roostos_engine.config import (
     NetworkBridge,
     SystemDNSConfig,
     SchedulesConfig,
+    ScheduleSettings,
+    FirewallConfig,
     FirewallSettings,
     InputRuleConfig,
     save_config_file,
@@ -395,6 +397,18 @@ def main(config_dir: str, non_interactive: bool) -> None:
     else:
         dhcp_enabled = False
 
+    # 5.5. Wireless Configuration
+    click.secho("\n--- Wireless (Wi-Fi) Configuration ---", fg="cyan")
+    if non_interactive:
+        wifi_enabled = os.environ.get("ROOSTOS_WIFI_ENABLED", "true").lower() in ("true", "1", "yes")
+    else:
+        wifi_enabled = yes_no_dialog(
+            title="Wireless Support",
+            text="Should WiFi/Wireless support be enabled on this device?"
+        ).run()
+        if wifi_enabled is None:
+            handle_cancel(None)
+
     # 6. DNS Setup
     click.secho("\n--- Upstream DNS Configuration ---", fg="cyan")
     default_dns = "1.1.1.1, 8.8.8.8"
@@ -458,6 +472,7 @@ def main(config_dir: str, non_interactive: bool) -> None:
             f"LAN Network:        {lan_net_str}\n"
             f"LAN IP (Router):    {bridge_ip_full}\n"
             f"LAN DHCP Server:    {'ENABLED (' + dhcp_start + ' to ' + dhcp_end + ')' if dhcp_enabled else 'DISABLED'}\n"
+            f"Wireless Support:   {'ENABLED' if wifi_enabled else 'DISABLED'}\n"
             f"Upstream DNS:       {', '.join(valid_dns)}\n"
             f"WAN SSH Access:     {'ENABLED' if wan_ssh_access else 'DISABLED'}\n"
             f"WAN Web UI Access:  {'ENABLED' if wan_web_access else 'DISABLED'}\n"
@@ -477,7 +492,12 @@ def main(config_dir: str, non_interactive: bool) -> None:
 
     # Load existing configs to merge fields gracefully
     try:
+        from roostos_engine.config import WifiSettings
         config = load_config_directory(config_dir)
+        if not wifi_enabled:
+            config.wifi = None
+        elif not config.wifi:
+            config.wifi = WifiSettings()
     except Exception:
         # Create fresh models if config directory is empty/broken
         from roostos_engine.config import RoostConfig, SystemSettings, WifiSettings
@@ -485,7 +505,7 @@ def main(config_dir: str, non_interactive: bool) -> None:
             system=SystemSettings(),
             users=[],
             network=None,  # Will be populated
-            wifi=WifiSettings(),
+            wifi=WifiSettings() if wifi_enabled else None,
             vpns=[],
             people=[],
             buildings=[],
@@ -562,25 +582,32 @@ def main(config_dir: str, non_interactive: bool) -> None:
             enabled=True
         ))
 
-    # Load existing schedules config to preserve port_forwards and schedules
+    # Load existing firewall and schedules config
     existing_firewall = getattr(config, 'firewall', None) or FirewallSettings()
+    existing_schedules = getattr(config, 'schedules', []) or []
     # Merge: keep existing rules that don't conflict with WAN access rule names
     wan_rule_names = {r.name for r in wan_rules}
     preserved_rules = [r.model_dump() for r in existing_firewall.rules if r.name not in wan_rule_names]
     new_rules = [r.model_dump() for r in wan_rules]
     merged_rules = preserved_rules + new_rules
 
-    schedules_config_obj = SchedulesConfig(
+    firewall_config_obj = FirewallConfig(
         firewall=FirewallSettings(
             port_forwards=[pf.model_dump() for pf in existing_firewall.port_forwards],
-            rules=merged_rules,
-            schedules=[s.model_dump() for s in existing_firewall.schedules]
+            rules=merged_rules
+        )
+    )
+
+    schedules_config_obj = SchedulesConfig(
+        firewall=ScheduleSettings(
+            schedules=[s.model_dump() for s in existing_schedules]
         )
     )
 
     try:
         save_config_file(config_dir, "system.yaml", system_config_obj)
         save_config_file(config_dir, "network.yaml", network_config_obj)
+        save_config_file(config_dir, "firewall.yaml", firewall_config_obj)
         save_config_file(config_dir, "schedules.yaml", schedules_config_obj)
         click.secho("\n✓ Configuration files written successfully.", fg="green")
     except Exception as e:

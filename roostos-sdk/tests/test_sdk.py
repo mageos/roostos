@@ -56,6 +56,34 @@ async def test_client_daemon_crud(dbus_session, running_daemon):
 
 
 @pytest.mark.asyncio
+async def test_client_certificate_methods(dbus_session, running_daemon):
+    """Verifies that RoostClient can issue service/plugin certificates and check status."""
+    client = RoostClient(session=True)
+    await client.connect()
+
+    try:
+        # Issue service certificate
+        res = await client.issue_service_certificate("sdk-service", ["sdk:read", "sdk:write"])
+        assert "cert_pem" in res
+        assert "key_pem" in res
+
+        # Verify certificate
+        verification = await client.verify_certificate(res["cert_pem"])
+        assert verification["valid"] is True
+        assert verification["subject_cn"] == "service-sdk-service"
+        assert "sdk:read" in verification["scopes"]
+
+        # Check status
+        status = await client.get_certificate_status()
+        assert status["root_ca"]["valid"] is True
+        assert any(s["service_id"] == "sdk-service" for s in status.get("services", []))
+
+    finally:
+        client.disconnect()
+
+
+
+@pytest.mark.asyncio
 async def test_client_signals(dbus_session, running_daemon):
     """Verifies that client signal subscriptions trigger callbacks correctly when daemon state updates."""
     client = RoostClient(session=True)

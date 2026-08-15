@@ -1,27 +1,32 @@
 # RoostOS
 
+As a software engineer, father and technology enthusiast, I have been consistently frustrated with the difficulty of finding
+open source, easy-to-use, family focused solutions for easily managing my home network.  While there are a number of great products out there on their own, they do not integrate well
+
 RoostOS is a free and open-source operating system built on the foundation of Ubuntu Server. It is a family-oriented router and firewall distribution focused on security, usability, and ease of management. 
 
-All settings are declared in a strict split YAML configuration layout under `/etc/roostos/`, enabling precise terminal-based management and clean version control. A web-based interface built on top of Cockpit provides a secure, intuitive administration panel for the entire household.
+All settings are declared in a strict split YAML configuration layout under `/etc/roostos/`, enabling precise terminal-based management and clean version control. A web-based management interface (`roostos-web`) provides a secure, intuitive administration panel for the entire household.
 
 ---
 
 ## Key Features
 
 *   **Rock-Solid Foundation**: Built on Ubuntu Server LTS (64-bit only).
-*   **Decoupled DNS Engine**: DNS is isolated as a containerized plugin (supporting Technitium DNS, Pi-hole, or AdGuard Home) integrated via a standard D-Bus API (`org.roostos.DNSResolver`).
-*   **High-Performance DHCP**: Uses **Kea DHCP** for address allocation, supporting asynchronous D-Bus event hooks for instant discovery.
+*   **Three-Service Distributed Architecture**: Clear decoupling between central domain object storage (`roostos-engine`), node system management (`roostos-core`), and web administration (`roostos-web`).
+*   **Decoupled DNS Engine**: DNS is isolated as a containerized plugin (supporting Technitium DNS, Pi-hole, or AdGuard Home) integrated via a standard D-Bus API (`org.roostos.DNSResolver`) and bridged to MQTT.
+*   **High-Performance DHCP**: Uses **Kea DHCP** for address allocation, supporting asynchronous D-Bus and MQTT event hooks for instant discovery.
 *   **Modern Wi-Fi & Mesh**: Native support for Access Point configuration and 802.11s Mesh networks utilizing **IWD** (bypassing Netplan/wpa_supplicant conflicts).
-*   **High-Performance Firewall**: Employs **nftables** for routing, NAT, port forwarding, and tag-based network isolation.
+*   **High-Performance Firewall**: Employs **nftables** with dynamic sets (`quarantined`, `schedule_blocked`, `admin_blocked`) for routing, NAT, port forwarding, and tag-based network isolation.
 *   **Virtual Private Networks**: Out-of-the-box support for **Wireguard** client and server tunnel configurations.
-*   **Parental Controls & Device Management**: Dynamic, MAC-address-based schedule rules, bedtime windows, daily accumulated screen time allowances, and temporary bypasses.
-*   **Extensible Architecture**: Support for isolated, containerized plugins (running in Docker) that can run multiple sidecar containers, communicating securely with the host via D-Bus and a dedicated Python SDK.
+*   **Parental Controls & Family Controls**: Dynamic MAC-address-based schedule rules, bedtime windows, daily accumulated screen time allowances, temporary bypasses, and cross-device session tracking (`roostos-timeguardd`).
+*   **Extensible Architecture**: Support for isolated, containerized plugins (core services and application workloads) with mTLS certificate security, scope consent, dynamic Web Component UI extensions, and multi-architecture OCI image registry distribution.
 *   **Split Configuration File Layout**:
-    *   `system.yaml`: Identity, logins, Cockpit roles (Admin, Parent, Member).
-    *   `network.yaml`: Interfaces, bridges, VLANs, SSIDs, and mesh settings.
-    *   `devices.yaml`: People, locations, and registered MAC devices.
-    *   `schedules.yaml`: Firewall schedules, bedtime windows, and usage limits.
-    *   `plugins.yaml`: Installed plugin metadata and Docker settings.
+    *   `system.yaml`: Host identity, logins, HTTPS ACME, unattended update windows, and unregistered device policy.
+    *   `network.yaml`: Interfaces, bridges, subnets, VLANs, gateways, QoS, and mesh settings.
+    *   `devices.yaml`: People, buildings, rooms, registered MAC devices, static IP reservations, and UPnP trust.
+    *   `schedules.yaml`: Time-window access rules and daily screen time allowance limits.
+    *   `firewall.yaml`: Static input rules, port forwards, and custom firewall policies.
+    *   `plugins.yaml`: Installed plugin metadata, requested scopes, containers, and settings overrides.
 
 ---
 

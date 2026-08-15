@@ -99,7 +99,7 @@ def test_resolve_selector_macs(temp_config_dir):
     config = load_config_directory(temp_config_dir)
     
     # Test resolving a tag selector: 'kids'
-    target_tag = config.firewall.schedules[0].targets[0]
+    target_tag = config.schedules[0].targets[0]
     assert target_tag.tag == "kids"
     macs = config.resolve_selector_macs(target_tag)
     assert "4c:32:75:98:76:54" in macs
@@ -198,7 +198,7 @@ def test_plugin_known_services_parsing(temp_config_dir):
 
 
 def test_input_rule_config_parsing(temp_config_dir):
-    """Verifies that InputRuleConfig entries are correctly parsed from schedules.yaml."""
+    """Verifies that InputRuleConfig entries are correctly parsed from firewall.yaml."""
     config = load_config_directory(temp_config_dir)
 
     # The conftest fixture includes 2 rules
@@ -234,7 +234,7 @@ def test_input_rule_protocol_validation():
     assert r.protocol == "tcp/udp"
 
     # Invalid protocol
-    with pytest.raises(ValueError, match="protocol must be"):
+    with pytest.raises(ValueError, match="Input rule protocol"):
         InputRuleConfig(name="test", port=22, protocol="icmp")
 
 
@@ -242,5 +242,5 @@ def test_input_rule_action_validation():
     """Verifies InputRuleConfig rejects invalid action values."""
     from roostos_engine.config import InputRuleConfig
 
-    with pytest.raises(ValueError, match="action must be"):
+    with pytest.raises(ValueError, match="Input rule action"):
         InputRuleConfig(name="test", port=22, action="reject")

@@ -1,0 +1,20 @@
+[project]
+name = "roostos-timeguardd"
+version = "0.1.0"
+description = "Linux screen time monitoring daemon for RoostOS clients"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dbus-next>=0.2.3",
+    "click>=8.0.0",
+    "requests>=2.31.0",
+    "paho-mqtt>=1.6.1",
+]
+
+[project.scripts]
+roostos-timeguardd = "roostos_timeguardd.main:main"
+roostos-timeguard-setup = "roostos_timeguardd.setup:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

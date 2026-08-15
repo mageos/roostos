@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["roostos-engine", "roostos-sdk", "roostos-dns-technitium", "roostos-web"]
+members = ["roostos-engine", "roostos-sdk", "roostos-dns-technitium", "roostos-web", "roostos-timeguardd"]
 
 [dependency-groups]
 dev = [

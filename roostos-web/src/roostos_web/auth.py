@@ -46,6 +46,7 @@ def validate_authorization_code(code: str, redirect_uri: str) -> Optional[str]:
     return record["username"]
 
 from fastapi import Cookie
+from typing import List, Callable
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -53,6 +54,8 @@ class UserSession(BaseModel):
     username: str
     role: str
     person: Optional[str] = None
+    scopes: List[str] = []
+    service_id: Optional[str] = None
 
 
 def authenticate_user(username: str, password: str) -> bool:
@@ -90,8 +93,6 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# To inject ConfigRepository, we need a helper dependency to get the repository instance.
-# We will define this helper in main.py, but for now we define a dependency that resolves current user.
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     roostos_token: Optional[str] = Cookie(None)
@@ -107,13 +108,35 @@ async def get_current_user(
     try:
         payload = jwt.decode(actual_token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
-        role: str = payload.get("role")
+        role: str = payload.get("role", "user")
         person: Optional[str] = payload.get("person")
-        if username is None or role is None:
+        scopes: List[str] = payload.get("scopes", [])
+        service_id: Optional[str] = payload.get("service_id")
+        if username is None:
             raise credentials_exception
-        return UserSession(username=username, role=role, person=person)
+        return UserSession(
+            username=username,
+            role=role,
+            person=person,
+            scopes=scopes,
+            service_id=service_id
+        )
     except jwt.PyJWTError:
         raise credentials_exception
+
+
+def require_scope(required_scope: str) -> Callable:
+    """FastAPI Dependency factory enforcing a specific X.509/OAuth scope claim."""
+    async def scope_dependency(current_user: UserSession = Depends(get_current_user)) -> UserSession:
+        if current_user.role == "admin":
+            return current_user
+        if required_scope in current_user.scopes or "*" in current_user.scopes:
+            return current_user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Required scope '{required_scope}' missing from credentials."
+        )
+    return scope_dependency
 
 
 async def get_current_parent(current_user: UserSession = Depends(get_current_user)) -> UserSession:

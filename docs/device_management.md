@@ -1,12 +1,12 @@
 # RoostOS Device Management & State Engine
 
-Device Management is the core parental control and security feature of RoostOS. It allows administrators to identify, classify, and apply schedules and firewall policies to network clients based on their MAC addresses. 
+Device Management is a core parental control and security feature of RoostOS. It allows administrators to identify, classify, and apply time schedules, daily screen time allowances, and network isolation policies to network clients based on their MAC addresses.
 
-This document describes the mechanics of device discovery, the SQLite state database, and the logic of the time-schedule and override engine.
+This document describes the mechanics of device discovery, the SQLite state database cache, Family Controls integration (`roostos-timeguardd`), and the three-set `nftables` state engine logic.
 
 ---
 
-## 1. Device Discovery Pipeline
+## 1. Device Discovery & Lease Pipeline
 
 ```
   [ Client Connects ] 
@@ -14,67 +14,47 @@ This document describes the mechanics of device discovery, the SQLite state data
           ▼
   [ Kea DHCP Server ] ────(lease commit)────► [ Run Script Hook ]
                                                     │
-                                                    ▼ (dbus-send)
-  [ SQLite Cache ] ◄──(store)─── [ Roost Engine (roostd) ]
+                                                    ▼ (D-Bus Signal)
+  [ SQLite Cache ] ◄──(store)─── [ Node Daemon (roostos-core) ]
                                                     │
-                                                    ├────► [ Cockpit Web UI (Signal) ]
+                                                    ▼ (MQTT Publish)
+                                         [ Central Engine (roostos-engine) ]
+                                                    │
+                                           (Registered in devices.yaml?)
+                                           ┌────────┴────────┐
+                                         (Yes)              (No)
+                                           │                 │
+                                    [ Assign Tags ]   [ Apply Unregistered Policy ]
+                                           │                 │
+                                           └────────┬────────┘
                                                     ▼
-                                            [ nftables Sets ]
+                                         [ Update nftables Sets ]
 ```
 
-1.  **Lease Commit**: When a client requests an IP, Kea commits a DHCP lease and executes the hook library `libdhcp_run_script.so`.
-2.  **D-Bus Signal**: The hook script runs a lightweight shell wrapper that fires a D-Bus signal on the system bus:
-    *   **Interface**: `org.roostos.DHCP`
-    *   **Signal**: `LeaseCommitted(string mac, string ip, string hostname)`
-3.  **Daemon Update**: The Roost Engine daemon (`roostd`) catches the signal and:
-    *   Queries its SQLite transient cache to check if this MAC has been seen before.
-    *   Checks `/etc/roostos/devices.yaml` to see if the MAC is a registered device.
-    *   Updates the client's last-seen IP and hostname.
-4.  **Tag Assignment & Isolation**:
-    *   If the MAC is registered in `/etc/roostos/devices.yaml`, the engine resolves its user-defined tags, room/location, and owner (which implicitly act as tags).
-    *   If the MAC is **unregistered / randomized**, the engine automatically logs it to `discovered_devices` in the SQLite cache and tags it as `system:unregistered`.
-    *   The firewall then evaluates rules matching the client's resolved tags. For example, if a rule in `schedules.yaml` blocks `system:unregistered`, the client's MAC is immediately added to the `blocked_macs` or `quarantined_macs` nftables set.
+1. **Lease Commit**: When a client requests an IP, Kea commits a DHCP lease and executes `libdhcp_run_script.so` (`roost-dhcp-hook`).
+2. **D-Bus & MQTT Event**: The hook script emits a local D-Bus signal (`org.roostos.DHCP.LeaseCommitted`). `roostos-core` catches this signal, stores it in its local SQLite cache (`/var/lib/roostos/state.db`), and publishes an MQTT event to `roostos/dhcp/lease/commit`.
+3. **Engine Synchronization**: `roostos-engine` receives the MQTT lease event:
+   - If the MAC address is registered in `devices.yaml`, the engine resolves its assigned owner, room, location, and tags.
+   - If the MAC address is unknown, `roostos-engine` logs it to `discovered_devices` in the central repository and evaluates `unregistered_device_policy` from `system.yaml`.
+4. **Policy Enforcement**:
+   - If `unregistered_device_policy: deny`, `roostos-core` adds the unknown MAC to the `quarantined` nftables set (full forward drop).
+   - If `unregistered_device_policy: allow`, the unknown device gets standard network forwarding access.
 
 ---
 
 ## 2. Transient State Cache (SQLite Schema)
 
-All temporary and dynamic values are stored in `/var/lib/roostos/state.db`. This database can be safely wiped at any time; it does not contain persistent configuration settings.
+All temporary and dynamic node values are cached in `/var/lib/roostos/state.db`. This database can be safely cleared at any time; it does not contain persistent configuration settings.
 
-### Table: `discovered_devices`
-Tracks all MAC addresses that have ever connected to DHCP but are not yet registered in the YAML configuration.
+### Table: `active_leases`
+Tracks active DHCP client leases on the local node.
 ```sql
-CREATE TABLE discovered_devices (
+CREATE TABLE active_leases (
     mac TEXT PRIMARY KEY,
-    last_ip TEXT NOT NULL,
+    ip TEXT NOT NULL,
     hostname TEXT,
-    first_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP,
-    quarantined INTEGER DEFAULT 1
-);
-```
-
-### Table: `temporary_bypasses`
-Tracks dynamic time extensions (e.g. "allow child's tablet online for 30 minutes").
-```sql
-CREATE TABLE temporary_bypasses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    mac TEXT NOT NULL,
-    bypass_type TEXT NOT NULL,  -- 'time_extension' (e.g., +30m) or 'unblock' (ignore schedule)
-    granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME NOT NULL
-);
-CREATE INDEX idx_bypasses_expires ON temporary_bypasses(expires_at);
-```
-
-### Table: `accumulated_usage`
-Tracks screen-time usage (active minutes) accumulated per target/MAC today.
-```sql
-CREATE TABLE accumulated_usage (
-    target_id TEXT NOT NULL,      -- Can be a MAC address or Person ID
-    date TEXT NOT NULL,           -- Format: 'YYYY-MM-DD'
-    used_seconds INTEGER DEFAULT 0,
-    PRIMARY KEY (target_id, date)
+    quarantined INTEGER DEFAULT 1,
+    last_seen DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -95,84 +75,70 @@ CREATE TABLE pending_upnp_requests (
 
 ---
 
-## 3. UPnP Staging Gateway
+## 3. Family Controls Integration (`roostos-timeguardd`)
 
-To resolve the security risks associated with standard Universal Plug and Play (UPnP)—where compromised internal devices or IoT devices can open ports automatically—RoostOS implements a **UPnP Staging Gateway**:
+`roostos-timeguardd` handles OS-level screen time tracking on client workstations and mobile devices:
 
-```
-[ Game Console / Device ] ───(UPnP Request)───► [ miniupnpd (Router Daemon) ]
-                                                       │
-                                                       ▼ (Custom verification script)
-                                                [ Roost Engine (roostd) ]
-                                                       │
-                                            ┌──────────┴──────────┐
-                                   (Matches upnp_trusted?)  (No trust / unknown)
-                                            ▼                     ▼
-                                     [ Allow Access ]      [ Queue in SQLite ]
-                                                                  │
-                                                                  ▼ (Emit Signal)
-                                                           [ Cockpit Web UI ]
-                                                                  │
-                                                            (Parent clicks)
-                                                       ┌──────────┴──────────┐
-                                                   (Approve)             (Reject)
-                                                       ▼                     ▼
-                                                [ Add nftables ]       [ Block port ]
-```
-
-1.  **Request Interception**: RoostOS runs `miniupnpd` configured to pass incoming UPnP port mapping requests to a custom verification script hook before applying them to the firewall.
-2.  **Trust Verification**: The script checks `devices.yaml` for the requesting client's MAC address:
-    *   **Trusted Device**: If `upnp_trusted: true` is configured for the MAC, the request is immediately allowed.
-    *   **Pre-Approved Port**: If the request matches a port-protocol entry in the client's `upnp_allowed_ports` array, it is immediately allowed.
-3.  **Parent Staging Queue**: If the device is not trusted or the port is not pre-approved:
-    *   The request is logged to the `pending_upnp_requests` SQLite cache.
-    *   `roostd` broadcasts the D-Bus signal `UPnPRequestReceived(mac, external_port, protocol, description)`.
-    *   The request is held in a pending state, returning a temporary rejection to the client.
-4.  **Admin Review**: The parent/admin receives a notification in the Cockpit Web interface showing the device details and the requested port. The parent can select:
-    *   **Approve Once**: Temporarily applies the port forward in nftables.
-    *   **Approve & Remember**: Appends the port/protocol rule to `upnp_allowed_ports` in `devices.yaml`. Future requests for this mapping are auto-approved.
-    *   **Approve & Trust Device**: Sets `upnp_trusted: true` in `devices.yaml`, allowing all future UPnP requests from this hardware.
-    *   **Deny**: Rejects the mapping and logs the block.
+1. **Local Session Tracking**: On client machines, `roostos-timeguardd` queries `systemd-logind` over local D-Bus to track active human user sessions.
+2. **Offline Resilience**: Time limits are cached locally in `/var/lib/roostos-timeguardd/state.json`. If a client device moves off the home network, session monitoring and automatic locking continue locally.
+3. **MQTT Heartbeat & Central Sync**: When connected to the home network, `roostos-timeguardd` publishes periodic heartbeats over MQTT (`roostos/timeguard/heartbeat/{username}`). `roostos-engine` aggregates screen time accumulated across multiple client devices owned by the same `Person`.
+4. **Global Lock Command**: When a user's total daily limit is reached (combining network activity and client session time), `roostos-engine` publishes a lock payload to `roostos/timeguard/limits/{username}`, causing `roostos-timeguardd` to issue `loginctl lock-sessions` instantly and block subsequent PAM logins.
 
 ---
 
-## 4. The State Engine Logic
+## 4. UPnP Staging Gateway
 
-The firewall's state is evaluated by a background thread inside `roostd` that runs every 60 seconds (a "tick"), or immediately upon a configuration update or D-Bus request.
+To resolve the security risks of automated UPnP port forwarding:
 
-### A. Tag-Based Target Resolution & Location Hierarchy
-Schedules and firewall blocks target selectors rather than raw MAC addresses:
-*   `tag:<name>`
-*   `person:<id>`
-*   `location:<id>`
-*   `mac:<address>`
+```
+[ Device ] ───(UPnP Request)───► [ miniupnpd ] ───► [ roostos-core ]
+                                                          │
+                                                ┌─────────┴─────────┐
+                                      (Matches upnp_trusted?)   (Untrusted)
+                                                ▼                   ▼
+                                         [ Allow Access ]    [ Queue in SQLite ]
+                                                                    │
+                                                                    ▼ (MQTT Signal)
+                                                           [ roostos-web ]
+                                                                    │
+                                                            (Parent Approves)
+                                                                    ▼
+                                                           [ Add nftables DNAT ]
+```
 
-During the evaluation loop, the daemon compiles these selectors into a flat list of active MAC addresses:
-1.  **Direct Resolution**: If a schedule in `schedules.yaml` targets `person:alice_profile`, `roostd` scans `/etc/roostos/devices.yaml` to find all devices where `owner` is `alice_profile`.
-2.  **Tag Expansion**: If a schedule targets `tag:kids`, `roostd` maps it to all devices containing `kids` in their `tags` list inside `devices.yaml`.
-3.  **Recursive Location Resolution**: If a schedule targets `location:<id>`, the daemon checks `devices.yaml`:
-    *   If `<id>` corresponds to a **Room**: Map to all devices where `location` is the Room ID.
-    *   If `<id>` corresponds to a **Building**:
-        1. Find all Rooms that belong to this Building ID.
-        2. Map to all devices assigned directly to the Building ID.
-        3. Map to all devices assigned to any of those child Rooms.
-4.  **Built-in tags**: If a schedule targets `tag:system:unregistered`, `roostd` maps it to all active MAC addresses logged in `discovered_devices` that have not been registered in `devices.yaml`.
+1. **Request Interception**: `miniupnpd` passes incoming UPnP mapping requests to `roostos-core`.
+2. **Trust Verification**: `roostos-core` checks `devices.yaml` for the requesting MAC:
+   - **Trusted Device**: If `upnp_trusted: true` is configured, the request is immediately allowed.
+   - **Pre-Approved Port**: If the request matches an entry in `upnp_allowed_ports`, it is immediately allowed.
+3. **Staging Queue**: If untrusted, the request is queued in `pending_upnp_requests` and broadcast via MQTT (`roostos/upnp/request`). The parent can click **Approve Once**, **Approve & Remember**, or **Approve & Trust Device** in `roostos-web`.
 
-### B. Daily Usage Tracking (Accumulation Limits)
-To enforce limits like "2 hours of screen time per day," RoostOS monitors device activity:
-1.  **Activity Sensing**: During the 60-second tick, `roostd` queries `nftables` byte counters for each active client MAC address.
-2.  **Threshold Check**: If a MAC address has transferred more than **50 Kilobytes** of data during the last minute, the client is marked as active.
-3.  **Database Logging**: One minute (60 seconds) is added to the `used_seconds` counter in the `accumulated_usage` table for that MAC, and also for its associated `Person` ID.
-4.  **Enforcement**: Once `used_seconds` exceeds the configured daily limit (defined in `schedules.yaml`), the client's MAC addresses are added to the `blocked_macs` nftables set.
-5.  **Reset**: A cron job resets all entries in `accumulated_usage` at midnight local time.
+---
 
-### C. Applying Firewall Changes (nftables Integration)
-Instead of reloading the entire nftables engine (which is disruptive and slow), the state engine manages memberships in named nftables sets:
-*   **`quarantined_macs`**: Packets from these MAC addresses are dropped completely.
-*   **`blocked_macs`**: Packets from these MAC addresses are dropped only when attempting to route to the WAN interface.
+## 5. The State Engine Logic (Three nftables Sets)
 
-During each engine tick, `roostd` determines the list of MACs that should be blocked. It then runs:
-1.  `nft flush set inet filter quarantined_macs`
-2.  `nft add element inet filter quarantined_macs { mac1, mac2, ... }`
-3.  `nft flush set inet filter blocked_macs`
-4.  `nft add element inet filter blocked_macs { mac3, mac4, ... }`
+`roostos-core` evaluates network state every 60 seconds (or immediately upon receiving an MQTT configuration broadcast).
+
+### A. Tag & Selector Resolution
+Selectors in `schedules.yaml` are expanded into a flat set of target MAC addresses:
+- `tag:<name>`: All devices carrying `<name>` in `tags`.
+- `person:<id>`: All devices where `owner == <id>`.
+- `location:<id>`: All devices assigned to a Room or recursively to a Building.
+- `mac:<address>`: Specific hardware MAC address.
+
+### B. Daily Allowance Accumulation
+During each 60-second evaluation tick, `roostos-core` checks byte transfer counters in `nftables`. If a MAC transfers >50KB in a minute, usage counters increase. When `used_seconds` >= `daily_limit * 60`, the MAC is marked for internet blocking.
+
+### C. Three-Set `nftables` Structure
+
+Instead of constantly rebuilding complex rules, `roostos-core` manages membership in three dynamic `nftables` sets:
+
+1. **`quarantined`**: Devices blocked by default when `unregistered_device_policy: deny`. Packets are dropped at the input and forward chains completely.
+2. **`schedule_blocked`**: Devices currently restricted by active time-window schedules or exhausted daily screen time limits. Packets are dropped **only when forwarding to the WAN interface** (LAN subnets, local printers, and local media servers remain accessible).
+3. **`admin_blocked`**: Devices permanently blocked from internet access by administrator policy. Packets are dropped when forwarding to the WAN interface.
+
+```bash
+# Delta updates executed by roostos-core
+nft add element inet filter quarantined { a4:83:e7:12:34:56 }
+nft add element inet filter schedule_blocked { 4c:32:75:98:76:54 }
+nft add element inet filter admin_blocked { 00:09:b0:12:34:56 }
+```

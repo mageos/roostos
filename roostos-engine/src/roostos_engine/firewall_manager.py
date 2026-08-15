@@ -162,9 +162,9 @@ class FirewallManager:
                 mark = self.gateway_marks[dev.gateway]
                 lines.append(f"        ether saddr {dev.mac} meta mark set {mark}")
 
-        # 4. Dynamic Port Forwards compiled from schedules.yaml
-        if hasattr(self.config, "schedules") and self.config.schedules:
-            for pf in self.config.schedules.firewall.port_forwards:
+        # 4. Dynamic Port Forwards compiled from firewall.yaml
+        if hasattr(self.config, "firewall") and self.config.firewall:
+            for pf in self.config.firewall.port_forwards:
                 proto = pf.protocol.lower()
                 lines.append(
                     f"        iifname \"{wan_if}\" {proto} dport {pf.external_port} "

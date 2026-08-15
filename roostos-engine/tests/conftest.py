@@ -101,6 +101,23 @@ def temp_config_dir(tmp_path):
     with open(tmp_path / "schedules.yaml", "w") as f:
         yaml.safe_dump({
             "firewall": {
+                "schedules": [
+                    {
+                        "name": "Kids Bedtime Block",
+                        "targets": [{"tag": "kids"}],
+                        "days": ["Mon", "Tue"],
+                        "start_time": "21:00",
+                        "end_time": "06:00",
+                        "action": "block_internet"
+                    }
+                ]
+            }
+        }, f)
+
+    # 5. firewall.yaml
+    with open(tmp_path / "firewall.yaml", "w") as f:
+        yaml.safe_dump({
+            "firewall": {
                 "rules": [
                     {
                         "name": "Allow SSH from Internet",
@@ -117,16 +134,6 @@ def temp_config_dir(tmp_path):
                         "port": 80,
                         "action": "drop",
                         "enabled": False
-                    }
-                ],
-                "schedules": [
-                    {
-                        "name": "Kids Bedtime Block",
-                        "targets": [{"tag": "kids"}],
-                        "days": ["Mon", "Tue"],
-                        "start_time": "21:00",
-                        "end_time": "06:00",
-                        "action": "block_internet"
                     }
                 ]
             }

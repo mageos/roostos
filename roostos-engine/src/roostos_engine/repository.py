@@ -6,6 +6,7 @@ from roostos_engine.config import (
     DevicesConfig,
     NetworkConfig,
     SchedulesConfig,
+    FirewallConfig,
     PluginsConfig,
     load_config_directory,
     save_config_file,
@@ -33,6 +34,10 @@ class ConfigRepository(ABC):
         pass
 
     @abstractmethod
+    def save_firewall_config(self, data: FirewallConfig) -> None:
+        pass
+
+    @abstractmethod
     def save_plugins_config(self, data: PluginsConfig) -> None:
         pass
 
@@ -56,6 +61,9 @@ class YAMLConfigRepository(ConfigRepository):
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.config_dir, "schedules.yaml", data)
+
+    def save_firewall_config(self, data: FirewallConfig) -> None:
+        save_config_file(self.config_dir, "firewall.yaml", data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         save_config_file(self.config_dir, "plugins.yaml", data)
@@ -86,6 +94,8 @@ class StagingConfigRepository(ConfigRepository):
                 config.devices = staged_config.devices
             if "schedules.yaml" in staged_files:
                 config.schedules = staged_config.schedules
+            if "firewall.yaml" in staged_files:
+                config.firewall = staged_config.firewall
             if "plugins.yaml" in staged_files:
                 config.plugins = staged_config.plugins
                 
@@ -102,6 +112,9 @@ class StagingConfigRepository(ConfigRepository):
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.staged_dir, "schedules.yaml", data)
+
+    def save_firewall_config(self, data: FirewallConfig) -> None:
+        save_config_file(self.staged_dir, "firewall.yaml", data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         save_config_file(self.staged_dir, "plugins.yaml", data)

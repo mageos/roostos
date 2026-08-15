@@ -186,35 +186,85 @@ async def oauth_authorize_post(
         status_code=303
     )
 
+import urllib.parse
+from roostos_engine.cert_manager import CertificateManager
+
+def get_cert_manager() -> CertificateManager:
+    cert_dir = os.environ.get("ROOSTOS_CERT_DIR", "/etc/roostos/certs")
+    return CertificateManager(cert_dir=cert_dir)
+
 @router.post("/oauth/token")
 async def oauth_token(
     response: Response,
     grant_type: str = Form(...),
-    code: str = Form(...),
-    redirect_uri: str = Form(...),
-    client_id: str = Form(...),
-    repo: ConfigRepository = Depends(get_repository)
+    code: Optional[str] = Form(None),
+    redirect_uri: Optional[str] = Form(None),
+    client_id: Optional[str] = Form(None),
+    client_certificate: Optional[str] = Form(None),
+    client_assertion: Optional[str] = Form(None),
+    repo: ConfigRepository = Depends(get_repository),
+    cert_mgr: CertificateManager = Depends(get_cert_manager)
 ):
-    """Exchanges an authorization code for a signed JWT access token."""
-    if grant_type != "authorization_code":
-        raise HTTPException(status_code=400, detail="Unsupported grant_type")
-        
-    username = validate_authorization_code(code, redirect_uri)
-    if not username:
-        raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
-        
-    config = repo.get_config()
-    role, person = resolve_user_role(username, config)
- 
-    token = create_access_token(
-        data={"sub": username, "role": role, "person": person}
-    )
-    response.set_cookie(key="roostos_token", value=token, path="/", httponly=True, samesite="lax")
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "expires_in": 3600
-    }
+    """Exchanges an authorization code or client certificate for a signed JWT access token."""
+    if grant_type == "authorization_code":
+        if not code or not redirect_uri:
+            raise HTTPException(status_code=400, detail="Missing code or redirect_uri")
+        username = validate_authorization_code(code, redirect_uri)
+        if not username:
+            raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
+            
+        config = repo.get_config()
+        role, person = resolve_user_role(username, config)
+     
+        token = create_access_token(
+            data={"sub": username, "role": role, "person": person}
+        )
+        response.set_cookie(key="roostos_token", value=token, path="/", httponly=True, samesite="lax")
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": 3600
+        }
+
+    elif grant_type in ("client_credentials", "client_certificate", "certificate"):
+        raw_cert = client_certificate or client_assertion
+        if not raw_cert:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Missing client certificate for certificate authentication"
+            )
+
+        cert_pem = urllib.parse.unquote(raw_cert) if "%" in raw_cert else raw_cert
+        verification = cert_mgr.verify_client_cert(cert_pem)
+        if not verification.get("valid"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Certificate validation failed: {verification.get('error', 'Invalid certificate')}"
+            )
+
+        subject_cn = verification["subject_cn"]
+        scopes = verification.get("scopes", [])
+        service_id = subject_cn.replace("service-", "").replace("plugin-", "")
+
+        token = create_access_token(
+            data={
+                "sub": subject_cn,
+                "role": "service",
+                "service_id": service_id,
+                "scopes": scopes,
+                "type": "service"
+            }
+        )
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": 3600,
+            "scope": " ".join(scopes)
+        }
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Unsupported grant_type: {grant_type}")
+
 
 @router.post("/api/auth/login")
 async def login(

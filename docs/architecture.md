@@ -1,142 +1,134 @@
 # RoostOS Architecture
 
-RoostOS is structured around a decoupled, secure, and declarative design. The system runs on Ubuntu Server, using standard Linux system services (systemd-networkd, IWD, nftables, Kea DHCP) coordinated by a central custom management daemon. 
+RoostOS is structured around a decoupled, secure, distributed, and declarative design. The system runs on Debian-based Linux distributions, using standard Linux system services (`systemd-networkd`, `IWD`, `nftables`, `Kea DHCP`) coordinated by a decoupled management engine and client daemons communicating over MQTT and D-Bus. It is packaged as installable `.deb` packages, allowing users to install only the components required for their specific deployment.
 
 DNS resolution is handled as a standard containerized plugin, decoupled from the core OS.
 
-This document outlines the system layers, the communication pipeline, and the lifecycles of both persistent configurations and transient network states.
+This document outlines the three-service architecture, system layers, communication pipelines, and component lifecycles across both local and distributed nodes.
 
 ---
 
-## 1. System Layers (The Layer Cake)
+## 1. Core Components
 
-RoostOS separates concerns clearly into distinct layers:
+RoostOS separates concerns into distinct, modular services that can run on a single standalone router or be distributed across multiple systems in a home network.
+
+* **`roostos-engine` (Configuration & Domain Object Service)**: The central source of truth for all domain objects (devices, people, buildings, rooms, schedules, firewall policies, plugins). It exposes a comprehensive REST API and broadcasts configuration changes and domain events over a secure MQTT broker. It manages persistent configuration storage (`/etc/roostos/`) and central state aggregation.
+* **`roostos-core` (Local System Management Daemon)**: The node management daemon installed on router hardware. It subscribes to MQTT configuration updates from `roostos-engine` and translates them into physical system states (generating `systemd-networkd` network configs, `Kea DHCP` leases/subnets, applying `nftables` rulesets, and managing `IWD` Wi-Fi mesh). It also bridges local system events (e.g. `org.roostos.DNSResolver` sidecar D-Bus signals) to MQTT.
+* **`roostos-web` (Web Console SPA & API)**: A modern web interface built on FastAPI and Vanilla JS / Web Components. It communicates with `roostos-engine` via REST and OAuth2 JWT authentication. It supports PAM for system user authentication, manages automatic HTTPS SSL certificates (Let's Encrypt), and dynamically loads UI extension modules provided by installed plugins.
+* **`roostos-timeguardd` (Family Controls Client Daemon)**: A lightweight daemon installed on client workstations (and mobile devices) that monitors active human sessions via `systemd-logind` over local D-Bus. It enforces session locks locally when time limits are reached, reports usage heartbeats to `roostos-engine` via MQTT, and receives global lock events when cross-device daily allowances expire.
+* **Certificate Manager**: Provisioning authority issuing mTLS client certificates with embedded X.509 scope permissions (`requested_scopes`). These certificates secure intra-service REST API calls and enforce topic-level ACLs on the central MQTT broker.
+* **Router & Access Point**: Turn target hardware into multi-zone network controllers providing firewall, routing, DHCP, mDNS forwarding, and high-performance mesh Wi-Fi (`IWD`).
+* **Container Services & Plugins**: Orchestrates containerized plugin workloads (Docker/Podman). Supports two plugin types: `core_service` (system interface providers like DNS, DHCP, LDAP) and `application` (cluster compute workloads like Home Assistant or Plex).
+
+---
+
+## 2. System Layers (The Layer Cake)
+
+RoostOS separates concerns clearly into distinct operational layers:
 
 ```mermaid
 graph TD
-    UI[Web UI: Cockpit Custom Plugin] -->|D-Bus API| Engine[Roost Engine: Python Daemon]
-    CLI[Terminal: CLI & YAML Editors] -->|File Write & D-Bus trigger| Engine
+    UI[Web UI: roostos-web SPA] -->|FastAPI REST API| Engine[roostos-engine: Central Domain Service]
+    CLI[Terminal: roostos-cli] -->|REST API / YAML Write| Engine
+    
+    Engine <-->|MQTT Broker: roostos/config/*| CoreDaemon[roostos-core: Local Router Daemon]
+    Engine <-->|MQTT Broker: roostos/timeguard/*| TimeGuard[roostos-timeguardd: Family Controls Client]
     
     subgraph Configuration Layer (Split YAML Files)
         Engine -->|Read/Write| ConfigSys[system.yaml]
         Engine -->|Read/Write| ConfigNet[network.yaml]
         Engine -->|Read/Write| ConfigDev[devices.yaml]
         Engine -->|Read/Write| ConfigSch[schedules.yaml]
+        Engine -->|Read/Write| ConfigFw[firewall.yaml]
         Engine -->|Read/Write| ConfigPlg[plugins.yaml]
     end
     
-    Engine -->|Read/Write| Cache[(Transient Cache: SQLite)]
+    CoreDaemon -->|Read/Write| Cache[(Transient Cache: SQLite)]
     
-    subgraph System Services Layer
-        Engine -->|Write Config & Reload| Networkd[systemd-networkd]
-        Engine -->|Write Config & Restart| IWD[IWD Wireless Daemon]
-        Engine -->|Write Config & Reload| Kea[Kea DHCP Server]
-        Engine -->|nft CLI Commands| Nftables[nftables Firewall]
-        Engine -->|Docker Compose API| Docker[Docker Engine]
+    subgraph System Services Layer (Managed by roostos-core)
+        CoreDaemon -->|Write Config & Reload| Networkd[systemd-networkd]
+        CoreDaemon -->|Write Config & Restart| IWD[IWD Wireless Daemon]
+        CoreDaemon -->|Write Config & Reload| Kea[Kea DHCP Server]
+        CoreDaemon -->|nft CLI Commands| Nftables[nftables Firewall]
+        CoreDaemon -->|Docker API| Docker[Docker Engine]
     end
     
-    subgraph DNS Plugin Container (Decoupled)
+    subgraph DNS Plugin Container (Decoupled Sidecar)
         Docker -.->|Runs| DNS[DNS Server e.g., Technitium]
         Docker -.->|Runs| Sidecar[RoostOS D-Bus Bridge Sidecar]
         DNS <-->|Localhost HTTP API| Sidecar
     end
 
     Kea -->|Event Hook| Hook[Kea Lease Hook]
-    Hook -->|D-Bus Signal| Engine
-    Sidecar <-->|D-Bus API: org.roostos.DNSResolver| Engine
+    Hook -->|Local D-Bus Signal| CoreDaemon
+    Sidecar <-->|Local D-Bus API: org.roostos.DNSResolver| CoreDaemon
+    CoreDaemon <-->|MQTT Bridge| Engine
 ```
 
 ### A. The UI & CLI Layer
-*   **Cockpit Web UI**: Built as a custom Cockpit package using HTML, CSS, and vanilla JS. It runs client-side in the user's browser, communicating with the host OS strictly via D-Bus (`cockpit.dbus`). It has no direct root shell access, preventing command-injection vulnerabilities.
-*   **Command Line Interface (CLI)**: A terminal-based utility allowing administrators to view, edit, and apply configurations. Developers and users can edit `/etc/roostos/*.yaml` files manually and then trigger a reload via a CLI command.
+* **Web Management Console (`roostos-web`)**: Built using HTML, CSS, and Vanilla JS / Web Components, served by FastAPI. It communicates with `roostos-engine` strictly through HTTPS REST API calls protected by OAuth2 Bearer tokens.
+* **Command Line Interface (`roostos-cli`)**: Terminal utility enabling administrators to inspect status, edit configuration files, or issue commands directly via the `roostos-engine` REST interface or local YAML file reloads.
 
-### B. The Management Layer (Roost Engine)
-*   **Roost Engine (`roostd`)**: A Python-based system service managed by `systemd`. It serves as the coordinator of the OS. It:
-    *   Exposes a D-Bus API for Cockpit and plugin integration.
-    *   Validates and parses the split configuration YAML files.
-    *   Generates configuration files for underlying system services.
-    *   Maintains the transient runtime state in a local SQLite cache.
-    *   Executes localized, safe helper functions (e.g., calling `nft` to add temporary MAC overrides, checking system status).
-*   **`roostos-sdk`**: A Python helper library that third-party plugin developers use to communicate with `roostd` over D-Bus without writing raw D-Bus socket code.
+### B. The Management Layer
+* **`roostos-engine`**: Python-based central coordinator daemon. Maintains the single source of truth for domain objects, validates 6-file split YAML configurations, issues mTLS certificates, and broadcasts change notifications over MQTT.
+* **`roostos-core`**: Host-level execution daemon. Subscribes to MQTT topics (`roostos/config/#`), updates `nftables` sets, writes `systemd-networkd` / `Kea DHCP` configurations, and maintains the local SQLite lease cache.
 
 ### C. Configuration & State Layer
-To enable safe terminal-based editing alongside reliable web-based updates, configuration is divided into five **strict YAML files** under `/etc/roostos/`:
-*   `system.yaml`: Host credentials, timezone, HTTPS SSL, and update schedules.
-*   `network.yaml`: Network interfaces, IP allocations, VLANs, Wi-Fi SSIDs, and mesh settings.
-*   `devices.yaml`: Shared domain registry mapping devices, persons, rooms, and static reservations. The Web UI writes back to this file exclusively when registering new MAC addresses.
-*   `schedules.yaml`: Time-based schedules, bedtime blocks, and daily usage limits.
-*   `plugins.yaml`: Installed plugin container definitions and volume setups.
+Configuration is divided into **six strict YAML files** under `/etc/roostos/`:
+* `system.yaml`: Host credentials, timezone, HTTPS SSL settings, unattended updates, and global unregistered device policy (`allow` | `deny`).
+* `network.yaml`: Network interfaces, bridges, IP allocations, VLAN subnets, Wi-Fi SSIDs, and mesh settings.
+* `devices.yaml`: Shared family registry mapping devices, persons, buildings, rooms, static IP allocations, and UPnP trust settings.
+* `schedules.yaml`: Time-based access windows and daily accumulated screen time allowance limits.
+* `firewall.yaml`: Permanent input rules, port forwards, and custom firewall chain definitions.
+* `plugins.yaml`: Installed plugin metadata, enabled flags, container definitions, requested scopes, and settings overrides.
 
-All dynamic runtime values (like active DHCP leases, temporary bypass timers, and daily screen time accumulation metrics) are separated from the config files and cached in `/var/lib/roostos/state.db`.
+Dynamic runtime values (active DHCP leases, pending UPnP staging requests) are cached locally on node daemons in `/var/lib/roostos/state.db` and synchronized with `roostos-engine` via MQTT events.
 
 ### D. System Services Layer
-*   **systemd-networkd**: Manages physical network interfaces, bridge interfaces, static IPs, and VLAN configurations. We bypass Netplan to prevent configuration conflicts when dealing with Mesh Wi-Fi and IWD.
-*   **IWD (iNet Wireless Daemon)**: Handles Wi-Fi client connection and Access Point (AP) mesh capabilities.
-*   **Kea DHCP**: Distributes IPv4/IPv6 addresses. Runs a lease hook library to push lease events to D-Bus in real time.
-*   **nftables**: The Linux firewall framework. Used to configure routing, NAT, static port forwards, and tag-based network isolation.
-*   **Docker & Docker Compose**: The container runtime hosting third-party plugins.
+* **systemd-networkd**: Controls physical interface bindings, bridges, static IPs, and VLAN subinterfaces directly.
+* **IWD (iNet Wireless Daemon)**: Manages Wi-Fi access points and 802.11s mesh networking.
+* **Kea DHCP**: Distributes IPv4/IPv6 address leases. Executes `roost-dhcp-hook` to emit lease commit signals over local D-Bus to `roostos-core`.
+* **nftables**: Manages packet filtering, NAT masquerading, DNS hijacking, and tag-based network isolation via three dynamic sets (`quarantined`, `schedule_blocked`, `admin_blocked`).
+* **Docker / Podman**: Container runtime hosting core service plugins and application workloads.
 
 ---
 
-## 2. Decoupled DNS Architecture
+## 3. Decoupled DNS Architecture
 
-Rather than hardcoding a specific DNS server (like Technitium DNS) into the core `roostd` daemon, RoostOS exposes a standard **D-Bus Interface (`org.roostos.DNSResolver`)**. 
-*   **The DNS Container**: Runs the chosen DNS software (Technitium by default).
-*   **The Sidecar Bridge**: A lightweight container running in the same network namespace. It listens on D-Bus system bus, exposes the `org.roostos.DNSResolver` interface, and translates core command queries into DNS-specific API requests (e.g. Technitium HTTP requests).
-*   **Decoupling Benefit**: Swapping Technitium for AdGuard Home or Pi-hole is as simple as launching a different DNS plugin that implements the same D-Bus interface. The host `roostd` engine remains unchanged.
+RoostOS exposes a standard local **D-Bus Interface (`org.roostos.DNSResolver`)** for DNS containers on the local router host.
+* **The DNS Container**: Runs the chosen DNS engine (Technitium DNS by default).
+* **The Sidecar Bridge**: A lightweight container sharing the DNS container's network namespace (`network_mode: "service:dns-server"`). It mounts the local host D-Bus system bus socket, exposes `org.roostos.DNSResolver`, and translates D-Bus calls into Technitium local HTTP API calls.
+* **MQTT Bridge**: `roostos-core` listens to `org.roostos.DNSResolver` D-Bus events locally and bridges them to MQTT topics (`roostos/dns/#`), enabling remote nodes and `roostos-engine` to manage DNS profiles network-wide.
 
 ---
 
-## 3. Bootstrapping & Security
+## 4. Bootstrapping & Security
 
 ### A. First-Boot Bootstrap DNS
-To resolve the circular dependency where a working DNS server is required to pull the container images (including the DNS plugin itself):
-1.  **Bootstrap Resolution**: During system installation/first boot, the host OS utilizes standard **systemd-resolved** configured to query public upstream DNS resolvers (e.g., `1.1.1.1` or `8.8.8.8`).
-2.  **Plugin Pull**: `roostd` uses this temporary resolution to authenticate, pull, and spin up the Docker DNS resolver container.
-3.  **Active Switch**: Once the DNS container passes its health checks and exposes its local DNS port, the daemon switches the host's `/etc/resolv.conf` symlink to point to `127.0.0.1`.
+1. **Bootstrap Resolution**: During installation, the system uses `systemd-resolved` configured with temporary upstream DNS resolvers (e.g., `1.1.1.1`).
+2. **Plugin Pull**: `roostos-core` uses bootstrap resolution to authenticate, pull, and launch the containerized DNS resolver plugin.
+3. **Active Switch**: Once the DNS container passes health checks, the daemon switches host `/etc/resolv.conf` to `127.0.0.1`.
 
-### B. Cockpit User Account Security
-Cockpit relies on standard Linux PAM authentication. To allow standard users (such as `parent` or `member` roles) to log into the Cockpit Web interface without granting SSH/terminal access:
-1.  **Restricted Shell**: When `roostd` creates these users on the host OS, it sets their default shell to `/usr/sbin/nologin` or `/bin/false`.
-2.  **SSH Lockout**: The system SSH daemon config (`/etc/ssh/sshd_config`) is automatically restricted:
-    ```
-    AllowGroups admin
-    ```
-    This allows non-admin family accounts to log into the web dashboard while strictly preventing them from opening terminal sessions.
+### B. Console Authentication & Security
+* **PAM Integration**: `roostos-web` validates user credentials against Linux PAM (or custom OAuth2 authentication providers), issuing signed JWT access tokens upon login.
+* **Restricted Shells & SSH Lockout**: Standard family user accounts created for dashboard access have default shell set to `/usr/sbin/nologin`. `/etc/ssh/sshd_config` enforces `AllowGroups admin` to prevent non-admin terminal access.
 
 ### C. Automatic HTTPS (Let's Encrypt Integration)
-Cockpit serves its Web interface over port 9090 using SSL certificates stored in `/etc/cockpit/ws-certs.d/`. 
-To ensure secure HTTPS access:
-1.  **ACME Client Integration**: RoostOS uses an integrated ACME client script (such as `acme.sh` or `certbot`) coordinated by `roostd`.
-2.  **DNS-01 Challenge**: The default certification method utilizes the **DNS-01 challenge** (using API credentials for Cloudflare, Namecheap, etc., configured in `system.yaml`). This avoids opening port 80 to the WAN and works behind double-NAT or dynamic IPs.
-3.  **http-01 Fallback**: If DNS-01 is not configured, the daemon can spin up a temporary standalone HTTP challenge server on port 80, requesting the cert from Let's Encrypt.
-4.  **Auto-Load & Reload**: Once generated or renewed, the daemon compiles the private key and certificate into the expected `.cert` format inside `/etc/cockpit/ws-certs.d/` and runs `systemctl reload cockpit.socket`.
+`roostos-web` serves traffic securely over HTTPS:
+1. **ACME Client**: Coordinated by `roostos-engine` using DNS-01 challenge APIs (Cloudflare, Namecheap, etc.) or standalone `http-01` challenge fallback on port 80.
+2. **Cert Reload**: SSL certificates are stored in `/etc/roostos/certs/` and auto-reloaded by `roostos-web`.
 
 ---
 
-## 4. Updates & Maintenance Windows
+## 5. Updates & Maintenance Windows
 
-Keeping a router updated is critical for security. RoostOS splits updates into two categories:
-
-### A. Non-Disruptive Auto-Updates
-*   **Automatic Installs**: RoostOS configures Ubuntu's **`unattended-upgrades`** to automatically download and install minor packages, libraries, and security patches daily.
-*   **No Interruption**: These upgrades happen in the background without affecting routing, DHCP, or firewall operations.
-
-### B. Reboot-Required Updates (Maintenance Windows)
-*   **Pending Detection**: When a kernel update or a core libc patch is installed, Ubuntu writes to `/var/run/reboot-required`.
-*   **D-Bus and UI Signals**: The daemon monitors this file. If it exists:
-    *   Exposes `RebootRequired = true` over D-Bus.
-    *   Displays an "Update Pending Reboot" banner in the Cockpit Web UI, allowing parents/admins to click "Reboot Now".
-*   **Scheduled Reboots**: If not rebooted manually, the daemon checks the maintenance window defined in `system.yaml` (e.g. Sunday at 3:00 AM). When that time matches and `/var/run/reboot-required` exists, the daemon issues a system reboot command.
+* **Non-Disruptive Updates**: Ubuntu `unattended-upgrades` installs security patches daily in the background.
+* **Reboot-Required Detection**: When updates write to `/var/run/reboot-required`, `roostos-engine` detects the flag and exposes `reboot_required` via REST API and MQTT, displaying a banner in `roostos-web` and scheduling reboots during the configured maintenance window (`system.yaml`).
 
 ---
 
-## 5. Built-in Backup & Restore
+## 6. Built-in Backup & Restore
 
-To ensure simple recovery and system migration:
-*   **Backup Contents**: The backup utility packages the entire persistent configuration directory `/etc/roostos/` (all five YAML files) and the transient cache `/var/lib/roostos/state.db` (for DHCP lease and device histories) into a single tarball.
-*   **Cryptography (Security)**: The tarball is optionally encrypted with a user-supplied password using GnuPG (`gpg`) before being made available for download.
-*   **API Methods**:
-    *   `CreateBackup(string passphrase) -> (string backup_path)`: Compresses, encrypts, and returns the path to the backup file.
-    *   `RestoreBackup(string backup_path, string passphrase) -> (bool success)`: Unpacks and decrypts the backup, validates the YAML configurations, and triggers a full system configuration reload.
-*   **UI Integration**: The Cockpit UI features a dedicated **Backups** tab allowing admins to trigger backups, download files locally, or upload an existing backup archive to restore the router's state.
+* **Backup Contents**: Packages `/etc/roostos/` (all 6 YAML files) and `state.db` cache histories into a compressed archive.
+* **Encryption**: Encrypted with AES-256 via GnuPG (`gpg`) using user-supplied passphrases.
+* **REST API**: Exposes `POST /api/v1/system/backup` and `POST /api/v1/system/restore` endpoints.
