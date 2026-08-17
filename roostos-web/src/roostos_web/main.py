@@ -59,11 +59,52 @@ else:
         app.mount("/", StaticFiles(directory=dev_path, html=True), name="static")
 
 
+import argparse
+from roostos_web.di import create_web_injector, set_injector
+from roostos_engine.di import load_providers_settings
+
+
 def main():
-    port = int(os.environ.get("ROOSTOS_PORT", os.environ.get("ROOSTOS_WEB_PORT", 8000)))
-    host = os.environ.get("ROOSTOS_HOST", "0.0.0.0")
-    # Disable reload in production CLI entrypoint to avoid launch issues
-    uvicorn.run("roostos_web.main:app", host=host, port=port)
+    parser = argparse.ArgumentParser(description="RoostOS Web API & UI Service")
+    parser.add_argument("--config-dir", default=os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos"), help="Directory containing RoostOS configuration files")
+    parser.add_argument("--providers-config", default=os.environ.get("ROOSTOS_PROVIDERS_CONFIG"), help="Path to custom providers.yaml")
+    parser.add_argument("--auth-provider", default=os.environ.get("ROOSTOS_AUTH_PROVIDER"), help="Override auth provider: 'pam', 'mock', 'ldap'")
+    parser.add_argument("--config-repo", default=os.environ.get("ROOSTOS_CONFIG_REPO"), help="Override repository: 'staging', 'yaml', 'memory'")
+    parser.add_argument("--system-client", default=os.environ.get("ROOSTOS_SYSTEM_CLIENT"), help="Override system client: 'dbus', 'mock'")
+    parser.add_argument("--cert-manager", default=os.environ.get("ROOSTOS_CERT_MANAGER"), help="Override certificate manager: 'standard', 'mock'")
+    parser.add_argument("--firewall-manager", default=os.environ.get("ROOSTOS_FIREWALL_MANAGER"), help="Override firewall manager: 'nftables', 'mock'")
+    parser.add_argument("--host", default=os.environ.get("ROOSTOS_HOST", "0.0.0.0"), help="Host IP to bind web server")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("ROOSTOS_PORT", os.environ.get("ROOSTOS_WEB_PORT", 8000))), help="Port to bind web server")
+
+    args = parser.parse_args()
+
+    # Configure environmental overrides
+    if args.config_dir:
+        os.environ["ROOSTOS_CONFIG_DIR"] = args.config_dir
+
+    overrides = {
+        "auth_provider": args.auth_provider,
+        "config_repository": args.config_repo,
+        "system_client": args.system_client,
+        "cert_manager": args.cert_manager,
+        "firewall_manager": args.firewall_manager,
+    }
+
+    providers_settings = load_providers_settings(
+        config_dir=args.config_dir,
+        providers_config_path=args.providers_config,
+        overrides=overrides
+    )
+
+    injector = create_web_injector(
+        config_dir=args.config_dir,
+        providers_settings=providers_settings
+    )
+    set_injector(injector)
+
+    print(f"RoostOS Web initialized with providers: auth='{providers_settings.auth_provider}', repo='{providers_settings.config_repository}', client='{providers_settings.system_client}'")
+    uvicorn.run("roostos_web.main:app", host=args.host, port=args.port)
+
 
 if __name__ == "__main__":
     main()

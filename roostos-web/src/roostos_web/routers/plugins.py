@@ -8,14 +8,15 @@ from roostos_engine.config import PluginsConfig, PluginConfig, ContainerConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_admin, UserSession
-from roostos_web.services import PluginsService, get_repository, get_dbus_client
+from roostos_web.services import PluginsService
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["plugins"])
 
 @router.get("/api/plugins")
 async def get_plugins(
     current_user: UserSession = Depends(get_current_user),
-    plugins_service: PluginsService = Depends()
+    plugins_service: PluginsService = Injected(PluginsService)
 ):
     """Returns the list of installed plugin configurations with their container statuses."""
     return {"plugins": await plugins_service.get_plugins_status()}
@@ -24,8 +25,8 @@ async def get_plugins(
 async def upload_plugin_zip(
     file: UploadFile = File(...),
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Installs a plugin package from an uploaded ZIP archive containing a manifest and UI script."""
     import zipfile
@@ -145,8 +146,8 @@ async def upload_plugin_zip(
 async def install_plugin_via_manifest(
     manifest_yaml: str = Body(..., embed=True),
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Installs/registers a plugin directly from its YAML manifest text."""
     import yaml
@@ -158,23 +159,19 @@ async def install_plugin_via_manifest(
     plugin_id = manifest.get("id")
     name = manifest.get("name")
     network_mode = manifest.get("network_mode", "bridge")
+    containers_data = manifest.get("containers", [])
     ui_entrypoint = manifest.get("ui_entrypoint")
-    containers_raw = manifest.get("containers", [])
-
-    if not plugin_id or not name:
-        raise HTTPException(status_code=400, detail="Manifest must contain 'id' and 'name' properties.")
-
-    containers = []
-    for c in containers_raw:
-        try:
-            containers.append(ContainerConfig.model_validate(c))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid container specification in manifest: {e}")
-
+    known_services = manifest.get("known_services", [])
+    
+    if not plugin_id or not name or not containers_data:
+        raise HTTPException(status_code=400, detail="Manifest missing required fields (id, name, containers)")
+        
+    containers = [ContainerConfig(**c) for c in containers_data]
+    
     if ui_entrypoint and containers:
-        primary_image = containers[0].image
+        first_image = containers[0].image
         try:
-            await dbus.extract_plugin_ui(primary_image, ui_entrypoint, plugin_id)
+            await dbus.extract_plugin_ui(first_image, ui_entrypoint, plugin_id)
         except Exception as e:
             assets_dir = os.environ.get("ROOSTOS_WEB_ASSETS", "/usr/share/roostos/web")
             ui_path = os.path.join(assets_dir, "plugins", plugin_id, "ui.js")
@@ -184,18 +181,10 @@ async def install_plugin_via_manifest(
             else:
                 raise HTTPException(status_code=500, detail=f"Failed to extract plugin UI: {e}")
 
-    known_services = []
-    for key in ["known_services", "knownServices", "known_service", "knownService"]:
-        if key in manifest:
-            val = manifest[key]
-            if isinstance(val, list):
-                known_services.extend(val)
-            elif isinstance(val, str):
-                known_services.append(val)
-    known_services = list(dict.fromkeys(known_services))
-
     config = repo.get_config()
     existing_plugins = config.plugins
+    
+    plugin_idx = next((i for i, p in enumerate(existing_plugins) if p.id == plugin_id), None)
     
     new_plugin = PluginConfig(
         id=plugin_id,
@@ -207,7 +196,6 @@ async def install_plugin_via_manifest(
         known_services=known_services
     )
     
-    plugin_idx = next((i for i, p in enumerate(existing_plugins) if p.id == plugin_id), None)
     if plugin_idx is not None:
         existing_plugins[plugin_idx] = new_plugin
     else:
@@ -228,8 +216,8 @@ async def install_plugin(
     network_mode: str = Body("bridge"),
     known_services: Optional[List[str]] = Body(None),
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Installs/registers a plugin, extracts its UI asset from container, and triggers reload."""
     if ui_entrypoint:
@@ -276,8 +264,8 @@ async def toggle_plugin(
     plugin_id: str,
     enabled: bool = Body(..., embed=True),
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Enables or disables an existing plugin."""
     config = repo.get_config()
@@ -299,8 +287,8 @@ async def toggle_plugin(
 async def delete_plugin(
     plugin_id: str,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Deletes/unregisters a plugin config from the system."""
     config = repo.get_config()
@@ -324,7 +312,7 @@ async def service_proxy(
     path: str,
     request: Request,
     current_user: UserSession = Depends(get_current_user),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Reverse proxies request dynamically to the container hosting the plugin service."""
     import httpx

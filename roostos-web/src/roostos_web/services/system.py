@@ -4,15 +4,16 @@ import time
 import datetime
 import subprocess
 from typing import Dict, Any, Optional, List
-from fastapi import Depends
+from injector import inject
 
 from roostos_engine.config import SystemConfig, SystemSettings
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
-from roostos_web.services.base import get_repository, get_dbus_client
+
 
 class SystemService:
-    def __init__(self, repo: ConfigRepository = Depends(get_repository), dbus: RoostClient = Depends(get_dbus_client)):
+    @inject
+    def __init__(self, repo: ConfigRepository, dbus: RoostClient):
         self.repo = repo
         self.dbus = dbus
         self._last_traffic_stats: Dict[str, tuple] = {}

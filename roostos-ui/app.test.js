@@ -66,12 +66,19 @@ const scriptLoadOrder = [
     'js/services/device-service.js',
     'js/services/security-service.js',
     'js/services/system-service.js',
-    // Components
+    // Modular Components
     'js/components/status-component.js',
-    'js/components/network-component.js',
-    'js/components/device-component.js',
-    'js/components/security-components.js',
-    'js/components/management-components.js',
+    'js/components/network-interfaces.js',
+    'js/components/network-bridges.js',
+    'js/components/network-zones.js',
+    'js/components/wifi-management.js',
+    'js/components/dhcp-management.js',
+    'js/components/qos-settings.js',
+    'js/components/network-view.js',
+    'js/components/device-list.js',
+    'js/components/firewall-rules.js',
+    'js/components/people-list.js',
+    'js/components/user-list.js',
     // Main orchestrator
     'app.js'
 ];
@@ -79,7 +86,8 @@ const scriptLoadOrder = [
 for (const scriptRelativePath of scriptLoadOrder) {
     const absolutePath = path.resolve(__dirname, scriptRelativePath);
     if (fs.existsSync(absolutePath)) {
-        const content = fs.readFileSync(absolutePath, 'utf8');
+        let content = fs.readFileSync(absolutePath, 'utf8');
+        content = content.replace(/^export\s+/gm, '');
         eval(content);
     }
 }
@@ -523,3 +531,108 @@ describe('SystemService', () => {
         expect(result[0].name).toBe('Main House');
     });
 });
+
+describe('Network Modular Components', () => {
+    test('NetworkInterfacesComponent renders interfaces and toggles WAN edit form', () => {
+        const comp = document.createElement('roost-network-interfaces');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#interfaces-table')).toBeDefined();
+        expect(comp.querySelector('#iface-row-eth0')).toBeDefined();
+
+        const editBtn = comp.querySelector('#edit-wan-btn');
+        expect(editBtn).toBeDefined();
+        editBtn.click();
+
+        expect(comp.querySelector('#wan-edit-form')).toBeDefined();
+        expect(comp.querySelector('#save-wan-edit-btn')).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('NetworkBridgesComponent renders bridges, VLANs, and handles inline add', () => {
+        const comp = document.createElement('roost-network-bridges');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#bridges-table')).toBeDefined();
+        expect(comp.querySelector('#vlans-table')).toBeDefined();
+
+        const topAddBtn = comp.querySelector('#top-add-bridge-btn');
+        expect(topAddBtn).toBeDefined();
+        topAddBtn.click();
+
+        const inlineAddRow = comp.querySelector('#inline-add-bridge-row');
+        expect(inlineAddRow).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('NetworkZonesComponent renders zone list, top/bottom buttons, and inline add/edit', () => {
+        const comp = document.createElement('roost-network-zones');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#zones-table')).toBeDefined();
+        expect(comp.querySelector('#top-add-zone-btn')).toBeDefined();
+        expect(comp.querySelector('#bottom-add-zone-btn')).toBeDefined();
+
+        // Test inline add insertion
+        comp.querySelector('#top-add-zone-btn').click();
+        expect(comp.querySelector('#zone-form-id')).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('WifiManagementComponent renders access points and inline add', () => {
+        const comp = document.createElement('roost-wifi-management');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#wifi-ap-table')).toBeDefined();
+        expect(comp.querySelector('#top-add-ap-btn')).toBeDefined();
+        expect(comp.querySelector('#bottom-add-ap-btn')).toBeDefined();
+
+        comp.querySelector('#top-add-ap-btn').click();
+        expect(comp.querySelector('#ap-form-ssid')).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('DhcpManagementComponent renders scope and reservations with inline add', () => {
+        const comp = document.createElement('roost-dhcp-management');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#reservations-table')).toBeDefined();
+        expect(comp.querySelector('#leases-table')).toBeDefined();
+        expect(comp.querySelector('#top-add-res-btn')).toBeDefined();
+
+        comp.querySelector('#top-add-res-btn').click();
+        expect(comp.querySelector('#res-form-mac')).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('QosSettingsComponent renders QoS configuration and algorithm options', () => {
+        const comp = document.createElement('roost-qos-settings');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#qos-form')).toBeDefined();
+        expect(comp.querySelector('#qos-algorithm')).toBeDefined();
+        expect(comp.querySelector('#qos-download')).toBeDefined();
+
+        comp.remove();
+    });
+
+    test('NetworkViewComponent renders sub-tabs and switches active sub-tab', () => {
+        const comp = document.createElement('roost-network-view');
+        document.body.appendChild(comp);
+
+        expect(comp.querySelector('#network-subtabs-bar')).toBeDefined();
+        expect(comp.querySelector('#pane-interfaces').style.display).not.toBe('none');
+
+        comp.switchSubtab('bridges');
+        expect(comp.querySelector('#pane-bridges').style.display).toBe('block');
+        expect(comp.querySelector('#pane-interfaces').style.display).toBe('none');
+
+        comp.remove();
+    });
+});
+

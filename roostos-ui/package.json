@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "RoostOS Web UI Assets and Jest Tests",
   "scripts": {
+    "dev": "node mock-server.js",
+    "start": "node mock-server.js",
     "test": "jest"
   },
   "jest": {

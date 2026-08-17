@@ -1,11 +1,12 @@
 from typing import List
-from fastapi import Depends
+from injector import inject
 from roostos_engine.config import SystemConfig, UserConfig
 from roostos_engine.repository import ConfigRepository
-from roostos_web.services.base import get_repository
+
 
 class AuthService:
-    def __init__(self, repo: ConfigRepository = Depends(get_repository)):
+    @inject
+    def __init__(self, repo: ConfigRepository):
         self.repo = repo
 
     def get_users(self) -> List[UserConfig]:

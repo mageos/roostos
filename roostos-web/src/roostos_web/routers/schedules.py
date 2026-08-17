@@ -5,7 +5,8 @@ from typing import Optional
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, get_current_admin, UserSession
-from roostos_web.services import get_repository, get_dbus_client, SystemService
+from roostos_web.services import SystemService
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["schedules"])
 
@@ -25,7 +26,7 @@ class FirewallRuleSchema(BaseModel):
 @router.get("/api/firewall/rules")
 async def get_firewall_rules(
     current_user: UserSession = Depends(get_current_user),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Returns list of configured firewall input rules."""
     config = repo.get_config()
@@ -35,7 +36,7 @@ async def get_firewall_rules(
 async def update_firewall_rule(
     rule: FirewallRuleSchema,
     current_user: UserSession = Depends(get_current_admin),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Creates or updates a firewall input rule by name."""
     success = await dbus.update_firewall_rule(
@@ -55,7 +56,7 @@ async def update_firewall_rule(
 async def delete_firewall_rule(
     name: str,
     current_user: UserSession = Depends(get_current_admin),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Deletes a firewall input rule by name."""
     success = await dbus.delete_firewall_rule(name)
@@ -71,7 +72,7 @@ async def delete_firewall_rule(
 @router.get("/api/schedules")
 async def get_schedules(
     current_user: UserSession = Depends(get_current_user),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Returns configured schedules and firewall port forwards."""
     config = repo.get_config()
@@ -82,7 +83,7 @@ async def grant_bypass(
     mac: str = Body(...),
     duration_minutes: int = Body(...),
     current_user: UserSession = Depends(get_current_parent),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Grants a temporary schedule bypass extension to a device MAC."""
     success = await dbus.grant_time_extension(mac, duration_minutes * 60)
@@ -94,7 +95,7 @@ async def grant_bypass(
 async def revoke_bypass(
     mac: str,
     current_user: UserSession = Depends(get_current_parent),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Revokes any active schedule bypass extension from a device MAC."""
     success = await dbus.remove_time_extension(mac)
@@ -106,7 +107,7 @@ async def revoke_bypass(
 async def create_backup(
     passphrase: str = Body(..., embed=True),
     current_user: UserSession = Depends(get_current_admin),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Triggers configuration backup creation and returns output archive path."""
     backup_path = await dbus.create_backup(passphrase)
@@ -117,7 +118,7 @@ async def restore_backup(
     backup_path: str = Body(...),
     passphrase: str = Body(...),
     current_user: UserSession = Depends(get_current_admin),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Decrypts and restores configurations from backup package."""
     success = await dbus.restore_backup(backup_path, passphrase)
@@ -129,7 +130,7 @@ async def restore_backup(
 async def get_firewall_blocks(
     limit: int = 50,
     current_user: UserSession = Depends(get_current_parent),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Returns recently blocked/dropped firewall packets parsing journalctl."""
     return await system_service.get_firewall_blocks(limit)

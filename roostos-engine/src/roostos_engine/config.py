@@ -41,6 +41,8 @@ from roostos_engine.models import (
     ContainerConfig,
     PluginConfig,
     PluginsConfig,
+    ProvidersSettings,
+    ProvidersConfigFile,
     ActiveLease,
     PendingUPnPRequest,
     BypassGrant,

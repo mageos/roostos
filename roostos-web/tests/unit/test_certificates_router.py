@@ -2,7 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 from roostos_engine.cert_manager import CertificateManager
 from roostos_web.main import app
-from roostos_web.routers.certificates import get_cert_manager
+from roostos_web.di import get_injector, set_injector, create_web_injector
 from roostos_web.auth import create_access_token
 
 @pytest.fixture
@@ -14,9 +14,10 @@ def auth_headers():
 def mock_cert_manager(tmp_path):
     cert_dir = str(tmp_path / "certs")
     cm = CertificateManager(cert_dir=cert_dir)
-    app.dependency_overrides[get_cert_manager] = lambda: cm
+    injector = create_web_injector(cert_dir=cert_dir)
+    injector.binder.bind(CertificateManager, to=cm)
+    set_injector(injector)
     yield cm
-    app.dependency_overrides.pop(get_cert_manager, None)
 
 def test_get_certificates_status(auth_headers):
     client = TestClient(app)

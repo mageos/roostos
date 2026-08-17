@@ -8,7 +8,7 @@ from roostos_engine.repository import ConfigRepository, StagingConfigRepository
 from roostos_engine.git_engine import GitEngine
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_admin, UserSession
-from roostos_web.services import get_repository, get_dbus_client
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["config"])
 
@@ -21,7 +21,7 @@ class RollbackRequest(BaseModel):
 @router.get("/api/config/staged")
 async def get_staged_status(
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Checks if there are any staged/dirty configurations pending commit."""
     if isinstance(repo, StagingConfigRepository):
@@ -42,8 +42,8 @@ async def get_staged_status(
 async def commit_changes(
     request: CommitRequest,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Commits staged configurations, initiates git tracking commit, and triggers daemon apply."""
     if not isinstance(repo, StagingConfigRepository):
@@ -71,7 +71,7 @@ async def commit_changes(
 @router.post("/api/config/discard")
 async def discard_staged_changes(
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Discard all currently staged configurations."""
     if not isinstance(repo, StagingConfigRepository):
@@ -83,7 +83,7 @@ async def discard_staged_changes(
 @router.get("/api/config/history")
 async def get_config_history(
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Returns the list of configuration revisions (git commit log)."""
     active_dir = repo.active_repo.config_dir if isinstance(repo, StagingConfigRepository) else repo.config_dir
@@ -95,8 +95,8 @@ async def get_config_history(
 async def rollback_config(
     request: RollbackRequest,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Restores configurations to a historical git commit reference."""
     active_dir = repo.active_repo.config_dir if isinstance(repo, StagingConfigRepository) else repo.config_dir

@@ -353,6 +353,15 @@ wheels = [
 ]
 
 [[package]]
+name = "injector"
+version = "0.24.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/6c/de0f64b2b8d7d8cd3206bd6fb54ebb0c7c2e2fe0f2d16103756ff1bf803b/injector-0.24.0.tar.gz", hash = "sha256:e85a75d1516cff2f03170f3fd1219f56acb25c9a05e307819ae0dcde3dad3d3f", size = 55988, upload-time = "2026-01-09T12:10:41.782Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5f/db/953aeee405f1466832f212f61496ee07c29f7f027f7591b71b06bd08a418/injector-0.24.0-py3-none-any.whl", hash = "sha256:47294c7a7fdb811f0d1b442a1e0152bb2fc28b2ccaaba4cba44e5e125e0da2d0", size = 21504, upload-time = "2026-01-09T12:10:40.329Z" },
+]
+
+[[package]]
 name = "packaging"
 version = "26.2"
 source = { registry = "https://pypi.org/simple" }
@@ -641,6 +650,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "dbus-next" },
     { name = "docker" },
+    { name = "injector" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -652,6 +662,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "dbus-next", specifier = ">=0.2.3" },
     { name = "docker", specifier = ">=7.0.0" },
+    { name = "injector", specifier = ">=0.21.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -698,6 +709,7 @@ source = { editable = "roostos-web" }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "injector" },
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "python-pam" },
@@ -711,6 +723,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.24.0" },
+    { name = "injector", specifier = ">=0.21.0" },
     { name = "pyjwt", specifier = ">=2.0.0" },
     { name = "python-multipart" },
     { name = "python-pam", specifier = ">=2.0.0" },

@@ -61,7 +61,6 @@ class UserSession(BaseModel):
 def authenticate_user(username: str, password: str) -> bool:
     """Authenticates credentials against local PAM or mock dictionary for testing."""
     mock_auth = os.environ.get("ROOSTOS_MOCK_AUTH")
-    print(f"[AUTH] Attempt: '{username}', ROOSTOS_MOCK_AUTH='{mock_auth}'", file=sys.stderr)
     if mock_auth == "1":
         valid_mocks = {
             "admin": "password",

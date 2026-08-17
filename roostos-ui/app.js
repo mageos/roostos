@@ -117,9 +117,10 @@ window.switchView = function(viewId) {
     if (activePane) activePane.classList.add("active");
 
     const titleEl = document.getElementById("view-title");
+    const categoryEl = document.getElementById("breadcrumb-category");
     const titles = {
         status: "Status Dashboard",
-        networks: "Networks & WiFi APs",
+        networks: "Networks & Interfaces",
         dhcp: "DHCP Server Status",
         vpn: "VPN Connection Tunnels",
         firewall: "Firewall Rules & NAT",
@@ -131,9 +132,26 @@ window.switchView = function(viewId) {
         plugins: "Hosted Sidecar Plugins",
         system: "System Administration"
     };
-    titleEl.textContent = titles[viewId] || (viewId.charAt(0).toUpperCase() + viewId.slice(1) + " Dashboard");
 
-    if (["status", "networks", "dhcp", "vpn", "firewall", "parental", "dns", "system", "people"].includes(viewId)) {
+    const categories = {
+        status: "Overview",
+        networks: "Connectivity",
+        dhcp: "Connectivity",
+        vpn: "Connectivity",
+        firewall: "Security",
+        parental: "Security",
+        dns: "Security",
+        people: "Management",
+        locations: "Management",
+        devices: "Management",
+        plugins: "Management",
+        system: "Management"
+    };
+
+    if (titleEl) titleEl.textContent = titles[viewId] || (viewId.charAt(0).toUpperCase() + viewId.slice(1) + " Dashboard");
+    if (categoryEl) categoryEl.textContent = categories[viewId] || "Overview";
+
+    if (["status", "dhcp", "vpn", "firewall", "parental", "dns", "system", "people"].includes(viewId)) {
         window.switchSubTab(viewId, "basic");
     }
 

@@ -11,6 +11,8 @@ from roostos_web.auth import (
     authenticate_user, create_access_token, get_current_user,
     generate_authorization_code, validate_authorization_code, UserSession
 )
+from roostos_web.interfaces.auth import AuthProvider
+from roostos_web.di import Injected
 from roostos_web.services import get_repository
 
 router = APIRouter(tags=["auth"])
@@ -173,10 +175,11 @@ async def oauth_authorize_post(
     client_id: str = Form(...),
     redirect_uri: str = Form(...),
     username: str = Form(...),
-    password: str = Form(...)
+    password: str = Form(...),
+    auth_provider: AuthProvider = Injected(AuthProvider)
 ):
-    """Processes PAM credentials and redirects back to client with authorization code."""
-    if not authenticate_user(username, password):
+    """Processes credentials via AuthProvider and redirects back to client with authorization code."""
+    if not auth_provider.authenticate(username, password):
         return render_login_page(client_id, redirect_uri, error="Incorrect username or password")
     
     code = generate_authorization_code(username, redirect_uri)
@@ -189,10 +192,6 @@ async def oauth_authorize_post(
 import urllib.parse
 from roostos_engine.cert_manager import CertificateManager
 
-def get_cert_manager() -> CertificateManager:
-    cert_dir = os.environ.get("ROOSTOS_CERT_DIR", "/etc/roostos/certs")
-    return CertificateManager(cert_dir=cert_dir)
-
 @router.post("/oauth/token")
 async def oauth_token(
     response: Response,
@@ -202,8 +201,9 @@ async def oauth_token(
     client_id: Optional[str] = Form(None),
     client_certificate: Optional[str] = Form(None),
     client_assertion: Optional[str] = Form(None),
-    repo: ConfigRepository = Depends(get_repository),
-    cert_mgr: CertificateManager = Depends(get_cert_manager)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    cert_mgr: CertificateManager = Injected(CertificateManager),
+    auth_provider: AuthProvider = Injected(AuthProvider)
 ):
     """Exchanges an authorization code or client certificate for a signed JWT access token."""
     if grant_type == "authorization_code":
@@ -214,7 +214,7 @@ async def oauth_token(
             raise HTTPException(status_code=400, detail="Invalid or expired authorization code")
             
         config = repo.get_config()
-        role, person = resolve_user_role(username, config)
+        role, person = auth_provider.resolve_role(username, config)
      
         token = create_access_token(
             data={"sub": username, "role": role, "person": person}

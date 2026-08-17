@@ -1,41 +1,33 @@
 import os
 from typing import Optional
-from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
+from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 
-# Global Repository & D-Bus Client Dependency Injection Hooks
-_config_repo: Optional[ConfigRepository] = None
-_roost_client: Optional[RoostClient] = None
 
 def get_repository() -> ConfigRepository:
-    global _config_repo
-    if _config_repo is None:
-        config_dir = os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos")
-        staged_dir = os.environ.get(
-            "ROOSTOS_STAGED_CONFIG_DIR",
-            os.path.join(os.path.dirname(config_dir.rstrip("/")), "staged_config") if config_dir != "/etc/roostos" else "/var/lib/roostos/staged_config"
-        )
-        from roostos_engine.repository import StagingConfigRepository
-        _config_repo = StagingConfigRepository(config_dir, staged_dir)
-    return _config_repo
+    from roostos_web.di import get_injector
+    return get_injector().get(ConfigRepository)
+
 
 def set_repository(repo: ConfigRepository):
-    global _config_repo
-    _config_repo = repo
+    from roostos_web.di import get_injector
+    injector = get_injector()
+    injector.binder.bind(ConfigRepository, to=repo)
+
 
 async def get_dbus_client() -> RoostClient:
-    global _roost_client
-    if _roost_client is None or getattr(_roost_client, "_interface", None) is None:
-        session_bus = os.environ.get("ROOSTOS_SESSION_BUS") == "1"
-        client = RoostClient(session=session_bus)
+    from roostos_web.di import get_injector
+    client = get_injector().get(RoostClient)
+    if getattr(client, "_interface", None) is None:
         try:
             await client.connect()
-            _roost_client = client
-        except Exception as e:
-            _roost_client = None
-            raise e
-    return _roost_client
+        except Exception:
+            pass
+    return client
+
 
 def set_dbus_client(client: RoostClient):
-    global _roost_client
-    _roost_client = client
+    from roostos_web.di import get_injector
+    injector = get_injector()
+    injector.binder.bind(RoostClient, to=client)
+

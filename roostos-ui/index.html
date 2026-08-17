@@ -79,7 +79,11 @@
         <!-- 2. Main Panel View Content -->
         <main class="main-content">
             <header class="app-header">
-                <h2 id="view-title">Status Dashboard</h2>
+                <div class="header-breadcrumb">
+                    <span class="breadcrumb-category" id="breadcrumb-category">Overview</span>
+                    <span class="breadcrumb-separator">/</span>
+                    <span class="breadcrumb-title" id="view-title">Status Dashboard</span>
+                </div>
                 <div style="display: flex; align-items: center; gap: 16px;">
                     <div class="system-status">
                         <span class="pulse-dot"></span>
@@ -105,7 +109,13 @@
     <script src="js/components/status-component.js"></script>
     <script src="js/components/people-list.js" type="module"></script>
     <script src="js/components/user-list.js" type="module"></script>
+    <script src="js/components/network-interfaces.js" type="module"></script>
+    <script src="js/components/network-bridges.js" type="module"></script>
     <script src="js/components/network-zones.js" type="module"></script>
+    <script src="js/components/wifi-management.js" type="module"></script>
+    <script src="js/components/dhcp-management.js" type="module"></script>
+    <script src="js/components/qos-settings.js" type="module"></script>
+    <script src="js/components/network-view.js" type="module"></script>
     <script src="js/components/device-list.js" type="module"></script>
     <script src="js/components/firewall-rules.js" type="module"></script>
     <script src="app.js"></script>

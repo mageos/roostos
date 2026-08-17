@@ -38,6 +38,18 @@ deb: bump-version
 install-ui-deps:
 	npm install --prefix roostos-ui
 
+dev:
+	@echo "============================================="
+	@echo "Starting RoostOS Full-Stack Dev Sandbox"
+	@echo "============================================="
+	python3 scripts/run_dev.py
+
+dev-ui:
+	@echo "============================================="
+	@echo "Starting RoostOS Mock UI Dev Server on :3000"
+	@echo "============================================="
+	npm run dev --prefix roostos-ui
+
 test-ui:
 	@echo "============================================="
 	@echo "Running Frontend JavaScript Unit Tests"

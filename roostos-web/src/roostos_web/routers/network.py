@@ -10,7 +10,8 @@ from roostos_engine.config import (
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_admin, UserSession
-from roostos_web.services import NetworkService, get_repository, get_dbus_client
+from roostos_web.services import NetworkService
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["network"])
 
@@ -21,7 +22,7 @@ class DNSConfigSchema(BaseModel):
 @router.get("/api/network")
 async def get_network_config(
     current_user: UserSession = Depends(get_current_parent),
-    network_service: NetworkService = Depends()
+    network_service: NetworkService = Injected(NetworkService)
 ):
     """Returns unified network, wifi, and VPN configurations."""
     config = network_service.get_network_config()
@@ -38,7 +39,7 @@ async def update_network_config(
     wifi: WifiSettings = Body(...),
     vpns: List[VPNConfig] = Body([]),
     current_user: UserSession = Depends(get_current_admin),
-    network_service: NetworkService = Depends()
+    network_service: NetworkService = Injected(NetworkService)
 ):
     await network_service.save_network_config(network, wifi, vpns)
     return {"status": "success", "message": "Network configuration updated successfully."}
@@ -52,8 +53,8 @@ class GuestNetworkSchema(BaseModel):
 async def create_guest_network(
     data: GuestNetworkSchema,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Dynamically registers an isolated Guest AP and guest bridge network."""
     import ipaddress
@@ -113,7 +114,7 @@ async def create_guest_network(
 @router.get("/api/dns/config")
 async def get_dns_config(
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository)
+    repo: ConfigRepository = Injected(ConfigRepository)
 ):
     """Retrieves basic DNS configs (forwarders, ad blocking status) from config."""
     config = repo.get_config()
@@ -127,8 +128,8 @@ async def get_dns_config(
 async def update_dns_config(
     dns_data: DNSConfigSchema,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Updates basic DNS configurations and sets them over D-Bus proxy if active."""
     config = repo.get_config()

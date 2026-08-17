@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from roostos_engine.cert_manager import CertificateManager
 from roostos_web.auth import get_current_user, UserSession
+from roostos_web.di import Injected
 
 router = APIRouter(prefix="/api/v1/system/certificates", tags=["Certificates"])
 
@@ -18,13 +19,9 @@ class IssueCertRequest(BaseModel):
 class VerifyCertRequest(BaseModel):
     cert_pem: str
 
-def get_cert_manager() -> CertificateManager:
-    cert_dir = os.environ.get("ROOSTOS_CERT_DIR", "/etc/roostos/certs")
-    return CertificateManager(cert_dir=cert_dir)
-
 @router.get("", response_model=Dict[str, Any])
 async def get_certificates_status(
-    cert_mgr: CertificateManager = Depends(get_cert_manager),
+    cert_mgr: CertificateManager = Injected(CertificateManager),
     current_user: UserSession = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """Returns status of Root CA, Web Console HTTPS TLS certificate, service certs, and sidecar plugin mTLS certificates."""
@@ -38,7 +35,7 @@ async def get_certificates_status(
 
 @router.post("/renew", response_model=Dict[str, Any])
 async def renew_server_certificate(
-    cert_mgr: CertificateManager = Depends(get_cert_manager),
+    cert_mgr: CertificateManager = Injected(CertificateManager),
     current_user: UserSession = Depends(get_current_user)
 ) -> Dict[str, Any]:
     """Triggers server HTTPS TLS certificate renewal."""
@@ -59,7 +56,7 @@ async def renew_server_certificate(
 @router.post("/issue", response_model=Dict[str, str])
 async def issue_certificate(
     payload: IssueCertRequest,
-    cert_mgr: CertificateManager = Depends(get_cert_manager),
+    cert_mgr: CertificateManager = Injected(CertificateManager),
     current_user: UserSession = Depends(get_current_user)
 ) -> Dict[str, str]:
     """Issues an X.509 client certificate for a system service or plugin (Admin restricted)."""
@@ -89,7 +86,7 @@ async def issue_certificate(
 @router.post("/verify", response_model=Dict[str, Any])
 async def verify_certificate(
     payload: VerifyCertRequest,
-    cert_mgr: CertificateManager = Depends(get_cert_manager)
+    cert_mgr: CertificateManager = Injected(CertificateManager)
 ) -> Dict[str, Any]:
     """Verifies a client certificate against Root CA and returns parsed claims/scopes."""
     try:

@@ -1,7 +1,7 @@
 import os
 import yaml
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from roostos_engine.models.system import (
     SystemHTTPSConfig,
@@ -55,6 +55,10 @@ from roostos_engine.models.plugins import (
     PluginConfig,
     PluginsConfig,
 )
+from roostos_engine.models.providers import (
+    ProvidersSettings,
+    ProvidersConfigFile,
+)
 from roostos_engine.models.state import (
     ActiveLease,
     PendingUPnPRequest,
@@ -78,6 +82,7 @@ class RoostConfig(BaseModel):
     firewall: FirewallSettings
     schedules: List[ScheduleConfig]
     plugins: List[PluginConfig]
+    providers: Optional[ProvidersSettings] = Field(default_factory=ProvidersSettings)
 
     @model_validator(mode="after")
     def validate_cross_references(self) -> "RoostConfig":
@@ -164,6 +169,7 @@ def load_config_directory(config_dir: str) -> RoostConfig:
         "schedules.yaml": (SchedulesConfig, "schedules"),
         "firewall.yaml": (FirewallConfig, "firewall"),
         "plugins.yaml": (PluginsConfig, "plugins"),
+        "providers.yaml": (ProvidersConfigFile, "providers"),
     }
 
     raw_data: Dict[str, Any] = {}
@@ -223,6 +229,8 @@ def load_config_directory(config_dir: str) -> RoostConfig:
                     firewall_settings.rules = parsed.firewall.rules
         elif namespace == "plugins":
             raw_data["plugins"] = parsed.plugins
+        elif namespace == "providers":
+            raw_data["providers"] = parsed.providers
 
     raw_data["firewall"] = firewall_settings
     raw_data["schedules"] = schedules_list

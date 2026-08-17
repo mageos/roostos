@@ -12,6 +12,7 @@ dependencies = [
     "docker>=7.0.0",
     "prompt-toolkit>=3.0.0",
     "cryptography>=42.0.0",
+    "injector>=0.21.0",
 ]
 
 [project.scripts]

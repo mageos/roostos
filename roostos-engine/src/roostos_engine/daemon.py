@@ -899,19 +899,39 @@ async def start_daemon(config_dir: str, bus_type: BusType = BusType.SYSTEM, mock
 
 def main():
     import argparse
+    from roostos_engine.di import load_providers_settings
     parser = argparse.ArgumentParser(description="RoostOS Engine core daemon service")
-    parser.add_argument("--config-dir", default="/etc/roostos", help="Path to split configurations folder")
+    parser.add_argument("--config-dir", default=os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos"), help="Path to split configurations folder")
+    parser.add_argument("--providers-config", default=os.environ.get("ROOSTOS_PROVIDERS_CONFIG"), help="Path to custom providers.yaml")
+    parser.add_argument("--config-repo", default=os.environ.get("ROOSTOS_CONFIG_REPO"), help="Override repository: 'staging', 'yaml', 'memory'")
+    parser.add_argument("--firewall-manager", default=os.environ.get("ROOSTOS_FIREWALL_MANAGER"), help="Override firewall manager: 'nftables', 'mock'")
+    parser.add_argument("--cert-manager", default=os.environ.get("ROOSTOS_CERT_MANAGER"), help="Override certificate manager: 'standard', 'mock'")
     parser.add_argument("--session", action="store_true", help="Force connecting to Session D-Bus bus instead of System D-Bus")
     parser.add_argument("--mock", action="store_true", help="Force mock mode, bypassing system modifications")
     args = parser.parse_args()
 
     bus_type = BusType.SESSION if args.session else BusType.SYSTEM
+
+    overrides = {
+        "config_repository": args.config_repo,
+        "firewall_manager": args.firewall_manager,
+        "cert_manager": args.cert_manager,
+    }
+    if args.mock:
+        overrides["firewall_manager"] = "mock"
+
+    providers_settings = load_providers_settings(
+        config_dir=args.config_dir,
+        providers_config_path=args.providers_config,
+        overrides=overrides
+    )
     
     try:
-        asyncio.run(start_daemon(args.config_dir, bus_type, args.mock))
+        asyncio.run(start_daemon(args.config_dir, bus_type, args.mock or providers_settings.firewall_manager == "mock"))
     except KeyboardInterrupt:
         pass
     print("Daemon stopped cleanly.")
+
 
 if __name__ == "__main__":
     main()

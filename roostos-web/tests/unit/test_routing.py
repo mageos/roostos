@@ -53,12 +53,24 @@ class DummyConfigRepository(ConfigRepository):
         pass
 
 
+from roostos_engine.models.providers import ProvidersSettings
+from roostos_web.di import create_web_injector, set_injector
+
 @pytest.fixture
-def mock_dependencies():
+def mock_dependencies(tmp_path):
     repo = DummyConfigRepository()
     dbus = AsyncMock(spec=RoostClient)
     dbus.get_active_leases.return_value = []
     
+    injector = create_web_injector(
+        config_dir=str(tmp_path),
+        dbus_client=dbus,
+        providers_settings=ProvidersSettings(auth_provider="mock", config_repository="memory", system_client="mock")
+    )
+    injector.binder.bind(ConfigRepository, to=repo)
+    injector.binder.bind(RoostClient, to=dbus)
+    set_injector(injector)
+
     app.dependency_overrides[get_repository] = lambda: repo
     app.dependency_overrides[get_dbus_client] = lambda: dbus
     yield repo, dbus

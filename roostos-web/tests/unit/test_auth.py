@@ -115,18 +115,20 @@ def test_oauth_token_client_certificate_auth(tmp_path):
     from fastapi.testclient import TestClient
     from roostos_web.main import app
     from roostos_engine.cert_manager import CertificateManager
-    from roostos_web.routers.auth import get_cert_manager
-    from roostos_web.services import get_repository
-    from roostos_engine.repository import YAMLConfigRepository
+    from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
+    from roostos_web.di import create_web_injector, set_injector
 
     cert_dir = str(tmp_path / "certs")
     cm = CertificateManager(cert_dir=cert_dir)
-    app.dependency_overrides[get_cert_manager] = lambda: cm
 
     config_dir = str(tmp_path / "config")
     os.makedirs(config_dir, exist_ok=True)
     mock_repo = YAMLConfigRepository(config_dir=config_dir)
-    app.dependency_overrides[get_repository] = lambda: mock_repo
+
+    injector = create_web_injector(config_dir=config_dir, cert_dir=cert_dir)
+    injector.binder.bind(CertificateManager, to=cm)
+    injector.binder.bind(ConfigRepository, to=mock_repo)
+    set_injector(injector)
 
     # Issue a service cert
     cert_data = cm.issue_service_cert("timeguardd", ["timeguard:sync", "devices:read"])
@@ -162,9 +164,6 @@ def test_oauth_token_client_certificate_auth(tmp_path):
         "client_certificate": other_cert["cert_pem"]
     })
     assert untrusted_resp.status_code == 401
-
-    app.dependency_overrides.pop(get_cert_manager, None)
-    app.dependency_overrides.pop(get_repository, None)
 
 
 

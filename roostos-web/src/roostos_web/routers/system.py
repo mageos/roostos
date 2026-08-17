@@ -6,7 +6,8 @@ from roostos_engine.config import SystemConfig, UserConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, get_current_admin, UserSession
-from roostos_web.services import SystemService, AuthService, get_repository, get_dbus_client
+from roostos_web.services import SystemService, AuthService
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["system"])
 
@@ -18,7 +19,7 @@ class UserManagementSchema(BaseModel):
 @router.get("/api/system")
 async def get_system_config(
     current_user: UserSession = Depends(get_current_parent),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Returns the system configuration settings namespace along with real-time stats."""
     return await system_service.get_system_config()
@@ -30,7 +31,7 @@ async def update_system_config(
     domain: str = Body(...),
     timezone: str = Body(...),
     docker_registry: Optional[str] = Body(""),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Updates global system properties (hostname, domain name, timezone) and pushes changes to host."""
     await system_service.update_system_config(hostname, domain, timezone, docker_registry)
@@ -39,7 +40,7 @@ async def update_system_config(
 @router.get("/api/system/health")
 async def get_system_health(
     current_user: UserSession = Depends(get_current_user),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Runs a series of system diagnostics checks to verify router network/firewall integrity."""
     return await system_service.run_diagnostics()
@@ -47,7 +48,7 @@ async def get_system_health(
 @router.post("/api/system/reboot")
 async def reboot_router(
     current_user: UserSession = Depends(get_current_admin),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Initiates a graceful reboot of the underlying hardware/hypervisor VM."""
     await system_service.reboot_router()
@@ -56,7 +57,7 @@ async def reboot_router(
 @router.get("/api/users")
 async def get_users_list(
     current_user: UserSession = Depends(get_current_parent),
-    auth_service: AuthService = Depends()
+    auth_service: AuthService = Injected(AuthService)
 ):
     """Returns list of Web login users."""
     users = auth_service.get_users()
@@ -66,8 +67,8 @@ async def get_users_list(
 async def save_user(
     user_data: UserManagementSchema,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Creates or updates a user operator profile in system.yaml."""
     if user_data.role not in ("admin", "parent", "member"):
@@ -110,8 +111,8 @@ async def save_user(
 async def delete_user(
     username: str,
     current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Deletes a user account from system.yaml."""
     config = repo.get_config()
@@ -135,7 +136,7 @@ async def delete_user(
 @router.get("/api/system/services")
 async def get_system_services(
     current_user: UserSession = Depends(get_current_parent),
-    system_service: SystemService = Depends()
+    system_service: SystemService = Injected(SystemService)
 ):
     """Returns active state and substate for core system services."""
     return await system_service.get_services_status()

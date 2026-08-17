@@ -1,13 +1,14 @@
 from typing import List
-from fastapi import Depends
+from injector import inject
 
 from roostos_engine.config import NetworkConfig, VPNConfig, NetworkSettings, WifiSettings
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
-from roostos_web.services.base import get_repository, get_dbus_client
+
 
 class NetworkService:
-    def __init__(self, repo: ConfigRepository = Depends(get_repository), dbus: RoostClient = Depends(get_dbus_client)):
+    @inject
+    def __init__(self, repo: ConfigRepository, dbus: RoostClient):
         self.repo = repo
         self.dbus = dbus
 

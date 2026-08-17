@@ -1,7 +1,5 @@
 /**
  * NetworkZonesComponent - Web Component for Network Zone Management
- * Uses top-of-file module-scoped HTML template helpers tagged with html\`...\`
- * for full IDE syntax highlighting, auto-completion, and separation of UI templates from class logic.
  */
 
 const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
@@ -46,10 +44,10 @@ const renderZoneRowTemplate = (z) => html`
     <tr id="zone-row-${z.id}">
         <td><code>${z.id}</code></td>
         <td><strong>${z.name}</strong></td>
-        <td>${(z.interfaces || []).map(i => html`<span class="badge badge-secondary">${i}</span>`).join(" ")}</td>
+        <td>${(z.interfaces || []).map(i => html`<span class="badge badge-secondary">${i}</span>`).join(" ") || "<em>None</em>"}</td>
         <td>${(z.allow_zones || []).map(az => html`<span class="badge badge-info">${az}</span>`).join(" ") || "<em>None (Drop)</em>"}</td>
         <td><span class="badge ${z.isolate ? "badge-danger" : "badge-success"}">${z.isolate ? "Isolated" : "Open"}</span></td>
-        <td><span class="badge">${z.masquerade ? "MASQUERADE" : "No NAT"}</span></td>
+        <td><span class="badge ${z.masquerade ? "badge-warning" : "badge-outline"}">${z.masquerade ? "MASQUERADE" : "No NAT"}</span></td>
         <td>
             <button class="btn btn-secondary btn-sm edit-zone-btn" data-id="${z.id}">Edit</button>
             <button class="btn btn-danger btn-sm delete-zone-btn" data-id="${z.id}">Delete</button>
@@ -57,26 +55,26 @@ const renderZoneRowTemplate = (z) => html`
     </tr>
 `;
 
-const renderInlineAddZoneRowTemplate = () => html`
-    <tr class="inline-add-row">
-        <td><input type="text" class="inline-input" id="add-zone-id" placeholder="e.g. dmz"></td>
-        <td><input type="text" class="inline-input" id="add-zone-name" placeholder="e.g. Public DMZ"></td>
-        <td><input type="text" class="inline-input" id="add-zone-interfaces" placeholder="e.g. eth2, vlan-dmz"></td>
-        <td><input type="text" class="inline-input" id="add-zone-allows" placeholder="e.g. wan"></td>
+const renderInlineZoneFormTemplate = (z = {}, isEdit = false) => html`
+    <tr class="${isEdit ? "inline-edit-row" : "inline-add-row"}" id="${isEdit ? `edit-zone-row-${z.id}` : "inline-add-zone-row"}">
+        <td><input type="text" class="inline-input" id="zone-form-id" value="${z.id || ""}" ${isEdit ? "disabled" : ""} placeholder="e.g. dmz"></td>
+        <td><input type="text" class="inline-input" id="zone-form-name" value="${z.name || ""}" placeholder="e.g. Public DMZ"></td>
+        <td><input type="text" class="inline-input" id="zone-form-interfaces" value="${(z.interfaces || []).join(", ")}" placeholder="eth2, vlan-dmz"></td>
+        <td><input type="text" class="inline-input" id="zone-form-allows" value="${(z.allow_zones || []).join(", ")}" placeholder="wan"></td>
         <td>
             <label class="checkbox-container">
-                <input type="checkbox" id="add-zone-isolate" checked> Isolate
+                <input type="checkbox" id="zone-form-isolate" ${z.isolate ? "checked" : ""}> Isolate
             </label>
         </td>
         <td>
             <label class="checkbox-container">
-                <input type="checkbox" id="add-zone-masq"> NAT
+                <input type="checkbox" id="zone-form-masq" ${z.masquerade ? "checked" : ""}> NAT
             </label>
         </td>
         <td>
             <div class="inline-form-controls">
-                <button class="btn btn-success btn-sm" id="save-inline-zone-btn">Save</button>
-                <button class="btn btn-secondary btn-sm" id="cancel-inline-zone-btn">Cancel</button>
+                <button class="btn btn-success btn-sm" id="save-zone-form-btn">Save</button>
+                <button class="btn btn-secondary btn-sm" id="cancel-zone-form-btn">Cancel</button>
             </div>
         </td>
     </tr>
@@ -94,9 +92,7 @@ export class NetworkZonesComponent extends HTMLElement {
     }
 
     setZones(zoneList) {
-        if (zoneList && zoneList.length > 0) {
-            this.zones = zoneList;
-        }
+        if (zoneList && zoneList.length > 0) this.zones = zoneList;
         this.render();
     }
 
@@ -111,41 +107,83 @@ export class NetworkZonesComponent extends HTMLElement {
         this.querySelectorAll("#top-add-zone-btn, #bottom-add-zone-btn").forEach(btn => {
             btn.onclick = () => this.showInlineAddRow();
         });
+
+        this.querySelectorAll(".edit-zone-btn").forEach(btn => {
+            btn.onclick = () => this.showInlineEditRow(btn.dataset.id);
+        });
+
+        this.querySelectorAll(".delete-zone-btn").forEach(btn => {
+            btn.onclick = () => {
+                const id = btn.dataset.id;
+                this.zones = this.zones.filter(z => z.id !== id);
+                this.render();
+                if (this.onSave) this.onSave(this.zones);
+            };
+        });
     }
 
     showInlineAddRow() {
         const tbody = this.querySelector("#zones-tbody");
         if (!tbody || tbody.querySelector(".inline-add-row")) return;
 
-        const tempContainer = document.createElement("tbody");
-        tempContainer.innerHTML = renderInlineAddZoneRowTemplate();
-        const addTr = tempContainer.firstElementChild;
-
+        const temp = document.createElement("tbody");
+        temp.innerHTML = renderInlineZoneFormTemplate({}, false);
+        const addTr = temp.firstElementChild;
         tbody.insertBefore(addTr, tbody.firstChild);
 
-        addTr.querySelector("#save-inline-zone-btn").onclick = () => {
-            const id = addTr.querySelector("#add-zone-id").value.trim();
-            const name = addTr.querySelector("#add-zone-name").value.trim();
-            const ifacesStr = addTr.querySelector("#add-zone-interfaces").value.trim();
-            const allowsStr = addTr.querySelector("#add-zone-allows").value.trim();
-            const isolate = addTr.querySelector("#add-zone-isolate").checked;
-            const masquerade = addTr.querySelector("#add-zone-masq").checked;
+        addTr.querySelector("#save-zone-form-btn").onclick = () => {
+            const id = addTr.querySelector("#zone-form-id").value.trim();
+            const name = addTr.querySelector("#zone-form-name").value.trim();
+            const ifacesStr = addTr.querySelector("#zone-form-interfaces").value.trim();
+            const allowsStr = addTr.querySelector("#zone-form-allows").value.trim();
+            const isolate = addTr.querySelector("#zone-form-isolate").checked;
+            const masquerade = addTr.querySelector("#zone-form-masq").checked;
 
-            if (!id || !name) {
-                alert("Zone ID and Name are required.");
-                return;
-            }
+            if (!id || !name) { alert("Zone ID and Name are required."); return; }
 
             const interfaces = ifacesStr ? ifacesStr.split(",").map(s => s.trim()) : [];
             const allow_zones = allowsStr ? allowsStr.split(",").map(s => s.trim()) : [];
 
-            const newZone = { id, name, interfaces, isolate, allow_zones, masquerade };
-            this.zones.push(newZone);
+            this.zones.push({ id, name, interfaces, isolate, allow_zones, masquerade });
             this.render();
             if (this.onSave) this.onSave(this.zones);
         };
 
-        addTr.querySelector("#cancel-inline-zone-btn").onclick = () => addTr.remove();
+        addTr.querySelector("#cancel-zone-form-btn").onclick = () => addTr.remove();
+    }
+
+    showInlineEditRow(zoneId) {
+        const targetRow = this.querySelector(`#zone-row-${zoneId}`);
+        const zone = this.zones.find(z => z.id === zoneId);
+        if (!targetRow || !zone) return;
+
+        const temp = document.createElement("tbody");
+        temp.innerHTML = renderInlineZoneFormTemplate(zone, true);
+        const editTr = temp.firstElementChild;
+
+        targetRow.style.display = "none";
+        targetRow.parentNode.insertBefore(editTr, targetRow.nextSibling);
+
+        editTr.querySelector("#save-zone-form-btn").onclick = () => {
+            zone.name = editTr.querySelector("#zone-form-name").value.trim();
+            const ifacesStr = editTr.querySelector("#zone-form-interfaces").value.trim();
+            const allowsStr = editTr.querySelector("#zone-form-allows").value.trim();
+            zone.isolate = editTr.querySelector("#zone-form-isolate").checked;
+            zone.masquerade = editTr.querySelector("#zone-form-masq").checked;
+
+            if (!zone.name) { alert("Zone Name is required."); return; }
+
+            zone.interfaces = ifacesStr ? ifacesStr.split(",").map(s => s.trim()) : [];
+            zone.allow_zones = allowsStr ? allowsStr.split(",").map(s => s.trim()) : [];
+
+            this.render();
+            if (this.onSave) this.onSave(this.zones);
+        };
+
+        editTr.querySelector("#cancel-zone-form-btn").onclick = () => {
+            editTr.remove();
+            targetRow.style.display = "";
+        };
     }
 }
 

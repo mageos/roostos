@@ -2,19 +2,30 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
-from roostos_engine.repository import StagingConfigRepository
+from roostos_engine.repository import ConfigRepository, StagingConfigRepository
+from roostos_engine.models.providers import ProvidersSettings
+from roostos_sdk.client import RoostClient
 from roostos_web.main import app, get_repository, get_dbus_client
+from roostos_web.di import create_web_injector, set_injector
 from roostos_web.auth import create_access_token
 
 @pytest.fixture
-def mock_staging_repo():
+def mock_staging_repo(tmp_path):
     repo = MagicMock(spec=StagingConfigRepository)
-    repo.staged_dir = "/tmp/staged_test"
+    repo.staged_dir = str(tmp_path / "staged")
     repo.has_staged_changes.return_value = True
     repo.active_repo = MagicMock()
-    repo.active_repo.config_dir = "/tmp/active_test"
+    repo.active_repo.config_dir = str(tmp_path / "active")
     
     dbus = AsyncMock()
+
+    injector = create_web_injector(
+        config_dir=str(tmp_path),
+        providers_settings=ProvidersSettings(auth_provider="mock", config_repository="staging", system_client="mock")
+    )
+    injector.binder.bind(ConfigRepository, to=repo)
+    injector.binder.bind(RoostClient, to=dbus)
+    set_injector(injector)
     
     app.dependency_overrides[get_repository] = lambda: repo
     app.dependency_overrides[get_dbus_client] = lambda: dbus

@@ -23,10 +23,13 @@ class CertificateManager:
         self.services_cert_dir = os.path.join(cert_dir, "services")
         self.server_cert_dir = os.path.join(cert_dir, "server")
 
-        os.makedirs(self.cert_dir, exist_ok=True)
-        os.makedirs(self.plugins_cert_dir, exist_ok=True)
-        os.makedirs(self.services_cert_dir, exist_ok=True)
-        os.makedirs(self.server_cert_dir, exist_ok=True)
+        try:
+            os.makedirs(self.cert_dir, exist_ok=True)
+            os.makedirs(self.plugins_cert_dir, exist_ok=True)
+            os.makedirs(self.services_cert_dir, exist_ok=True)
+            os.makedirs(self.server_cert_dir, exist_ok=True)
+        except PermissionError:
+            pass
 
     def ensure_root_ca(self) -> Tuple[x509.Certificate, rsa.RSAPrivateKey]:
         """Generates or loads the local RoostOS Root CA certificate and private key."""

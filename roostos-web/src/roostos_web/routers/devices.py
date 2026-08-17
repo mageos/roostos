@@ -7,14 +7,15 @@ from roostos_engine.config import (
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, UserSession
-from roostos_web.services import DeviceService, get_repository, get_dbus_client
+from roostos_web.services import DeviceService
+from roostos_web.di import Injected
 
 router = APIRouter(tags=["devices"])
 
 @router.get("/api/devices")
 async def get_devices(
     current_user: UserSession = Depends(get_current_user),
-    device_service: DeviceService = Depends()
+    device_service: DeviceService = Injected(DeviceService)
 ):
     """Returns registered device list along with active DHCP leases and active ARP table entries."""
     config = device_service.get_devices_config()
@@ -38,7 +39,7 @@ async def register_device(
     max_upload_kbps: Optional[int] = Body(None),
     max_download_kbps: Optional[int] = Body(None),
     current_user: UserSession = Depends(get_current_parent),
-    device_service: DeviceService = Depends()
+    device_service: DeviceService = Injected(DeviceService)
 ):
     """Registers or updates a device profile by saving configuration and triggering daemon reload."""
     config = device_service.get_devices_config()
@@ -85,7 +86,7 @@ async def register_device(
 async def delete_device(
     mac: str,
     current_user: UserSession = Depends(get_current_parent),
-    dbus: RoostClient = Depends(get_dbus_client)
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Removes a registered device profile by MAC address."""
     success = await dbus.delete_device(mac)
@@ -96,7 +97,7 @@ async def delete_device(
 @router.get("/api/people")
 async def get_people(
     current_user: UserSession = Depends(get_current_user),
-    device_service: DeviceService = Depends()
+    device_service: DeviceService = Injected(DeviceService)
 ):
     """Returns the list of registered family profile people."""
     config = device_service.get_devices_config()
@@ -108,8 +109,8 @@ async def save_person(
     name: str = Body(...),
     dns_profile: Optional[str] = Body(None),
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Creates or updates a family member profile."""
     config = repo.get_config()
@@ -135,8 +136,8 @@ async def save_person(
 async def delete_person(
     person_id: str,
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Removes a family member profile."""
     config = repo.get_config()
@@ -159,7 +160,7 @@ async def delete_person(
 @router.get("/api/buildings")
 async def get_buildings(
     current_user: UserSession = Depends(get_current_user),
-    device_service: DeviceService = Depends()
+    device_service: DeviceService = Injected(DeviceService)
 ):
     """Returns the list of configured physical buildings/structures."""
     config = device_service.get_devices_config()
@@ -170,8 +171,8 @@ async def save_building(
     id: str = Body(...),
     name: str = Body(...),
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Creates or updates a building profile."""
     config = repo.get_config()
@@ -197,8 +198,8 @@ async def save_building(
 async def delete_building(
     building_id: str,
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Removes a building profile."""
     config = repo.get_config()
@@ -221,7 +222,7 @@ async def delete_building(
 @router.get("/api/rooms")
 async def get_rooms(
     current_user: UserSession = Depends(get_current_user),
-    device_service: DeviceService = Depends()
+    device_service: DeviceService = Injected(DeviceService)
 ):
     """Returns the list of rooms/locations inside buildings."""
     config = device_service.get_devices_config()
@@ -233,8 +234,8 @@ async def save_room(
     name: str = Body(...),
     building: str = Body(...),
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Creates or updates a room configuration."""
     config = repo.get_config()
@@ -260,8 +261,8 @@ async def save_room(
 async def delete_room(
     room_id: str,
     current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Depends(get_repository),
-    dbus: RoostClient = Depends(get_dbus_client)
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient)
 ):
     """Removes a room configuration."""
     config = repo.get_config()
