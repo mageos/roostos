@@ -1,0 +1,20 @@
+system:
+  hostname: roost-router-test
+  domain: test.lan
+  timezone: America/New_York
+  https:
+    enabled: false
+    domain: router.test.lan
+  updates:
+    auto_install: false
+    auto_reboot: false
+users:
+  - username: admin
+    role: admin
+    person: dad_profile
+  - username: mom
+    role: parent
+    person: mom_profile
+  - username: kid1
+    role: member
+    person: alice_profile

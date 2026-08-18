@@ -1,0 +1,19 @@
+network:
+  interfaces:
+    - name: eth0
+      role: wan
+      dhcp: true
+    - name: eth1
+      role: lan
+      bridge: br0
+  bridges:
+    - name: br0
+      ip: 172.30.2.1/24
+  gateways:
+    - id: default
+      name: Direct WAN
+      interface: eth0
+    - id: vpn_eu
+      name: WireGuard Netherlands Gateway
+      interface: wg-vpn-eu
+      type: static

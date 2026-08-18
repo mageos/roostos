@@ -1,0 +1,13 @@
+schedules:
+  - id: bedtime_kids
+    name: Kids Bedtime
+    target:
+      type: tag
+      value: kids
+    window:
+      start: "21:00"
+      end: "06:00"
+      days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    action: block
+allowances: []
+bypasses: []

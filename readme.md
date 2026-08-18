@@ -39,6 +39,7 @@ Before modifying the system, review the architectural blueprints and configurati
 *   **[Configuration Schema](file:///home/matt/source/github/mageos/roostos/docs/config_schema.md)**: Documents the split configuration files under `/etc/roostos/`, including shared Domain Objects (Devices, Persons, Locations) and sidecar plugin settings.
 *   **[Device Management & State Engine](file:///home/matt/source/github/mageos/roostos/docs/device_management.md)**: Explains the real-time DHCP lease discovery pipeline, the transient SQLite cache schema, and how nftables dynamic sets enforce bedtime schedules and daily time limits.
 *   **[Extensibility & Plugins Guide](file:///home/matt/source/github/mageos/roostos/docs/extensibility.md)**: Details how to build and package third-party extensions as Docker containers, the `org.roostos.DNSResolver` D-Bus API, sidecar network namespace sharing, and how to use the `roostos-sdk`.
+*   **[Multi-Node Test Harness](file:///home/matt/source/github/mageos/roostos/docs/test_harness.md)**: Explains the containerized multi-node virtual network environment, real socket automation testing with pytest, manual Web UI testing mode, and deployment scenarios.
 
 ---
 

@@ -1,0 +1,29 @@
+people:
+  - id: dad_profile
+    name: Dad
+  - id: mom_profile
+    name: Mom
+  - id: alice_profile
+    name: Alice (Kid)
+buildings:
+  - id: main_house
+    name: Main House
+rooms:
+  - id: living_room
+    name: Living Room
+    building: main_house
+  - id: kids_room
+    name: Kids Room
+    building: main_house
+devices:
+  - mac: "02:42:ac:1e:02:32"
+    name: "LAN Test Client"
+    owner: alice_profile
+    location: kids_room
+    tags: ["kids", "test-client"]
+    static_ip: "172.30.2.50"
+  - mac: "02:42:ac:1e:03:32"
+    name: "Guest Test Client"
+    location: living_room
+    tags: ["guest"]
+    static_ip: "172.30.3.50"

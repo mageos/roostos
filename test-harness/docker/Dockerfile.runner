@@ -1,0 +1,31 @@
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    iputils-ping \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+RUN pip install --no-cache-dir \
+    pytest>=8.0.0 \
+    pytest-asyncio>=0.23.0 \
+    pytest-httpx>=0.30.0 \
+    httpx \
+    pydantic>=2.0.0 \
+    docker \
+    pyyaml \
+    dbus-next
+
+# Copy and install the roostos-sdk Debian package to validate package installation
+COPY dist/debs/ /tmp/debs/
+RUN if ls /tmp/debs/roostos-sdk_*.deb 1>/dev/null 2>&1; then \
+        dpkg -i /tmp/debs/roostos-sdk_*.deb || true; \
+    fi && rm -rf /tmp/debs
+
+ENV PYTHONPATH="/workspace"
+
+CMD ["pytest", "tests/automation/", "-v", "--tb=short"]

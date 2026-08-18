@@ -60,20 +60,53 @@ test: test-ui
 	@echo "============================================="
 	@echo "Running Backend Python Unit Tests"
 	@echo "============================================="
-	.venv/bin/pytest roostos-engine/tests/ roostos-web/tests/unit/
+	.venv/bin/pytest tests/harness/ tests/automation/test_scenarios.py roostos-engine/tests/ roostos-web/tests/unit/
+
+test-harness:
+	@echo "============================================="
+	@echo "Running Containerized Multi-Node Test Harness"
+	@echo "============================================="
+	python3 scripts/run_test_harness.py
+
+test-harness-up:
+	@echo "============================================="
+	@echo "Starting Interactive Test Harness (Web: :8080)"
+	@echo "============================================="
+	python3 scripts/run_test_harness.py --interactive
+
+test-harness-down:
+	@echo "============================================="
+	@echo "Tearing Down Test Harness Containers"
+	@echo "============================================="
+	python3 scripts/run_test_harness.py --down
+
+test-harness-logs:
+	docker compose -f test-harness/docker-compose.yml logs -f
+
+test-harness-scenario:
+	@echo "============================================="
+	@echo "Running Test Harness with Scenario: $(SCENARIO)"
+	@echo "============================================="
+	python3 scripts/run_test_harness.py --scenario $(SCENARIO)
 
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf build-deb-tmp
+	rm -rf test-harness/staged-config
 	rm -f roostos_*.deb
 	rm -f *.tar
 
 help:
 	@echo "Available targets:"
-	@echo "  all     - Build all Docker images and the Debian package (default)"
-	@echo "  images  - Build the roostos-dns-technitium docker image"
-	@echo "  push    - Tag and push D-Bus sidecar and base Technitium DNS to registry"
-	@echo "  deb     - Compile the Debian installation package"
-	@echo "  test    - Run python and javascript unit tests"
-	@echo "  test-ui - Run frontend javascript unit tests"
-	@echo "  clean   - Remove temporary build folders, generated debs and tars"
+	@echo "  all                  - Build all Docker images and the Debian package (default)"
+	@echo "  images               - Build the roostos-dns-technitium docker image"
+	@echo "  push                 - Tag and push D-Bus sidecar and base Technitium DNS to registry"
+	@echo "  deb                  - Compile the Debian installation package"
+	@echo "  test                 - Run python and javascript unit tests"
+	@echo "  test-ui              - Run frontend javascript unit tests"
+	@echo "  test-harness         - Run containerized multi-node automation test suite"
+	@echo "  test-harness-up      - Start container network for interactive Web UI testing on :8080"
+	@echo "  test-harness-down    - Teardown test harness containers and networks"
+	@echo "  test-harness-scenario - Run test harness with SCENARIO=<name> (e.g. multi-wan)"
+	@echo "  clean                - Remove temporary build folders, generated debs and tars"
+

@@ -1,0 +1,21 @@
+firewall:
+  rules:
+    - name: "Allow SSH WAN"
+      interface: "eth0"
+      protocol: "tcp"
+      port: 22
+      action: "accept"
+      enabled: false
+    - name: "Allow HTTP Web Admin LAN"
+      interface: "br0"
+      protocol: "tcp"
+      port: 8000
+      action: "accept"
+      enabled: true
+  port_forwards:
+    - name: "Web Server Forward"
+      wan_port: 8088
+      lan_ip: "172.30.2.50"
+      lan_port: 80
+      protocol: "tcp"
+      enabled: false

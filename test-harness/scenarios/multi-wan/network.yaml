@@ -1,0 +1,22 @@
+network:
+  interfaces:
+    - name: eth0
+      role: wan
+      dhcp: true
+    - name: eth1
+      role: wan
+      dhcp: true
+    - name: eth2
+      role: lan
+      bridge: br0
+  bridges:
+    - name: br0
+      ip: 172.30.2.1/24
+  gateways:
+    - id: default
+      name: Primary ISP
+      interface: eth0
+    - id: backup_isp
+      name: Backup 5G Modem
+      interface: eth1
+      type: failover
