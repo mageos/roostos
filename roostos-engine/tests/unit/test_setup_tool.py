@@ -347,3 +347,35 @@ def test_setup_tool_wifi_disabled(temp_config_dir, monkeypatch, mock_dialogs):
     assert config.wifi is None
 
 
+def test_setup_tool_mdns_discovery(temp_config_dir, monkeypatch, mock_dialogs):
+    """Test setup wizard with --discover flag triggering mDNS controller discovery."""
+    import roostos_engine.setup_tool
+    monkeypatch.setattr(roostos_engine.setup_tool, "list_interfaces", lambda: ["eth0", "eth1"])
+    monkeypatch.setenv("ROOSTOS_MOCK_DISCOVERY", "1")
+
+    inputs = [
+        "rerun",
+        "",
+        "dhcp",
+        "y",
+        "eth1",
+        "",
+        "",
+        "y",
+        "y",
+        "n",
+        "",
+        "n",
+        "n",
+        "y"
+    ]
+    mock_dialogs(inputs)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--dir", str(temp_config_dir), "--discover"])
+
+    assert result.exit_code == 0
+    assert "RoostOS Cluster Controller Discovery" in result.output
+    assert "Discovered 1 active controller(s)" in result.output
+
+

@@ -116,7 +116,8 @@ def prompt_bool(question: str, default: bool) -> bool:
 @click.command()
 @click.option("--dir", "config_dir", default="/etc/roostos", help="Path to config files directory")
 @click.option("--non-interactive", is_flag=True, help="Run without user interaction (uses defaults/env variables)")
-def main(config_dir: str, non_interactive: bool) -> None:
+@click.option("--discover", is_flag=True, help="Scan LAN for existing RoostOS controllers to join an existing cluster")
+def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None:
     """RoostOS Guided Setup Wizard."""
     if not non_interactive and has_existing_config(config_dir):
         choice = button_dialog(
@@ -145,6 +146,21 @@ def main(config_dir: str, non_interactive: bool) -> None:
             if not cont:
                 click.echo("Setup cancelled.")
                 sys.exit(0)
+
+    # 0. Optional / Automatic Controller Discovery (mDNS)
+    if discover or os.environ.get("ROOSTOS_DISCOVER_CONTROLLERS") == "1":
+        click.secho("\n--- RoostOS Cluster Controller Discovery ---", fg="cyan")
+        click.echo("Scanning local network for existing controllers via mDNS...")
+        import asyncio
+        from roostos_engine.mdns_discovery import MDNSDiscoveryService
+        mdns = MDNSDiscoveryService(mock=os.environ.get("ROOSTOS_MOCK_DISCOVERY") == "1")
+        controllers = asyncio.run(mdns.discover_controllers(timeout_seconds=1.5))
+        if controllers:
+            click.secho(f"Discovered {len(controllers)} active controller(s) on the local network:", fg="green")
+            for idx, c in enumerate(controllers, start=1):
+                click.echo(f"  {idx}. {c.name} ({c.ip}:{c.port}) [Node ID: {c.node_id}]")
+        else:
+            click.echo("No existing controllers found on this subnet. Proceeding with standalone controller setup.")
 
     # 1. Discover interfaces
     ifaces = list_interfaces()
