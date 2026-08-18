@@ -1,0 +1,29 @@
+[project]
+name = "roostos-engine"
+version = "0.1.0"
+description = "Core management daemon and CLI for RoostOS router"
+requires-python = ">=3.13"
+dependencies = [
+    "pydantic>=2.0.0",
+    "pyyaml>=6.0",
+    "dbus-next>=0.2.3",
+    "click>=8.0.0",
+    "docker>=7.0.0",
+    "prompt-toolkit>=3.0.0",
+    "cryptography>=42.0.0",
+    "injector>=0.21.0",
+]
+
+[project.scripts]
+roostd = "roostos_engine.daemon:main"
+roostctl = "roostos_engine.cli:main"
+roostos-setup = "roostos_engine.setup_tool:main"
+
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

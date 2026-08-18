@@ -1,0 +1,15 @@
+[tool.uv.workspace]
+members = ["roostos-engine", "roostos-sdk", "roostos-dns-technitium", "roostos-web", "roostos-timeguardd"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.30.0",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:'typing.no_type_check_decorator' is deprecated:DeprecationWarning:dbus_next",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated::starlette",
+]

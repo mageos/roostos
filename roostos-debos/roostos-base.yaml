@@ -1,0 +1,53 @@
+architecture: {{ or .architecture "amd64" }}
+
+actions:
+  - action: debootstrap
+    suite: trixie
+    mirror: http://deb.debian.org/debian
+    variant: minbase
+    keyring: debian-archive-keyring
+
+  - action: apt
+    description: Install core networking and system utilities
+    packages:
+      - systemd
+      - systemd-sysv
+      - systemd-resolved
+      - dbus
+      - udev
+      - iproute2
+      - iptables
+      - nftables
+      - kea-dhcp4-server
+      - python3-pip
+      - python3-venv
+      - python3-yaml
+      - python3-pydantic
+      - git
+      - ppp
+      - pppoe
+      - sudo
+      - curl
+      - gnupg
+      - ca-certificates
+      - mdns-repeater
+
+  - action: overlay
+    description: Copy network and service configuration files to filesystem
+    source: overlays
+    destination: /
+
+  - action: run
+    description: Create temporary source directory
+    chroot: false
+    command: mkdir -p "$ROOTDIR/tmp/src"
+
+  - action: overlay
+    description: Copy source repository for system compilation
+    source: ../
+    destination: /tmp/src/roostos
+
+  - action: run
+    description: Execute custom setups and packages installs inside the target OS environment
+    chroot: true
+    script: scripts/setup-roostos.sh

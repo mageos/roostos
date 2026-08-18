@@ -1,0 +1,5 @@
+[Match]
+Name=eth1 eth2 eth3 enp0s8 enp0s9 ens4 ens5 eno2
+
+[Network]
+Bridge=br0

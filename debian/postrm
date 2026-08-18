@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge|remove)
+        echo "Removing RoostOS installation files..."
+        rm -f /usr/local/bin/roostd
+        rm -f /usr/local/bin/roostctl
+        rm -f /usr/local/bin/roostos-web
+        rm -f /usr/local/bin/roostos-setup
+        rm -rf /opt/roostos
+        ;;
+
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

@@ -1,0 +1,7 @@
+[Match]
+Name=eth0 enp0s3 ens3 eno1
+KernelCommandLine=!nfsroot
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes

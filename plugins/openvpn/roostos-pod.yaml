@@ -1,0 +1,13 @@
+id: openvpn
+name: OpenVPN Client
+known_services:
+  - vpnClient
+network_mode: host
+ui_entrypoint: /app/ui/ui.js
+containers:
+  - name: vpn-openvpn
+    image: dperson/openvpn-client:latest
+    volumes:
+      - host_path: /var/lib/roostos/plugins/openvpn/config
+        container_path: /vpn
+        mode: rw

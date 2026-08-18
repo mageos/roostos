@@ -1,0 +1,36 @@
+architecture: amd64
+
+actions:
+  - action: recipe
+    recipe: roostos-base.yaml
+
+  - action: apt
+    description: Install Linux kernel and GRUB bootloader dependencies
+    packages:
+      - linux-image-amd64
+#      - grub-pc
+      - grub-efi-amd64-bin
+      - grub-efi-amd64
+      - live-boot
+      - isolinux
+
+  - action: run
+    description: Configure GRUB bootloader parameters for serial console and headless routing
+    chroot: true
+    command: |
+      sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet console=tty0 console=ttyS0,115200"/' /etc/default/grub
+      # Mock grub-probe to bypass 'canonical path of none' errors in chroot
+      dpkg-divert --local --rename --add /usr/sbin/grub-probe
+      echo '#!/bin/sh' > /usr/sbin/grub-probe
+      echo 'echo "/dev/sda1"' >> /usr/sbin/grub-probe
+      chmod +x /usr/sbin/grub-probe
+      
+      update-grub
+      
+      rm -f /usr/sbin/grub-probe
+      dpkg-divert --local --rename --remove /usr/sbin/grub-probe
+
+  - action: pack
+    description: Package system image as a bootable ISO installer
+    file: roostos-amd64.iso
+    compression: none
