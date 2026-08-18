@@ -233,12 +233,62 @@ class RoostClient:
         )
 
     # ==========================================
+    # Cluster & Node Operations
+    # ==========================================
+
+    async def get_cluster_status(self) -> Dict[str, Any]:
+        """Returns the cluster status, active role, and node roster."""
+        res = await self._interface.call_get_cluster_status()
+        return json.loads(res)
+
+    async def get_node_health(self, check_mqtt: bool = False) -> Dict[str, Any]:
+        """Returns standard node diagnostic report and telemetry."""
+        res = await self._interface.call_get_node_health(check_mqtt)
+        return json.loads(res)
+
+    async def get_detected_hardware(self) -> List[Dict[str, Any]]:
+        """Returns physical/virtual network adapters introspected on the host."""
+        res = await self._interface.call_get_detected_hardware()
+        return json.loads(res)
+
+    async def get_nodes(self) -> List[Dict[str, Any]]:
+        """Returns configured cluster nodes."""
+        res = await self._interface.call_get_nodes()
+        return json.loads(res)
+
+    async def save_nodes(self, nodes: List[Dict[str, Any]]) -> bool:
+        """Saves configured cluster nodes."""
+        return await self._interface.call_save_nodes(json.dumps(nodes))
+
+    async def generate_join_token(self) -> str:
+        """Generates a temporary pairing token for new nodes."""
+        return await self._interface.call_generate_join_token()
+
+    async def discover_controllers(self) -> List[Dict[str, Any]]:
+        """Scans the local network via mDNS for RoostOS controllers."""
+        res = await self._interface.call_discover_controllers()
+        return json.loads(res)
+
+    # ==========================================
     # Signal Observers
     # ==========================================
 
     def on_users_updated(self, callback: Callable[[], None]) -> None:
         """Subscribes callback to UsersUpdated signal."""
         self._interface.on_users_updated(callback)
+
+    def on_nodes_updated(self, callback: Callable[[], None]) -> None:
+        """Subscribes callback to NodesUpdated signal."""
+        self._interface.on_nodes_updated(callback)
+
+    def on_hardware_discovered(self, callback: Callable[[Dict[str, Any]], None]) -> None:
+        """Subscribes callback to HardwareDiscovered signal."""
+        def wrapper(payload: str):
+            try:
+                callback(json.loads(payload))
+            except Exception:
+                callback({"raw": payload})
+        self._interface.on_hardware_discovered(wrapper)
 
     def on_people_updated(self, callback: Callable[[], None]) -> None:
         """Subscribes callback to PeopleUpdated signal."""

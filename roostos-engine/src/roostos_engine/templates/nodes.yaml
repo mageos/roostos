@@ -1,0 +1,22 @@
+# RoostOS Cluster Nodes Configuration
+# Defines physical and virtual hardware appliances participating in the cluster.
+nodes:
+  - id: "node-01"
+    name: "Primary Gateway Router"
+    roles:
+      - controller
+      - gateway_router
+      - dns_resolver
+      - compute_node
+    management_ip: "192.168.1.1"
+    location_id: null
+    interfaces:
+      - name: "eth0"
+        type: "ethernet"
+        mode: "wan"
+        network_id: "wan"
+      - name: "eth1"
+        type: "ethernet"
+        mode: "trunk"
+        bridge: "br0"
+        network_id: "lan"

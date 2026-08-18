@@ -29,6 +29,7 @@ class DummyConfigRepository(ConfigRepository):
         self.config.people = []
         self.config.buildings = []
         self.config.rooms = []
+        self.config.nodes = []
 
     def get_config(self) -> RoostConfig:
         return self.config
@@ -36,6 +37,9 @@ class DummyConfigRepository(ConfigRepository):
     def save_system_config(self, data: SystemConfig) -> None:
         self.config.system = data.system
         self.config.users = data.users
+
+    def save_nodes_config(self, data: any) -> None:
+        pass
 
     def save_devices_config(self, data: any) -> None:
         pass

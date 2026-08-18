@@ -157,6 +157,24 @@ def generate_mock_configs(target_dir):
     with open(os.path.join(target_dir, "plugins.yaml"), "w") as f:
         yaml.safe_dump(plugins_data, f, default_flow_style=False, sort_keys=False)
 
+    nodes_data = {
+        "nodes": [
+            {
+                "id": "node-01",
+                "name": "Main Router",
+                "roles": ["controller", "gateway_router", "dns_resolver", "compute_node"],
+                "management_ip": "192.168.1.1",
+                "interfaces": [
+                    {"name": "eth0", "type": "ethernet", "mode": "wan", "network_id": "wan"},
+                    {"name": "eth1", "type": "ethernet", "mode": "trunk", "bridge": "br-lan", "network_id": "lan"},
+                    {"name": "eth2", "type": "ethernet", "mode": "trunk", "bridge": "br-lan", "network_id": "lan"},
+                ]
+            }
+        ]
+    }
+    with open(os.path.join(target_dir, "nodes.yaml"), "w") as f:
+        yaml.safe_dump(nodes_data, f, default_flow_style=False, sort_keys=False)
+
     print(f"Mock configurations generated successfully!")
 
 if __name__ == "__main__":

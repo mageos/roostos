@@ -22,6 +22,7 @@ def system_test_env(tmp_path_factory):
     os.environ["ROOSTOS_SESSION_BUS"] = "1"
     os.environ["ROOSTOS_MOCK_AUTH"] = "1"
     os.environ["ROOSTOS_CONFIG_DIR"] = str(config_dir)
+    os.environ["ROOSTOS_CONFIG_REPO"] = "direct"
     os.environ["ROOSTOS_WEB_PORT"] = "8888"
 
     daemon_proc = subprocess.Popen([
@@ -38,10 +39,19 @@ def system_test_env(tmp_path_factory):
         sys.executable, "-m", "roostos_web.main"
     ])
 
-    # Give the web server time to bind to port 8888
-    time.sleep(1.5)
+    # Wait for web server to respond
+    for _ in range(30):
+        try:
+            httpx.get("http://localhost:8888/api/system", timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.2)
 
     yield config_dir
+
+    # Clean up environment variables
+    for k in ["ROOSTOS_SESSION_BUS", "ROOSTOS_MOCK_AUTH", "ROOSTOS_CONFIG_DIR", "ROOSTOS_CONFIG_REPO", "ROOSTOS_WEB_PORT"]:
+        os.environ.pop(k, None)
 
     # Terminate both processes cleanly
     web_proc.terminate()

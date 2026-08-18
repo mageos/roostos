@@ -604,8 +604,28 @@ def main(config_dir: str, non_interactive: bool) -> None:
         )
     )
 
+    from roostos_engine.models.node import NodesConfigFile, NodeConfig, NodeRole, NodeInterface, InterfaceType, InterfaceMode
+    node_interfaces = [
+        NodeInterface(name=wan_iface, type=InterfaceType.ETHERNET, mode=InterfaceMode.WAN, network_id="wan")
+    ]
+    for lan_if in lan_ifaces:
+        node_interfaces.append(NodeInterface(name=lan_if, type=InterfaceType.ETHERNET, mode=InterfaceMode.TRUNK, bridge="br0", network_id="lan"))
+
+    nodes_config_obj = NodesConfigFile(
+        nodes=[
+            NodeConfig(
+                id="node-01",
+                name=config.system.hostname or "Primary Gateway",
+                roles=[NodeRole.CONTROLLER, NodeRole.GATEWAY_ROUTER, NodeRole.DNS_RESOLVER, NodeRole.COMPUTE_NODE],
+                management_ip=bridge_ip_full.split("/")[0] if bridge_ip_full else "192.168.1.1",
+                interfaces=node_interfaces,
+            )
+        ]
+    )
+
     try:
         save_config_file(config_dir, "system.yaml", system_config_obj)
+        save_config_file(config_dir, "nodes.yaml", nodes_config_obj)
         save_config_file(config_dir, "network.yaml", network_config_obj)
         save_config_file(config_dir, "firewall.yaml", firewall_config_obj)
         save_config_file(config_dir, "schedules.yaml", schedules_config_obj)

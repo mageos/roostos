@@ -24,17 +24,21 @@ async def get_system_config(
     """Returns the system configuration settings namespace along with real-time stats."""
     return await system_service.get_system_config()
 
+class SystemUpdatePayload(BaseModel):
+    hostname: str
+    domain: str
+    timezone: str
+    docker_registry: Optional[str] = ""
+
+
 @router.post("/api/system")
 async def update_system_config(
+    payload: SystemUpdatePayload,
     current_user: UserSession = Depends(get_current_admin),
-    hostname: str = Body(...),
-    domain: str = Body(...),
-    timezone: str = Body(...),
-    docker_registry: Optional[str] = Body(""),
     system_service: SystemService = Injected(SystemService)
 ):
     """Updates global system properties (hostname, domain name, timezone) and pushes changes to host."""
-    await system_service.update_system_config(hostname, domain, timezone, docker_registry)
+    await system_service.update_system_config(payload.hostname, payload.domain, payload.timezone, payload.docker_registry)
     return {"status": "success", "message": "System configurations updated successfully."}
 
 @router.get("/api/system/health")

@@ -8,6 +8,7 @@ from roostos_engine.models.system import (
     SystemUpdatesRebootWindow,
     SystemUpdatesConfig,
     SystemDNSConfig,
+    ClusterSettingsConfig,
     SystemSettings,
     UserConfig,
     SystemConfig,
@@ -27,6 +28,22 @@ from roostos_engine.models.network import (
     WifiSettings,
     VPNConfig,
     NetworkConfig,
+)
+from roostos_engine.models.node import (
+    NodeRole,
+    InterfaceType,
+    InterfaceMode,
+    NodeInterface,
+    DetectedHardwareInterface,
+    NodeCapabilities,
+    NodeConfig,
+    NodesConfigFile,
+)
+from roostos_engine.models.networks import (
+    Network,
+    NetworksConfigFile,
+    WifiSSIDConfig,
+    DHCPSettings,
 )
 from roostos_engine.models.devices import (
     PersonConfig,
@@ -73,6 +90,7 @@ class RoostConfig(BaseModel):
     system: SystemSettings
     users: List[UserConfig]
     network: NetworkSettings
+    nodes: List[NodeConfig] = Field(default_factory=list)
     wifi: Optional[WifiSettings] = None
     vpns: List[VPNConfig]
     people: List[PersonConfig]
@@ -165,6 +183,7 @@ def load_config_directory(config_dir: str) -> RoostConfig:
     files = {
         "system.yaml": (SystemConfig, "system"),
         "network.yaml": (NetworkConfig, "network"),
+        "nodes.yaml": (NodesConfigFile, "nodes"),
         "devices.yaml": (DevicesConfig, "devices"),
         "schedules.yaml": (SchedulesConfig, "schedules"),
         "firewall.yaml": (FirewallConfig, "firewall"),
@@ -189,6 +208,8 @@ def load_config_directory(config_dir: str) -> RoostConfig:
         if namespace == "system":
             raw_data["system"] = parsed.system
             raw_data["users"] = parsed.users
+        elif namespace == "nodes":
+            raw_data["nodes"] = parsed.nodes
         elif namespace == "network":
             if parsed.network:
                 has_migration = False
@@ -240,6 +261,6 @@ def load_config_directory(config_dir: str) -> RoostConfig:
 
 def save_config_file(config_dir: str, file_basename: str, model_data: BaseModel) -> None:
     filepath = os.path.join(config_dir, file_basename)
-    dump_dict = model_data.model_dump(exclude_none=True)
+    dump_dict = model_data.model_dump(mode="json", exclude_none=True)
     with open(filepath, "w") as f:
         yaml.safe_dump(dump_dict, f, default_flow_style=False, sort_keys=False)

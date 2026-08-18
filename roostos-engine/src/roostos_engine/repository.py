@@ -3,6 +3,7 @@ import os
 from roostos_engine.config import (
     RoostConfig,
     SystemConfig,
+    NodesConfigFile,
     DevicesConfig,
     NetworkConfig,
     SchedulesConfig,
@@ -19,6 +20,10 @@ class ConfigRepository(ABC):
 
     @abstractmethod
     def save_system_config(self, data: SystemConfig) -> None:
+        pass
+
+    @abstractmethod
+    def save_nodes_config(self, data: NodesConfigFile) -> None:
         pass
 
     @abstractmethod
@@ -56,6 +61,9 @@ class YAMLConfigRepository(ConfigRepository):
     def save_system_config(self, data: SystemConfig) -> None:
         save_config_file(self.config_dir, "system.yaml", data)
 
+    def save_nodes_config(self, data: NodesConfigFile) -> None:
+        save_config_file(self.config_dir, "nodes.yaml", data)
+
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.config_dir, "devices.yaml", data)
 
@@ -89,26 +97,51 @@ class StagingConfigRepository(ConfigRepository):
 
         staged_files = [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]
         if staged_files:
-            staged_repo = YAMLConfigRepository(self.staged_dir)
-            staged_config = staged_repo.get_config()
-            
+            import yaml
             if "system.yaml" in staged_files:
-                config.system = staged_config.system
+                with open(os.path.join(self.staged_dir, "system.yaml"), "r") as f:
+                    parsed = SystemConfig.model_validate(yaml.safe_load(f) or {})
+                    config.system = parsed.system
+                    config.users = parsed.users
+            if "nodes.yaml" in staged_files:
+                with open(os.path.join(self.staged_dir, "nodes.yaml"), "r") as f:
+                    parsed_nodes = NodesConfigFile.model_validate(yaml.safe_load(f) or {})
+                    config.nodes = parsed_nodes.nodes
             if "network.yaml" in staged_files:
-                config.network = staged_config.network
+                with open(os.path.join(self.staged_dir, "network.yaml"), "r") as f:
+                    parsed_net = NetworkConfig.model_validate(yaml.safe_load(f) or {})
+                    config.network = parsed_net.network
+                    config.wifi = parsed_net.wifi
+                    config.vpns = parsed_net.vpns
             if "devices.yaml" in staged_files:
-                config.devices = staged_config.devices
+                with open(os.path.join(self.staged_dir, "devices.yaml"), "r") as f:
+                    parsed_dev = DevicesConfig.model_validate(yaml.safe_load(f) or {})
+                    config.people = parsed_dev.people
+                    config.buildings = parsed_dev.buildings
+                    config.rooms = parsed_dev.rooms
+                    config.devices = parsed_dev.devices
             if "schedules.yaml" in staged_files:
-                config.schedules = staged_config.schedules
+                with open(os.path.join(self.staged_dir, "schedules.yaml"), "r") as f:
+                    parsed_sch = SchedulesConfig.model_validate(yaml.safe_load(f) or {})
+                    config.schedules = parsed_sch.firewall.schedules if parsed_sch.firewall else []
             if "firewall.yaml" in staged_files:
-                config.firewall = staged_config.firewall
+                with open(os.path.join(self.staged_dir, "firewall.yaml"), "r") as f:
+                    parsed_fw = FirewallConfig.model_validate(yaml.safe_load(f) or {})
+                    if parsed_fw.firewall:
+                        config.firewall.port_forwards = parsed_fw.firewall.port_forwards
+                        config.firewall.rules = parsed_fw.firewall.rules
             if "plugins.yaml" in staged_files:
-                config.plugins = staged_config.plugins
+                with open(os.path.join(self.staged_dir, "plugins.yaml"), "r") as f:
+                    parsed_plg = PluginsConfig.model_validate(yaml.safe_load(f) or {})
+                    config.plugins = parsed_plg.plugins
                 
         return config
 
     def save_system_config(self, data: SystemConfig) -> None:
         save_config_file(self.staged_dir, "system.yaml", data)
+
+    def save_nodes_config(self, data: NodesConfigFile) -> None:
+        save_config_file(self.staged_dir, "nodes.yaml", data)
 
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.staged_dir, "devices.yaml", data)
@@ -164,6 +197,7 @@ class InMemoryConfigRepository(ConfigRepository):
             self._config = RoostConfig(
                 system=SystemSettings(hostname="roost-router", domain="lan"),
                 users=[],
+                nodes=[],
                 network=NetworkSettings(interfaces=[], bridges=[], vlans=[], gateways=[], zones=[]),
                 vpns=[],
                 people=[],
@@ -181,6 +215,9 @@ class InMemoryConfigRepository(ConfigRepository):
     def save_system_config(self, data: SystemConfig) -> None:
         self._config.system = data.system
         self._config.users = data.users
+
+    def save_nodes_config(self, data: NodesConfigFile) -> None:
+        self._config.nodes = data.nodes
 
     def save_devices_config(self, data: DevicesConfig) -> None:
         self._config.people = data.people

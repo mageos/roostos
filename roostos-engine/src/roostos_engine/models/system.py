@@ -23,6 +23,14 @@ class SystemDNSConfig(BaseModel):
     forwarders: List[str] = Field(default_factory=list)
     ad_blocking_enabled: bool = False
 
+class ClusterSettingsConfig(BaseModel):
+    node_id: Optional[str] = "node-01"
+    controller_url: Optional[str] = None
+    join_token: Optional[str] = None
+    client_cert: Optional[str] = None
+    client_key: Optional[str] = None
+    sync_interval_seconds: int = 30
+
 class SystemSettings(BaseModel):
     hostname: str = "roost-router"
     domain: str = "lan"
@@ -33,6 +41,7 @@ class SystemSettings(BaseModel):
     https: Optional[SystemHTTPSConfig] = Field(default_factory=SystemHTTPSConfig)
     updates: Optional[SystemUpdatesConfig] = Field(default_factory=SystemUpdatesConfig)
     dns: Optional[SystemDNSConfig] = Field(default_factory=SystemDNSConfig)
+    cluster: Optional[ClusterSettingsConfig] = Field(default_factory=ClusterSettingsConfig)
 
     @field_validator("unregistered_device_policy")
     @classmethod

@@ -96,7 +96,7 @@ class EngineDIModule(Module):
         repo_impl = self.providers_settings.config_repository.lower()
         if repo_impl in ("staging", "staged"):
             repo_instance = StagingConfigRepository(self.config_dir, self.staged_dir)
-        elif repo_impl in ("yaml", "file"):
+        elif repo_impl in ("yaml", "file", "direct"):
             repo_instance = YAMLConfigRepository(self.config_dir)
         elif repo_impl in ("memory", "inmemory", "mock"):
             repo_instance = InMemoryConfigRepository()

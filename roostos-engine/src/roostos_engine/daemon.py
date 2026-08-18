@@ -15,11 +15,25 @@ from dbus_next import BusType
 import datetime
 import subprocess
 
-from roostos_engine.config import DevicesConfig, SystemConfig, SchedulesConfig, DeviceConfig, InputRuleConfig, FirewallSettings
+from roostos_engine.config import (
+    DevicesConfig,
+    SystemConfig,
+    SchedulesConfig,
+    DeviceConfig,
+    InputRuleConfig,
+    FirewallSettings,
+    NodesConfigFile,
+    NodeConfig,
+    NodeRole,
+)
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_engine.state_db import StateDB
 from roostos_engine.firewall_manager import FirewallManager
 from roostos_engine.scheduler import is_schedule_active, resolve_schedule_targets
+from roostos_engine.health import HealthChecker
+from roostos_engine.cluster_manager import ClusterManager
+from roostos_engine.mdns_discovery import MDNSDiscoveryService
+from roostos_engine.hardware_inspector import HardwareInspector
 
 BUS_NAME = "org.roostos.Daemon"
 OBJECT_PATH = "/org/roostos/Daemon"
@@ -41,6 +55,15 @@ class RoostDaemonInterface(ServiceInterface):
         certs_dir = os.path.join(self.config_dir, "certs")
         self.cert_manager = CertificateManager(certs_dir)
         
+        self.health_checker = HealthChecker(config_dir=self.config_dir, mock=self.mock)
+        self.mdns_service = MDNSDiscoveryService(mock=self.mock)
+        self.cluster_manager = ClusterManager(
+            config_dir=self.config_dir,
+            mock=self.mock,
+            health_checker=self.health_checker,
+            mdns_service=self.mdns_service,
+        )
+
         from roostos_engine.subsystems import discover_subsystems
         self.subsystems = discover_subsystems(self)
         
@@ -71,11 +94,34 @@ class RoostDaemonInterface(ServiceInterface):
             self.enforcer_task = None
             print(f"Warning: Failed to start enforcer: {e}", file=sys.stderr)
 
+    def should_run_subsystem(self, subsystem_name: str) -> bool:
+        node_id = "node-01"
+        if self._config.system and self._config.system.cluster and self._config.system.cluster.node_id:
+            node_id = self._config.system.cluster.node_id
+
+        current_node = next((n for n in self._config.nodes if n.id == node_id), None)
+        if not current_node or not current_node.roles:
+            return True
+
+        roles = [r.value if hasattr(r, "value") else str(r) for r in current_node.roles]
+        
+        if subsystem_name in ("system_settings", "network_interfaces"):
+            return True
+        if subsystem_name in ("firewall_services", "dhcp_services", "qos_services"):
+            return "gateway_router" in roles
+        if subsystem_name == "wifi_services":
+            return "access_point" in roles or "gateway_router" in roles
+        if subsystem_name == "plugins_sync":
+            return "compute_node" in roles or "controller" in roles
+        if subsystem_name == "mdns_repeater":
+            return "gateway_router" in roles or "access_point" in roles
+        return True
+
     def load_initial_config(self):
         self._config = self.repository.get_config()
         self.firewall_manager = FirewallManager(self._config)
         for subsystem in self.subsystems:
-            if subsystem.run_on_init:
+            if subsystem.run_on_init and self.should_run_subsystem(subsystem.name):
                 print(f"Initializing subsystem: {subsystem.name}")
                 subsystem.update()
 
@@ -83,7 +129,7 @@ class RoostDaemonInterface(ServiceInterface):
         self._config = self.repository.get_config()
         self.firewall_manager = FirewallManager(self._config)
         for subsystem in self.subsystems:
-            if subsystem.run_on_reload:
+            if subsystem.run_on_reload and self.should_run_subsystem(subsystem.name):
                 print(f"Reloading subsystem: {subsystem.name}")
                 subsystem.update()
 
@@ -245,8 +291,74 @@ class RoostDaemonInterface(ServiceInterface):
         return f"{mac},{port},{protocol},{description}"
 
     @dbus_signal()
+    def HardwareDiscovered(self, interface_json: str) -> 's':
+        return interface_json
+
+    @dbus_signal()
+    def NodesUpdated(self) -> None:
+        pass
+
+    @dbus_signal()
     def UPnPQueueCleared(self) -> None:
         pass
+
+    @method()
+    def GetClusterStatus(self) -> 's':
+        self.reload_config()
+        status = self.cluster_manager.get_cluster_status(self._config.system, self._config.nodes)
+        return json.dumps(status.model_dump())
+
+    @method()
+    def GetNodeHealth(self, check_mqtt: 'b') -> 's':
+        self.reload_config()
+        node_id = "node-01"
+        if self._config.system and self._config.system.cluster and self._config.system.cluster.node_id:
+            node_id = self._config.system.cluster.node_id
+        
+        current_node = next((n for n in self._config.nodes if n.id == node_id), None)
+        roles = [r.value if hasattr(r, "value") else str(r) for r in current_node.roles] if current_node else ["gateway_router"]
+        node_name = current_node.name if current_node else self._config.system.hostname
+
+        report = self.health_checker.collect_health_report(
+            node_id=node_id,
+            node_name=node_name,
+            roles=roles,
+            dbus_connected=True,
+            check_mqtt=check_mqtt,
+        )
+        return json.dumps(report.model_dump())
+
+    @method()
+    def GetDetectedHardware(self) -> 's':
+        detected = HardwareInspector.inspect_network_interfaces(mock=self.mock)
+        return json.dumps([d.model_dump() for d in detected])
+
+    @method()
+    def GetNodes(self) -> 's':
+        self.reload_config()
+        return json.dumps([n.model_dump() for n in self._config.nodes])
+
+    @method()
+    def SaveNodes(self, nodes_json: 's') -> 'b':
+        try:
+            nodes_data = json.loads(nodes_json)
+            nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in nodes_data])
+            self.repository.save_nodes_config(nodes_config)
+            self.reload_config()
+            self.NodesUpdated()
+            return True
+        except Exception as e:
+            print(f"Error saving nodes: {e}", file=sys.stderr)
+            return False
+
+    @method()
+    def GenerateJoinToken(self) -> 's':
+        return self.cluster_manager.generate_join_token()
+
+    @method()
+    async def DiscoverControllers(self) -> 's':
+        controllers = await self.mdns_service.discover_controllers()
+        return json.dumps([c.model_dump() for c in controllers])
 
     @method()
     def GetConfig(self) -> 's':
