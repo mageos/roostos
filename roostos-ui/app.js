@@ -387,7 +387,7 @@ function init() {
     // 3. Populate default viewport dashboard info and switch to status view
     window.switchView('status');
     
-    // Start periodic status refresh (every 5 seconds)
+    // Start periodic status refresh (every 10 seconds fallback)
     setInterval(() => {
         const active = document.activeElement;
         const isFocused = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
@@ -396,8 +396,26 @@ function init() {
             return;
         }
         window.loadDashboard();
-    }, 5000);
+    }, 10000);
+
+    // Initialize real-time Server-Sent Events (SSE) telemetry
+    window.initEventStream();
 }
+
+window.initEventStream = function() {
+    if (typeof EventSource === "undefined") return;
+    try {
+        const evtSource = new EventSource("/api/v1/events/stream");
+        evtSource.addEventListener("device_connected", () => window.loadDashboard());
+        evtSource.addEventListener("unknown_device", () => window.loadDashboard());
+        evtSource.addEventListener("upnp_request", () => window.loadDashboard());
+        evtSource.addEventListener("devices_updated", () => window.loadDashboard());
+        evtSource.addEventListener("schedules_updated", () => window.loadDashboard());
+        evtSource.addEventListener("bypass_expired", () => window.loadDashboard());
+    } catch (e) {
+        console.warn("Real-time SSE event stream could not be initialized:", e);
+    }
+};
 
 // Entrypoint
 document.addEventListener("DOMContentLoaded", () => {

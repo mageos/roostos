@@ -54,7 +54,19 @@ class FirewallManager:
             "flush ruleset",
             "",
             "table inet filter {",
-            "    # Dynamic MAC set of clients currently quarantined/blocked by schedules",
+            "    # 1. Dynamic MAC set of unknown devices when unregistered_device_policy: deny",
+            "    set quarantined {",
+            "        type ether_addr",
+            "    }",
+            "    # 2. Dynamic MAC set of clients blocked by time schedules or screen time limits",
+            "    set schedule_blocked {",
+            "        type ether_addr",
+            "    }",
+            "    # 3. Dynamic MAC set of clients blocked permanently by administrator policy",
+            "    set admin_blocked {",
+            "        type ether_addr",
+            "    }",
+            "    # Legacy alias for backwards compatibility",
             "    set blocked_clients {",
             "        type ether_addr",
             "    }",
@@ -64,6 +76,8 @@ class FirewallManager:
             "        ct state established,related accept",
             "        iifname \"lo\" accept",
             "        ip protocol icmp accept",
+            "        ether saddr @quarantined log prefix \"FIREWALL:BLOCKED:Quarantine_Input_Drop \" drop",
+            "    }",
         ]
 
         # Allow inputs (SSH, Web Config, DNS, DHCP) from LAN and Guest zones
@@ -106,25 +120,62 @@ class FirewallManager:
             "        type filter hook forward priority filter; policy drop;",
             "        ct state established,related accept",
             "        ",
-            "        # Drop traffic from blocked/quarantined clients immediately",
+            "        # 1. Drop traffic from quarantined clients completely",
+            f"        ether saddr @quarantined log prefix \"FIREWALL:BLOCKED:Quarantined \" drop",
+            "        ",
+            "        # 2. Drop WAN-bound traffic for schedule-blocked clients (LAN access preserved)",
+            f"        ether saddr @schedule_blocked oifname \"{wan_if}\" log prefix \"FIREWALL:BLOCKED:Schedule_Block \" drop",
+            "        ",
+            "        # 3. Drop WAN-bound traffic for admin-blocked clients",
+            f"        ether saddr @admin_blocked oifname \"{wan_if}\" log prefix \"FIREWALL:BLOCKED:Admin_Block \" drop",
+            "        ",
+            "        # Legacy backward-compatibility drop",
             "        ether saddr @blocked_clients log prefix \"FIREWALL:BLOCKED:Blocked_Client \" drop",
         ])
 
-        # LAN zone: can access WAN and other zones
-        for lan in lan_ifs:
-            lines.append(f"        iifname \"{lan}\" oifname \"{wan_if}\" accept")
+        # Dynamic Zone Forwarding Rules
+        zones_defined = hasattr(self.config, "network") and self.config.network and bool(self.config.network.zones)
+        if zones_defined:
+            zone_map = {z.id: z for z in self.config.network.zones}
+            for z in self.config.network.zones:
+                if z.id == "wan":
+                    continue
+                z_ifaces = z.interfaces or []
+                if z.allow_zones:
+                    for dest_zone_id in z.allow_zones:
+                        if dest_zone_id == "wan":
+                            for iif in z_ifaces:
+                                lines.append(f'        iifname "{iif}" oifname "{wan_if}" accept')
+                        elif dest_zone_id in zone_map:
+                            dest_ifaces = zone_map[dest_zone_id].interfaces or []
+                            for iif in z_ifaces:
+                                for oif in dest_ifaces:
+                                    lines.append(f'        iifname "{iif}" oifname "{oif}" accept')
+                else:
+                    # Default policy if allow_zones not explicitly set
+                    if z.isolate:
+                        for iif in z_ifaces:
+                            lines.append(f'        iifname "{iif}" oifname "{wan_if}" accept')
+                    else:
+                        for iif in z_ifaces:
+                            lines.append(f'        iifname "{iif}" oifname "{wan_if}" accept')
+                            for oif in all_local_ifs:
+                                if oif != iif:
+                                    lines.append(f'        iifname "{iif}" oifname "{oif}" accept')
+        else:
+            # Fallback for simple flat configurations
+            for lan in lan_ifs:
+                lines.append(f'        iifname "{lan}" oifname "{wan_if}" accept')
+                for guest in guest_ifs:
+                    lines.append(f'        iifname "{lan}" oifname "{guest}" accept')
+                for iot in iot_ifs:
+                    lines.append(f'        iifname "{lan}" oifname "{iot}" accept')
+
             for guest in guest_ifs:
-                lines.append(f"        iifname \"{lan}\" oifname \"{guest}\" accept")
+                lines.append(f'        iifname "{guest}" oifname "{wan_if}" accept')
+
             for iot in iot_ifs:
-                lines.append(f"        iifname \"{lan}\" oifname \"{iot}\" accept")
-
-        # Guest zone: can ONLY forward to WAN (cannot access LAN/IoT subnets)
-        for guest in guest_ifs:
-            lines.append(f"        iifname \"{guest}\" oifname \"{wan_if}\" accept")
-
-        # IoT zone: can ONLY forward to WAN
-        for iot in iot_ifs:
-            lines.append(f"        iifname \"{iot}\" oifname \"{wan_if}\" accept")
+                lines.append(f'        iifname "{iot}" oifname "{wan_if}" accept')
 
         lines.extend([
             "        log prefix \"FIREWALL:BLOCKED:Default_Forward_Drop \"",
@@ -227,10 +278,18 @@ class FirewallManager:
     # CLI Command Generator Hooks
     # ==========================================
 
-    def get_block_mac_cmd(self, mac: str) -> List[str]:
+    def get_block_mac_cmd(self, mac: str, set_name: str = "blocked_clients") -> List[str]:
         """Returns command args to block a client MAC in the active nftables set."""
-        return ["nft", "add", "element", "inet", "filter", "blocked_clients", f"{{ {mac.lower()} }}"]
+        return ["nft", "add", "element", "inet", "filter", set_name, f"{{ {mac.lower()} }}"]
 
-    def get_unblock_mac_cmd(self, mac: str) -> List[str]:
+    def get_unblock_mac_cmd(self, mac: str, set_name: str = "blocked_clients") -> List[str]:
         """Returns command args to unblock a client MAC in the active nftables set."""
-        return ["nft", "delete", "element", "inet", "filter", "blocked_clients", f"{{ {mac.lower()} }}"]
+        return ["nft", "delete", "element", "inet", "filter", set_name, f"{{ {mac.lower()} }}"]
+
+    def get_quarantine_mac_cmd(self, mac: str) -> List[str]:
+        """Returns command args to quarantine an unknown client MAC."""
+        return ["nft", "add", "element", "inet", "filter", "quarantined", f"{{ {mac.lower()} }}"]
+
+    def get_unquarantine_mac_cmd(self, mac: str) -> List[str]:
+        """Returns command args to unquarantine a client MAC."""
+        return ["nft", "delete", "element", "inet", "filter", "quarantined", f"{{ {mac.lower()} }}"]

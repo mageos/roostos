@@ -10,7 +10,8 @@ from fastapi.staticfiles import StaticFiles
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_sdk.client import RoostClient
 
-from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config, certificates, cluster, health
+from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config, certificates, cluster, health, events
+from roostos_web.services.events import event_publisher
 
 from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
 
@@ -19,8 +20,9 @@ from roostos_web.services.base import get_repository, set_repository, get_dbus_c
 async def lifespan(app: FastAPI):
     try:
         # Validate connection to local D-Bus daemon on startup
-        await get_dbus_client()
-        print("Connected to RoostOS D-Bus Daemon successfully.")
+        client = await get_dbus_client()
+        event_publisher.setup_dbus_listeners(client)
+        print("Connected to RoostOS D-Bus Daemon and initialized SSE event stream.")
     except Exception as e:
         print(f"Warning: Could not connect to RoostOS D-Bus daemon: {e}", file=sys.stderr)
     yield
@@ -49,6 +51,7 @@ app.include_router(plugins.router)
 app.include_router(diagnostics.router)
 app.include_router(config.router)
 app.include_router(certificates.router)
+app.include_router(events.router)
 
 # Mount Static Files (the Single Page Application UI)
 web_assets_path = os.environ.get("ROOSTOS_WEB_ASSETS", "/usr/share/roostos/web")
