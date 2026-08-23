@@ -1,0 +1,13 @@
+system:
+  hostname: roost-router-multiwan
+  domain: test.lan
+  timezone: America/New_York
+  https:
+    enabled: false
+  updates:
+    auto_install: false
+    auto_reboot: false
+users:
+  - username: admin
+    role: admin
+    person: dad_profile

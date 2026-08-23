@@ -1,0 +1,15 @@
+people:
+  - id: dad_profile
+    name: Dad
+buildings:
+  - id: main_house
+    name: Main House
+rooms:
+  - id: office
+    name: Office
+    building: main_house
+devices:
+  - mac: "02:42:ac:1e:02:32"
+    name: "LAN MultiWAN Client"
+    location: office
+    tags: ["lan"]

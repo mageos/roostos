@@ -9,7 +9,12 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests/harness", "tests/automation/test_scenarios.py", "roostos-engine/tests", "roostos-web/tests/unit"]
 filterwarnings = [
     "ignore:'typing.no_type_check_decorator' is deprecated:DeprecationWarning:dbus_next",
     "ignore:Using `httpx` with `starlette.testclient` is deprecated::starlette",
+]
+markers = [
+    "automation: live multi-node network automation tests (requires test harness containers)",
 ]

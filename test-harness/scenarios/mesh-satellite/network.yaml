@@ -1,0 +1,19 @@
+network:
+  interfaces:
+    - name: eth0
+      role: lan
+      bridge: br0
+  bridges:
+    - name: br0
+      ip: 172.30.2.2/24
+  wifi:
+    mesh:
+      enabled: true
+      interface: wlan1
+      ssid: RoostTestMesh
+      passphrase: testmeshpassword
+      frequency: 5180
+  gateways:
+    - id: default
+      name: Main Router Mesh Gateway
+      interface: wlan1

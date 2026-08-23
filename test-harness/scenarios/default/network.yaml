@@ -1,0 +1,21 @@
+network:
+  interfaces:
+    - name: eth0
+      role: wan
+      dhcp: true
+    - name: eth1
+      role: lan
+      bridge: br0
+    - name: eth2
+      role: guest
+      bridge: br-guest
+  bridges:
+    - name: br0
+      ip: 172.30.2.1/24
+    - name: br-guest
+      ip: 172.30.3.1/24
+      isolate: true
+  gateways:
+    - id: default
+      name: WAN Gateway
+      interface: eth0

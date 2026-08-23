@@ -1,0 +1,8 @@
+people: []
+buildings: []
+rooms: []
+devices:
+  - mac: "02:42:ac:1e:02:32"
+    name: "VPN Routed Client"
+    tags: ["vpn-routed"]
+    gateway: "vpn_eu"

@@ -11,9 +11,15 @@ def test_firewall_ruleset_compilation(temp_config_dir):
     
     rules = manager.compile_ruleset()
     
-    # 1. Assert filter table and dynamic MAC blocking set exist
+    # 1. Assert filter table and dynamic MAC blocking sets exist
     assert "table inet filter {" in rules
+    assert "set quarantined {" in rules
+    assert "set schedule_blocked {" in rules
+    assert "set admin_blocked {" in rules
     assert "set blocked_clients {" in rules
+    assert 'ether saddr @quarantined log prefix "FIREWALL:BLOCKED:Quarantined " drop' in rules
+    assert 'ether saddr @schedule_blocked oifname "eth0" log prefix "FIREWALL:BLOCKED:Schedule_Block " drop' in rules
+    assert 'ether saddr @admin_blocked oifname "eth0" log prefix "FIREWALL:BLOCKED:Admin_Block " drop' in rules
     assert 'ether saddr @blocked_clients log prefix "FIREWALL:BLOCKED:Blocked_Client " drop' in rules
 
     # 2. Assert DNS Hijacking and DoT blocking exist
