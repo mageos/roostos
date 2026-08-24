@@ -159,3 +159,12 @@ def test_custom_class_injection():
     instance = injector.get(SampleInjectedClass)
     assert isinstance(instance.auth, MockAuthProvider)
     assert isinstance(instance.repo, InMemoryConfigRepository)
+
+
+def test_multi_authority_di_injection():
+    from roostos_web.interfaces.auth import MultiAuthorityAuthProvider
+    settings = ProvidersSettings(auth_provider="multi_authority", config_repository="memory")
+    injector = create_web_injector(providers_settings=settings)
+    auth_prov = injector.get(AuthProvider)
+    assert isinstance(auth_prov, MultiAuthorityAuthProvider)
+
