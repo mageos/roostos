@@ -11,7 +11,9 @@ from roostos_engine.repository import ConfigRepository
 from roostos_engine.cert_manager import CertificateManager
 from roostos_sdk.client import RoostClient
 
-from roostos_web.interfaces.auth import AuthProvider, PAMAuthProvider, MockAuthProvider
+from roostos_web.interfaces.auth import (
+    AuthProvider, PAMAuthProvider, MockAuthProvider, MultiAuthorityAuthProvider
+)
 from roostos_web.services.devices import DeviceService
 from roostos_web.services.network import NetworkService
 from roostos_web.services.system import SystemService
@@ -38,6 +40,12 @@ class WebDIModule(Module):
         auth_impl = self.providers_settings.auth_provider.lower()
         if auth_impl == "mock":
             binder.bind(AuthProvider, to=MockAuthProvider(), scope=singleton)
+        elif auth_impl in ("multi_authority", "centralized"):
+            binder.bind(
+                AuthProvider,
+                to=MultiAuthorityAuthProvider(local_provider=PAMAuthProvider()),
+                scope=singleton
+            )
         else:
             binder.bind(AuthProvider, to=PAMAuthProvider(), scope=singleton)
 

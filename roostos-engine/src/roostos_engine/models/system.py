@@ -31,6 +31,13 @@ class ClusterSettingsConfig(BaseModel):
     client_key: Optional[str] = None
     sync_interval_seconds: int = 30
 
+class SystemIdentityServerConfig(BaseModel):
+    enabled: bool = False
+    url: Optional[str] = None
+    realm: Optional[str] = None
+    authority_label: Optional[str] = "RoostOS Central Identity"
+    timeout_seconds: float = 3.0
+
 class SystemSettings(BaseModel):
     hostname: str = "roost-router"
     domain: str = "lan"
@@ -42,6 +49,7 @@ class SystemSettings(BaseModel):
     updates: Optional[SystemUpdatesConfig] = Field(default_factory=SystemUpdatesConfig)
     dns: Optional[SystemDNSConfig] = Field(default_factory=SystemDNSConfig)
     cluster: Optional[ClusterSettingsConfig] = Field(default_factory=ClusterSettingsConfig)
+    identity_server: Optional[SystemIdentityServerConfig] = Field(default_factory=SystemIdentityServerConfig)
 
     @field_validator("unregistered_device_policy")
     @classmethod

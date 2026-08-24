@@ -166,4 +166,60 @@ def test_oauth_token_client_certificate_auth(tmp_path):
     assert untrusted_resp.status_code == 401
 
 
+def test_multi_authority_auth_provider():
+    from roostos_web.interfaces.auth import MockAuthProvider, MultiAuthorityAuthProvider
+    from roostos_engine.config import RoostConfig
+
+    local_mock = MockAuthProvider(mock_users={"localadmin": "localpass", "matt": "localmatt"})
+    central_mock = MockAuthProvider(central_mock_users={"centraladmin": "centralpass", "matt": "domainmatt"})
+
+    provider = MultiAuthorityAuthProvider(
+        local_provider=local_mock,
+        central_provider=central_mock,
+        default_authority="local"
+    )
+
+    # 1. Explicit authority selection
+    assert provider.authenticate("localadmin", "localpass", authority="local") is True
+    assert provider.authenticate("centraladmin", "centralpass", authority="central") is True
+
+    # 2. Strict authority isolation (No auto-failover / no password cross-contamination)
+    # User 'matt' has different passwords in local vs central
+    assert provider.authenticate("matt", "localmatt", authority="local") is True
+    assert provider.authenticate("matt", "localmatt", authority="central") is False
+    assert provider.authenticate("matt", "domainmatt", authority="central") is True
+    assert provider.authenticate("matt", "domainmatt", authority="local") is False
+
+    # 3. Prefix notation routing
+    assert provider.authenticate(".\\localadmin", "localpass") is True
+    assert provider.authenticate("local\\localadmin", "localpass") is True
+    assert provider.authenticate("localadmin@local", "localpass") is True
+    assert provider.authenticate("ROOST\\centraladmin", "centralpass") is True
+
+    # 4. Role resolution with authority
+    from roostos_engine.repository import InMemoryConfigRepository
+    repo = InMemoryConfigRepository()
+    config = repo.get_config()
+    role_local, _ = provider.resolve_role("localadmin", config, authority="local")
+    assert role_local == "admin"
+    role_central, _ = provider.resolve_role("centraladmin", config, authority="central")
+    assert role_central == "admin"
+
+
+@pytest.mark.asyncio
+async def test_user_session_with_authority():
+    token = create_access_token({
+        "sub": "localadmin",
+        "role": "admin",
+        "authority": "local",
+        "realm": "ROOSTOS.LOCAL"
+    })
+    user = await get_current_user(token)
+    assert user.username == "localadmin"
+    assert user.role == "admin"
+    assert user.authority == "local"
+    assert user.realm == "ROOSTOS.LOCAL"
+
+
+
 

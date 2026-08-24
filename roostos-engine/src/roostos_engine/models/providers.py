@@ -8,7 +8,7 @@ class ProvidersSettings(BaseModel):
     """Configuration settings determining which implementations are bound in the DI container."""
     auth_provider: str = Field(
         default="pam",
-        description="Authentication provider implementation ('pam', 'mock', 'ldap')"
+        description="Authentication provider implementation ('pam', 'mock', 'ldap', 'centralized', 'multi_authority')"
     )
     config_repository: str = Field(
         default="staging",

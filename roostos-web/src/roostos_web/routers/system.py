@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from pydantic import BaseModel
 
 from roostos_engine.config import SystemConfig, UserConfig
@@ -8,6 +8,7 @@ from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, get_current_admin, UserSession
 from roostos_web.services import SystemService, AuthService
 from roostos_web.di import Injected
+from roostos_web.audit import log_config_change, log_system_action
 
 router = APIRouter(tags=["system"])
 
@@ -33,12 +34,20 @@ class SystemUpdatePayload(BaseModel):
 
 @router.post("/api/system")
 async def update_system_config(
+    request: Request,
     payload: SystemUpdatePayload,
     current_user: UserSession = Depends(get_current_admin),
     system_service: SystemService = Injected(SystemService)
 ):
     """Updates global system properties (hostname, domain name, timezone) and pushes changes to host."""
     await system_service.update_system_config(payload.hostname, payload.domain, payload.timezone, payload.docker_registry)
+    log_config_change(
+        username=current_user.username,
+        section="system",
+        action="update_system_properties",
+        request=request,
+        details=f"hostname={payload.hostname}, domain={payload.domain}, timezone={payload.timezone}"
+    )
     return {"status": "success", "message": "System configurations updated successfully."}
 
 @router.get("/api/system/health")
@@ -51,10 +60,16 @@ async def get_system_health(
 
 @router.post("/api/system/reboot")
 async def reboot_router(
+    request: Request,
     current_user: UserSession = Depends(get_current_admin),
     system_service: SystemService = Injected(SystemService)
 ):
     """Initiates a graceful reboot of the underlying hardware/hypervisor VM."""
+    log_system_action(
+        username=current_user.username,
+        action="reboot_router",
+        request=request
+    )
     await system_service.reboot_router()
     return {"status": "success", "message": "Reboot instruction triggered successfully."}
 
@@ -69,6 +84,7 @@ async def get_users_list(
 
 @router.post("/api/users")
 async def save_user(
+    request: Request,
     user_data: UserManagementSchema,
     current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
@@ -98,6 +114,7 @@ async def save_user(
         "ssh_keys": ssh_keys
     }
     
+    action_name = "update_user" if user_idx is not None else "create_user"
     if user_idx is not None:
         existing_users[user_idx] = new_user_dict
     else:
@@ -109,10 +126,18 @@ async def save_user(
     )
     repo.save_system_config(system_config_obj)
     await dbus.get_config()
+    log_config_change(
+        username=current_user.username,
+        section="users",
+        action=action_name,
+        request=request,
+        details=f"target_user={user_data.username}, role={user_data.role}"
+    )
     return {"status": "success", "message": f"User {user_data.username} saved successfully."}
 
 @router.delete("/api/users/{username}")
 async def delete_user(
+    request: Request,
     username: str,
     current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
@@ -135,6 +160,13 @@ async def delete_user(
     )
     repo.save_system_config(system_config_obj)
     await dbus.get_config()
+    log_config_change(
+        username=current_user.username,
+        section="users",
+        action="delete_user",
+        request=request,
+        details=f"deleted_user={username}"
+    )
     return {"status": "success", "message": f"User {username} deleted successfully."}
 
 @router.get("/api/system/services")
