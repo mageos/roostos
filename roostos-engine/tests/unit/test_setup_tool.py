@@ -86,6 +86,8 @@ def test_setup_tool_dhcp_flow(temp_config_dir, monkeypatch, mock_dialogs):
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
+        "n",             # Anti-DoH protection (no)
+        "n",             # Block commercial VPNs (no)
         "y"              # Apply config
     ]
     mock_dialogs(inputs)
@@ -150,6 +152,8 @@ def test_setup_tool_static_flow(temp_config_dir, monkeypatch, mock_dialogs):
         "8.8.4.4, 9.9.9.9",
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
+        "n",             # Anti-DoH protection (no)
+        "n",             # Block commercial VPNs (no)
         "y"
     ]
     mock_dialogs(inputs)
@@ -210,6 +214,8 @@ def test_setup_tool_wan_access_prompts(temp_config_dir, monkeypatch, mock_dialog
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "y",             # Allow Web UI from WAN
         "y",             # Allow SSH from WAN
+        "n",             # Anti-DoH protection (no)
+        "n",             # Block commercial VPNs (no)
         "y"              # Apply config
     ]
     mock_dialogs(inputs)
@@ -252,6 +258,40 @@ def test_setup_tool_wan_access_prompts(temp_config_dir, monkeypatch, mock_dialog
     assert len(config.schedules) > 0  # Kids Bedtime Block should still exist
 
 
+def test_setup_tool_anti_evasion_prompts(temp_config_dir, monkeypatch, mock_dialogs):
+    """Test that enabling Anti-DoH and Anti-VPN protection saves block_doh=True and block_vpns=True."""
+    import roostos_engine.setup_tool
+    monkeypatch.setattr(roostos_engine.setup_tool, "list_interfaces", lambda: ["eth0", "eth1"])
+
+    inputs = [
+        "rerun",         # Choice for existing config
+        "",              # WAN interface (defaults to eth0)
+        "dhcp",          # WAN protocol
+        "y",             # IPv6 enabled
+        "eth1",          # LAN interfaces
+        "",              # LAN network (default: 192.168.1.0/24)
+        "",              # LAN IP (default: 192.168.1.1)
+        "y",             # Enable DHCP
+        "y",             # Confirm default DHCP pool range
+        "y",             # Wireless support enabled
+        "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
+        "n",             # Allow Web UI from WAN (no)
+        "n",             # Allow SSH from WAN (no)
+        "y",             # Anti-DoH protection (YES)
+        "y",             # Block commercial VPNs (YES)
+        "y"              # Apply config
+    ]
+    mock_dialogs(inputs)
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["--dir", str(temp_config_dir)])
+
+    assert result.exit_code == 0
+    config = load_config_directory(str(temp_config_dir))
+    assert config.firewall.block_doh is True
+    assert config.firewall.block_vpns is True
+
+
 def test_setup_tool_existing_config_exit(temp_config_dir, monkeypatch, mock_dialogs):
     """Test that if config files already exist, the tool prompts and exits if requested."""
     # Write a dummy config file
@@ -282,12 +322,6 @@ def test_setup_tool_existing_config_rerun(temp_config_dir, monkeypatch, mock_dia
     import roostos_engine.setup_tool
     monkeypatch.setattr(roostos_engine.setup_tool, "list_interfaces", lambda: ["eth0", "eth1", "eth2"])
 
-    # Inputs:
-    # 1. Existing config prompt -> "rerun"
-    # 2. Select WAN interface -> default
-    # 3. Configure WAN -> dhcp
-    # 4. Enable IPv6 -> y
-    # ...
     inputs = [
         "rerun",         # Existing config choice
         "",              # WAN interface (defaults to eth0)
@@ -302,6 +336,8 @@ def test_setup_tool_existing_config_rerun(temp_config_dir, monkeypatch, mock_dia
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
+        "n",             # Anti-DoH (no)
+        "n",             # Anti-VPN (no)
         "y"              # Apply config
     ]
     mock_dialogs(inputs)
@@ -332,6 +368,8 @@ def test_setup_tool_wifi_disabled(temp_config_dir, monkeypatch, mock_dialogs):
         "",              # Upstream DNS (default: 1.1.1.1, 8.8.8.8)
         "n",             # Allow Web UI from WAN (no)
         "n",             # Allow SSH from WAN (no)
+        "n",             # Anti-DoH (no)
+        "n",             # Anti-VPN (no)
         "y"              # Apply config
     ]
     mock_dialogs(inputs)
@@ -367,6 +405,8 @@ def test_setup_tool_mdns_discovery(temp_config_dir, monkeypatch, mock_dialogs):
         "",
         "n",
         "n",
+        "n",
+        "n",
         "y"
     ]
     mock_dialogs(inputs)
@@ -377,5 +417,6 @@ def test_setup_tool_mdns_discovery(temp_config_dir, monkeypatch, mock_dialogs):
     assert result.exit_code == 0
     assert "RoostOS Cluster Controller Discovery" in result.output
     assert "Discovered 1 active controller(s)" in result.output
+
 
 

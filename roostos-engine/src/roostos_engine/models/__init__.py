@@ -248,6 +248,12 @@ def load_config_directory(config_dir: str) -> RoostConfig:
                     firewall_settings.port_forwards = parsed.firewall.port_forwards
                 if parsed.firewall.rules:
                     firewall_settings.rules = parsed.firewall.rules
+                firewall_settings.block_doh = parsed.firewall.block_doh
+                firewall_settings.block_vpns = parsed.firewall.block_vpns
+                firewall_settings.block_quic = parsed.firewall.block_quic
+                firewall_settings.custom_doh_ips = parsed.firewall.custom_doh_ips
+                firewall_settings.custom_vpn_ips = parsed.firewall.custom_vpn_ips
+
         elif namespace == "plugins":
             raw_data["plugins"] = parsed.plugins
         elif namespace == "providers":

@@ -41,6 +41,11 @@ class InputRuleConfig(BaseModel):
 class FirewallSettings(BaseModel):
     port_forwards: List[PortForwardConfig] = Field(default_factory=list)
     rules: List[InputRuleConfig] = Field(default_factory=list)
+    block_doh: bool = False
+    block_vpns: bool = False
+    block_quic: bool = False
+    custom_doh_ips: List[str] = Field(default_factory=list)
+    custom_vpn_ips: List[str] = Field(default_factory=list)
 
 class FirewallConfig(BaseModel):
     firewall: Optional[FirewallSettings] = Field(default_factory=FirewallSettings)

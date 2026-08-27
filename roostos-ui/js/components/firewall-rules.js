@@ -6,7 +6,52 @@
 
 const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
 
-const renderFirewallRulesTemplate = (count, rowsHtml) => html`
+const renderAntiEvasionTemplate = (antiEvasion) => html`
+    <div class="card" style="margin-bottom: 20px;">
+        <div class="card-header">
+            <h3>Anti-Evasion & Threat Protection</h3>
+            <span class="badge badge-info">Parental Security</span>
+        </div>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+            Prevent browsers and client applications from bypassing local DNS filtering, parental controls, and access schedules using encrypted tunnels or unauthorized protocols.
+        </p>
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
+            <div style="padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 8px;">
+                <label class="checkbox-container" style="font-weight: 600; margin-bottom: 6px;">
+                    <input type="checkbox" id="toggle-block-doh" ${antiEvasion.block_doh ? "checked" : ""}>
+                    Block DNS-over-HTTPS (DoH)
+                </label>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                    Drops direct HTTPS/QUIC traffic to public Anycast DoH resolvers (Cloudflare, Google, Quad9, NextDNS) and returns canary domain signals to auto-disable browser DoH.
+                </div>
+            </div>
+            <div style="padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 8px;">
+                <label class="checkbox-container" style="font-weight: 600; margin-bottom: 6px;">
+                    <input type="checkbox" id="toggle-block-vpns" ${antiEvasion.block_vpns ? "checked" : ""}>
+                    Block Commercial VPN Protocols
+                </label>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                    Drops standard consumer VPN tunnels (WireGuard 51820, OpenVPN 1194, IPsec 500/4500, L2TP 1701) to prevent kids from tunneling out past parental controls.
+                </div>
+            </div>
+            <div style="padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--card-border); border-radius: 8px;">
+                <label class="checkbox-container" style="font-weight: 600; margin-bottom: 6px;">
+                    <input type="checkbox" id="toggle-block-quic" ${antiEvasion.block_quic ? "checked" : ""}>
+                    Drop HTTP/3 (QUIC) Port 443 UDP
+                </label>
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4;">
+                    Forces browsers to fall back to TCP 443, enabling reliable TLS inspection and blocking DoH3 circumvention.
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: flex-end;">
+            <button class="btn btn-primary btn-sm" id="save-anti-evasion-btn">Save Protection Settings</button>
+        </div>
+    </div>
+`;
+
+const renderFirewallRulesTemplate = (count, rowsHtml, antiEvasionHtml) => html`
+    ${antiEvasionHtml}
     <div class="card" style="margin-bottom: 20px;">
         <div class="card-header table-action-bar">
             <h3>Inbound Firewall Rules (${count})</h3>
@@ -95,15 +140,29 @@ export class FirewallRulesComponent extends HTMLElement {
         super();
         this.rules = [];
         this.portForwards = [];
+        this.antiEvasion = { block_doh: false, block_vpns: false, block_quic: false };
     }
 
-    setRules(rulesList, portForwardsList) {
+    setRules(rulesList, portForwardsList, antiEvasionSettings) {
         this.rules = rulesList || [];
         this.portForwards = portForwardsList || [];
+        if (antiEvasionSettings) this.antiEvasion = antiEvasionSettings;
         this.render();
     }
 
-    connectedCallback() {
+    renderWithRules(portForwardsList, rulesList) {
+        this.setRules(rulesList, portForwardsList);
+    }
+
+
+    async connectedCallback() {
+        if (window.securityService) {
+            try {
+                this.antiEvasion = await window.securityService.fetchAntiEvasionSettings();
+            } catch (e) {
+                console.warn("Could not fetch anti-evasion settings:", e);
+            }
+        }
         this.render();
     }
 
@@ -112,12 +171,42 @@ export class FirewallRulesComponent extends HTMLElement {
             ? html`<tr><td colspan="8" class="empty-state">No firewall input rules configured. Click "+ Add Rule" to create one.</td></tr>`
             : this.rules.map(r => renderRuleRowTemplate(r)).join("");
 
-        this.innerHTML = renderFirewallRulesTemplate(this.rules.length, rowsHtml);
+        const antiEvasionHtml = renderAntiEvasionTemplate(this.antiEvasion);
+        this.innerHTML = renderFirewallRulesTemplate(this.rules.length, rowsHtml, antiEvasionHtml);
 
         this.querySelectorAll("#top-add-rule-btn, #bottom-add-rule-btn").forEach(btn => {
             btn.onclick = () => this.showInlineAddRow();
         });
+
+        const saveAntiBtn = this.querySelector("#save-anti-evasion-btn");
+        if (saveAntiBtn) {
+            saveAntiBtn.onclick = async () => {
+                const blockDoh = this.querySelector("#toggle-block-doh").checked;
+                const blockVpns = this.querySelector("#toggle-block-vpns").checked;
+                const blockQuic = this.querySelector("#toggle-block-quic").checked;
+
+                this.antiEvasion.block_doh = blockDoh;
+                this.antiEvasion.block_vpns = blockVpns;
+                this.antiEvasion.block_quic = blockQuic;
+
+                saveAntiBtn.disabled = true;
+                saveAntiBtn.textContent = "Saving...";
+                try {
+                    await window.securityService.saveAntiEvasionSettings(this.antiEvasion);
+                    saveAntiBtn.textContent = "Saved!";
+                    setTimeout(() => {
+                        saveAntiBtn.disabled = false;
+                        saveAntiBtn.textContent = "Save Protection Settings";
+                    }, 1500);
+                } catch (err) {
+                    alert("Failed to save anti-evasion settings: " + err.message);
+                    saveAntiBtn.disabled = false;
+                    saveAntiBtn.textContent = "Save Protection Settings";
+                }
+            };
+        }
     }
+
 
     showInlineAddRow() {
         const tbody = this.querySelector("#rules-tbody");

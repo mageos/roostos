@@ -100,13 +100,23 @@ class SecurityService {
         return res;
     }
 
-    async fetchFirewallBlocks() {
-        const res = await window.authService.apiFetch("/api/firewall/blocks");
+    async fetchAntiEvasionSettings() {
+        const res = await window.authService.apiFetch("/api/firewall/anti-evasion");
         if (res.ok) {
             return await res.json();
         }
-        throw new Error("Failed to fetch firewall blocked packet logs");
+        throw new Error("Failed to fetch anti-evasion settings");
+    }
+
+    async saveAntiEvasionSettings(settings) {
+        const res = await window.authService.apiFetch("/api/firewall/anti-evasion", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(settings)
+        });
+        return res;
     }
 }
 
 window.securityService = new SecurityService();
+
