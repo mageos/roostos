@@ -452,13 +452,15 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     if not valid_dns:
         valid_dns = ["1.1.1.1", "8.8.8.8"]
 
-    # 7. WAN Access Configuration
-    click.secho("\n--- WAN Access Configuration ---", fg="cyan")
-    click.echo("By default, no services are accessible from the WAN side for security.")
+    # 7. WAN Access & Anti-Evasion Security Configuration
+    click.secho("\n--- Security & WAN Access Configuration ---", fg="cyan")
+    click.echo("Configure WAN exposure and security anti-evasion protections.")
 
     if non_interactive:
         wan_web_access = os.environ.get("ROOSTOS_WAN_WEB_ACCESS", "false").lower() in ("true", "1", "yes")
         wan_ssh_access = os.environ.get("ROOSTOS_WAN_SSH_ACCESS", "false").lower() in ("true", "1", "yes")
+        block_doh = os.environ.get("ROOSTOS_BLOCK_DOH", "false").lower() in ("true", "1", "yes")
+        block_vpns = os.environ.get("ROOSTOS_BLOCK_VPNS", "false").lower() in ("true", "1", "yes")
     else:
         wan_web_access = yes_no_dialog(
             title="WAN Web UI Access",
@@ -472,6 +474,20 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
             text="Allow SSH (port 22) from WAN?"
         ).run()
         if wan_ssh_access is None:
+            handle_cancel(None)
+
+        block_doh = yes_no_dialog(
+            title="Anti-DoH DNS Protection",
+            text="Enable Anti-DoH (DNS-over-HTTPS) Protection?\n\nThis prevents browsers and devices from bypassing parental controls and router DNS filtering via encrypted DoH."
+        ).run()
+        if block_doh is None:
+            handle_cancel(None)
+
+        block_vpns = yes_no_dialog(
+            title="Commercial VPN Blocking",
+            text="Enable Commercial VPN Protocol Blocking?\n\nThis blocks standard VPN tunnel protocols (WireGuard, OpenVPN, IPsec) on client devices."
+        ).run()
+        if block_vpns is None:
             handle_cancel(None)
 
     # 8. Review and Apply Settings
@@ -492,6 +508,8 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
             f"Upstream DNS:       {', '.join(valid_dns)}\n"
             f"WAN SSH Access:     {'ENABLED' if wan_ssh_access else 'DISABLED'}\n"
             f"WAN Web UI Access:  {'ENABLED' if wan_web_access else 'DISABLED'}\n"
+            f"Anti-DoH Protection:{'ENABLED' if block_doh else 'DISABLED'}\n"
+            f"VPN Protocol Block: {'ENABLED' if block_vpns else 'DISABLED'}\n"
             f"Config Directory:   {config_dir}\n\n"
             "Do you want to write and apply these settings now?"
         )
@@ -610,7 +628,12 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     firewall_config_obj = FirewallConfig(
         firewall=FirewallSettings(
             port_forwards=[pf.model_dump() for pf in existing_firewall.port_forwards],
-            rules=merged_rules
+            rules=merged_rules,
+            block_doh=block_doh,
+            block_vpns=block_vpns,
+            block_quic=getattr(existing_firewall, 'block_quic', False),
+            custom_doh_ips=getattr(existing_firewall, 'custom_doh_ips', []),
+            custom_vpn_ips=getattr(existing_firewall, 'custom_vpn_ips', [])
         )
     )
 

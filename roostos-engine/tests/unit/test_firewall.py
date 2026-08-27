@@ -232,3 +232,67 @@ def test_resolve_zone_to_interface_wildcard(temp_config_dir):
     from roostos_engine.cli import resolve_zone_to_interface
     result = resolve_zone_to_interface("*", str(temp_config_dir))
     assert result == "*"
+
+
+def test_firewall_anti_doh_disabled_by_default(temp_config_dir):
+    """Verifies that Anti-DoH and Anti-VPN drop rules are NOT added by default."""
+    config = load_config_directory(temp_config_dir)
+    manager = FirewallManager(config)
+    rules = manager.compile_ruleset()
+
+    # Sets exist
+    assert "set doh_server_ips {" in rules
+    assert "set vpn_server_ips {" in rules
+
+    # Forward drops should NOT be present by default
+    assert "FIREWALL:BLOCKED:DoH_Direct_IP" not in rules
+    assert "FIREWALL:BLOCKED:VPN_Protocol" not in rules
+    assert "FIREWALL:BLOCKED:QUIC_Drop" not in rules
+
+
+def test_firewall_anti_doh_enabled(temp_config_dir):
+    """Verifies that enabling block_doh inserts DoH drop rules into forward chain."""
+    config = load_config_directory(temp_config_dir)
+    config.firewall.block_doh = True
+    manager = FirewallManager(config)
+    rules = manager.compile_ruleset()
+
+    assert 'ip daddr @doh_server_ips tcp dport 443 log prefix "FIREWALL:BLOCKED:DoH_Direct_IP " drop' in rules
+    assert 'ip daddr @doh_server_ips udp dport 443 log prefix "FIREWALL:BLOCKED:DoH_Direct_IP " drop' in rules
+
+
+def test_firewall_anti_vpn_enabled(temp_config_dir):
+    """Verifies that enabling block_vpns inserts VPN protocol drop rules."""
+    config = load_config_directory(temp_config_dir)
+    config.firewall.block_vpns = True
+    config.firewall.custom_vpn_ips = ["198.51.100.0/24"]
+    manager = FirewallManager(config)
+    rules = manager.compile_ruleset()
+
+    assert 'udp dport { 500, 1194, 1701, 4500, 51820 } log prefix "FIREWALL:BLOCKED:VPN_Protocol " drop' in rules
+    assert 'tcp dport { 1194, 1723 } log prefix "FIREWALL:BLOCKED:VPN_Protocol " drop' in rules
+    assert 'ip protocol { esp, ah } log prefix "FIREWALL:BLOCKED:VPN_Protocol " drop' in rules
+    assert 'ip daddr @vpn_server_ips log prefix "FIREWALL:BLOCKED:VPN_Endpoint " drop' in rules
+    assert "198.51.100.0/24" in rules
+
+
+def test_firewall_anti_quic_enabled(temp_config_dir):
+    """Verifies that enabling block_quic drops UDP port 443."""
+    config = load_config_directory(temp_config_dir)
+    config.firewall.block_quic = True
+    manager = FirewallManager(config)
+    rules = manager.compile_ruleset()
+
+    assert 'udp dport 443 log prefix "FIREWALL:BLOCKED:QUIC_Drop " drop' in rules
+
+
+def test_firewall_anti_evasion_cli_helpers(temp_config_dir):
+    """Verifies CLI helper methods for adding and deleting elements from anti-evasion sets."""
+    config = load_config_directory(temp_config_dir)
+    manager = FirewallManager(config)
+
+    assert manager.get_add_doh_ip_cmd("1.2.3.4") == ["nft", "add", "element", "inet", "filter", "doh_server_ips", "{ 1.2.3.4 }"]
+    assert manager.get_delete_doh_ip_cmd("1.2.3.4") == ["nft", "delete", "element", "inet", "filter", "doh_server_ips", "{ 1.2.3.4 }"]
+    assert manager.get_add_vpn_ip_cmd("5.6.7.8") == ["nft", "add", "element", "inet", "filter", "vpn_server_ips", "{ 5.6.7.8 }"]
+    assert manager.get_delete_vpn_ip_cmd("5.6.7.8") == ["nft", "delete", "element", "inet", "filter", "vpn_server_ips", "{ 5.6.7.8 }"]
+

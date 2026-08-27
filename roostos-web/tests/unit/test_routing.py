@@ -20,8 +20,8 @@ class DummyConfigRepository(ConfigRepository):
         self.config.system = SystemSettings(hostname="test-host", domain="test-lan")
         self.config.users = []
         self.config.devices = []
-        self.config.firewall = MagicMock()
-        self.config.firewall.model_dump.return_value = {"schedules": []}
+        from roostos_engine.models.firewall import FirewallSettings
+        self.config.firewall = FirewallSettings()
         self.config.network = NetworkSettings()
         self.config.wifi = WifiSettings()
         self.config.vpns = []
@@ -51,10 +51,14 @@ class DummyConfigRepository(ConfigRepository):
         pass
 
     def save_firewall_config(self, data: any) -> None:
-        pass
+        if hasattr(data, "firewall"):
+            self.config.firewall = data.firewall
+        else:
+            self.config.firewall = data
 
     def save_plugins_config(self, data: any) -> None:
         pass
+
 
 
 from roostos_engine.models.providers import ProvidersSettings
@@ -351,6 +355,33 @@ def test_firewall_blocks_endpoint(mock_dependencies, auth_headers):
     assert len(blocks) > 0
     assert "timestamp" in blocks[0]
     assert "rule" in blocks[0]
+
+
+def test_anti_evasion_endpoints(mock_dependencies, auth_headers):
+    client = TestClient(app)
+    repo, dbus = mock_dependencies
+
+    # 1. GET /api/firewall/anti-evasion
+    response = client.get("/api/firewall/anti-evasion", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert "block_doh" in data
+    assert "block_vpns" in data
+    assert "canary_domains" in data
+    assert "use-application-dns.net" in data["canary_domains"]
+
+    # 2. POST /api/firewall/anti-evasion
+    payload = {
+        "block_doh": True,
+        "block_vpns": True,
+        "block_quic": True,
+        "custom_doh_ips": ["1.1.1.1"],
+        "custom_vpn_ips": ["198.51.100.1"]
+    }
+    response = client.post("/api/firewall/anti-evasion", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+
 
 
 

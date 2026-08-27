@@ -48,6 +48,34 @@ class FirewallManager:
                 else:
                     lan_ifs.append(vlan.name)
 
+        # Anti-evasion config settings
+        block_doh = False
+        block_vpns = False
+        block_quic = False
+        doh_ips = [
+            "1.1.1.1", "1.0.0.1", "162.159.36.1", "162.159.46.1",  # Cloudflare
+            "8.8.8.8", "8.8.4.4",                                  # Google
+            "9.9.9.9", "149.112.112.112",                          # Quad9
+            "208.67.222.222", "208.67.220.220",                    # OpenDNS
+            "45.90.28.0/24", "45.90.30.0/24",                      # NextDNS
+            "194.242.2.2", "194.242.2.3", "194.242.2.4",          # Mullvad
+            "76.76.2.0/24", "76.76.10.0/24"                        # Control D
+        ]
+        vpn_ips = []
+        if hasattr(self.config, "firewall") and self.config.firewall:
+            fw = self.config.firewall
+            block_doh = getattr(fw, "block_doh", False)
+            block_vpns = getattr(fw, "block_vpns", False)
+            block_quic = getattr(fw, "block_quic", False)
+            if getattr(fw, "custom_doh_ips", None):
+                doh_ips.extend(fw.custom_doh_ips)
+            if getattr(fw, "custom_vpn_ips", None):
+                vpn_ips.extend(fw.custom_vpn_ips)
+
+        # Format elements string for nftables set
+        doh_elements = ", ".join(doh_ips)
+        vpn_elements_clause = f"\n        elements = {{ {', '.join(vpn_ips)} }}" if vpn_ips else ""
+
         # Start building the config
         lines = [
             "#!/usr/sbin/nft -f",
@@ -69,6 +97,17 @@ class FirewallManager:
             "    # Legacy alias for backwards compatibility",
             "    set blocked_clients {",
             "        type ether_addr",
+            "    }",
+            "    # 4. Anti-Evasion DoH IP Set",
+            "    set doh_server_ips {",
+            "        type ipv4_addr",
+            "        flags interval",
+            f"        elements = {{ {doh_elements} }}",
+            "    }",
+            "    # 5. Anti-Evasion Commercial VPN Endpoint Set",
+            "    set vpn_server_ips {",
+            "        type ipv4_addr",
+            "        flags interval" + vpn_elements_clause,
             "    }",
             "",
             "    chain input {",
@@ -132,6 +171,29 @@ class FirewallManager:
             "        # Legacy backward-compatibility drop",
             "        ether saddr @blocked_clients log prefix \"FIREWALL:BLOCKED:Blocked_Client \" drop",
         ])
+
+        # Anti-Evasion Forward Drops
+        if block_doh:
+            lines.extend([
+                "        # Anti-Evasion: Drop direct HTTPS/QUIC connections to known DoH resolver IPs",
+                "        ip daddr @doh_server_ips tcp dport 443 log prefix \"FIREWALL:BLOCKED:DoH_Direct_IP \" drop",
+                "        ip daddr @doh_server_ips udp dport 443 log prefix \"FIREWALL:BLOCKED:DoH_Direct_IP \" drop",
+            ])
+
+        if block_quic:
+            lines.append("        # Anti-Evasion: Drop QUIC (HTTP/3) UDP 443 to force TLS/TCP fallback")
+            lines.append("        udp dport 443 log prefix \"FIREWALL:BLOCKED:QUIC_Drop \" drop")
+
+        if block_vpns:
+            lines.extend([
+                "        # Anti-Evasion: Drop Commercial VPN protocols and standard ports",
+                "        udp dport { 500, 1194, 1701, 4500, 51820 } log prefix \"FIREWALL:BLOCKED:VPN_Protocol \" drop",
+                "        tcp dport { 1194, 1723 } log prefix \"FIREWALL:BLOCKED:VPN_Protocol \" drop",
+                "        ip protocol { esp, ah } log prefix \"FIREWALL:BLOCKED:VPN_Protocol \" drop",
+            ])
+            if vpn_ips:
+                lines.append("        ip daddr @vpn_server_ips log prefix \"FIREWALL:BLOCKED:VPN_Endpoint \" drop")
+
 
         # Dynamic Zone Forwarding Rules
         zones_defined = hasattr(self.config, "network") and self.config.network and bool(self.config.network.zones)
@@ -293,3 +355,20 @@ class FirewallManager:
     def get_unquarantine_mac_cmd(self, mac: str) -> List[str]:
         """Returns command args to unquarantine a client MAC."""
         return ["nft", "delete", "element", "inet", "filter", "quarantined", f"{{ {mac.lower()} }}"]
+
+    def get_add_doh_ip_cmd(self, ip_cidr: str) -> List[str]:
+        """Returns command args to dynamically add a DoH IP/CIDR to the active nftables set."""
+        return ["nft", "add", "element", "inet", "filter", "doh_server_ips", f"{{ {ip_cidr} }}"]
+
+    def get_delete_doh_ip_cmd(self, ip_cidr: str) -> List[str]:
+        """Returns command args to delete a DoH IP/CIDR from the active nftables set."""
+        return ["nft", "delete", "element", "inet", "filter", "doh_server_ips", f"{{ {ip_cidr} }}"]
+
+    def get_add_vpn_ip_cmd(self, ip_cidr: str) -> List[str]:
+        """Returns command args to dynamically add a VPN IP/CIDR to the active nftables set."""
+        return ["nft", "add", "element", "inet", "filter", "vpn_server_ips", f"{{ {ip_cidr} }}"]
+
+    def get_delete_vpn_ip_cmd(self, ip_cidr: str) -> List[str]:
+        """Returns command args to delete a VPN IP/CIDR from the active nftables set."""
+        return ["nft", "delete", "element", "inet", "filter", "vpn_server_ips", f"{{ {ip_cidr} }}"]
+
