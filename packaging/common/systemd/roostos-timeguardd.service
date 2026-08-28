@@ -1,0 +1,12 @@
+[Unit]
+Description=RoostOS TimeGuard Screen Time Daemon
+After=network.target dbus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/roostos-timeguardd start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

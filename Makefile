@@ -1,10 +1,11 @@
 # RoostOS Build System Makefile
 
 REGISTRY ?= localhost:5000
+VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.1.0")
 
-.PHONY: all images push deb test test-ui install-ui-deps clean help
+.PHONY: all images push deb arch pkgs bump-version test test-ui install-ui-deps clean help
 
-all: images deb
+all: images pkgs
 
 images:
 	@echo "============================================="
@@ -25,15 +26,25 @@ push: images
 	docker push $(REGISTRY)/technitium/dns-server:latest
 
 bump-version:
-	@NEW_VERSION=$$(awk -F= '/^PACKAGE_VERSION=/ {split($$2, a, "."); print a[1]"."a[2]"."(a[3]+1)}' scripts/build-deb.sh) && \
-	sed -i "s/^PACKAGE_VERSION=.*/PACKAGE_VERSION=$$NEW_VERSION/" scripts/build-deb.sh && \
-	echo "PACKAGE_VERSION auto-incremented to $$NEW_VERSION"
+	@OLD_VER=$$(cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.1.0") && \
+	NEW_VER=$$(echo "$$OLD_VER" | awk '{split($$0, a, "."); print a[1]"."a[2]"."(a[3]+1)}') && \
+	echo "$$NEW_VER" > VERSION && \
+	sed -i "s/^pkgver=.*/pkgver=$$NEW_VER/" packaging/arch/PKGBUILD 2>/dev/null || true && \
+	echo "RoostOS Version bumped: $$OLD_VER -> $$NEW_VER"
 
-deb: bump-version
+deb:
 	@echo "============================================="
-	@echo "Building RoostOS Debian Packages"
+	@echo "Building RoostOS Debian Packages (v$(VERSION))"
 	@echo "============================================="
-	bash scripts/build-all-debs.sh
+	bash packaging/debian/build-debs.sh
+
+arch:
+	@echo "============================================="
+	@echo "Building RoostOS Arch Linux Packages (v$(VERSION))"
+	@echo "============================================="
+	bash packaging/arch/build-arch.sh
+
+pkgs: deb arch
 
 install-ui-deps:
 	npm install --prefix roostos-ui
@@ -91,17 +102,20 @@ test-harness-scenario:
 
 clean:
 	@echo "Cleaning build artifacts..."
-	rm -rf build-deb-tmp
+	rm -rf build-deb-tmp build-arch-tmp
 	rm -rf test-harness/staged-config
-	rm -f roostos_*.deb
-	rm -f *.tar
+	rm -rf dist
+	rm -f roostos_*.deb *.pkg.tar* *.tar
 
 help:
 	@echo "Available targets:"
-	@echo "  all                  - Build all Docker images and the Debian package (default)"
+	@echo "  all                  - Build all Docker images, Debian, and Arch packages (default)"
 	@echo "  images               - Build the roostos-dns-technitium docker image"
 	@echo "  push                 - Tag and push D-Bus sidecar and base Technitium DNS to registry"
-	@echo "  deb                  - Compile the Debian installation package"
+	@echo "  deb                  - Compile Debian (.deb) packages"
+	@echo "  arch                 - Compile Arch Linux (.pkg.tar.zst) packages"
+	@echo "  pkgs                 - Compile both Debian and Arch Linux packages"
+	@echo "  bump-version         - Increment patch version in VERSION and sync PKGBUILD"
 	@echo "  test                 - Run python and javascript unit tests"
 	@echo "  test-ui              - Run frontend javascript unit tests"
 	@echo "  test-harness         - Run containerized multi-node automation test suite"

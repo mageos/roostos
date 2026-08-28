@@ -16,17 +16,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Debian Build Artifacts
+# Packaging Build Artifacts
 build-deb-tmp/
+build-arch-tmp/
 *.deb
+*.pkg.tar*
 *.tar
-
-# Development Sandbox
-dev_root/
-
-# Editor / OS files
-.DS_Store
-*~
-*.swp
-
 dist/
