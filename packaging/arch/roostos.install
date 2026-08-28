@@ -1,0 +1,86 @@
+post_install() {
+    echo "Configuring RoostOS for Arch Linux..."
+
+    mkdir -p /etc/roostos
+    mkdir -p /var/lib/roostos
+
+    if ! getent group roostos >/dev/null; then
+        groupadd -r roostos
+    fi
+
+    # Create default configurations if missing
+    if [ ! -f /etc/roostos/system.yaml ]; then
+        cat << 'EOF' > /etc/roostos/system.yaml
+system:
+  hostname: roost-router
+  domain: local
+  timezone: UTC
+users: []
+EOF
+    fi
+
+    if [ ! -f /etc/roostos/network.yaml ]; then
+        cat << 'EOF' > /etc/roostos/network.yaml
+network:
+  interfaces:
+  - name: eth0
+    role: wan
+    dhcp: true
+  - name: eth1
+    role: lan
+    bridge: br0
+  bridges:
+  - name: br0
+    ip: 192.168.1.1/24
+    dhcp_enabled: true
+    dhcp_pool_start: 192.168.1.100
+    dhcp_pool_end: 192.168.1.250
+  vlans: []
+  gateways: []
+wifi:
+  access_points: []
+vpns: []
+EOF
+    fi
+
+    if [ ! -f /etc/roostos/devices.yaml ]; then
+        cat << 'EOF' > /etc/roostos/devices.yaml
+people: []
+buildings: []
+rooms: []
+devices: []
+EOF
+    fi
+
+    if [ ! -f /etc/roostos/schedules.yaml ]; then
+        cat << 'EOF' > /etc/roostos/schedules.yaml
+firewall:
+  schedules: []
+  rules: []
+  port_forwards: []
+EOF
+    fi
+
+    if [ ! -f /etc/roostos/plugins.yaml ]; then
+        cat << 'EOF' > /etc/roostos/plugins.yaml
+plugins: []
+EOF
+    fi
+
+    # Reload systemd and D-Bus if system is running
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        pkill -HUP dbus-daemon || true
+    fi
+}
+
+post_upgrade() {
+    post_install
+}
+
+pre_remove() {
+    if [ -d /run/systemd/system ]; then
+        systemctl stop roostos-engine.service || true
+        systemctl stop roostos-web.service || true
+    fi
+}

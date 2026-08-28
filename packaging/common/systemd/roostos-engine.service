@@ -1,0 +1,13 @@
+[Unit]
+Description=RoostOS Router Engine Daemon
+After=network.target dbus.service
+Wants=kea-dhcp4-server.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/roostd --config-dir /etc/roostos
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
