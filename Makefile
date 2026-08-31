@@ -12,6 +12,7 @@ images:
 	@echo "Building RoostOS Plugin Docker Images"
 	@echo "============================================="
 	docker build -t roostos-dns-technitium:latest -f roostos-dns-technitium/Dockerfile .
+	docker build -t roostos-identity-samba:latest -f roostos-identity-samba/Dockerfile .
 
 push: images
 	@echo "============================================="

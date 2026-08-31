@@ -40,10 +40,17 @@ class WebDIModule(Module):
         auth_impl = self.providers_settings.auth_provider.lower()
         if auth_impl == "mock":
             binder.bind(AuthProvider, to=MockAuthProvider(), scope=singleton)
+        elif auth_impl == "ldap":
+            from roostos_web.interfaces.auth import LDAPAuthProvider
+            binder.bind(AuthProvider, to=LDAPAuthProvider(), scope=singleton)
         elif auth_impl in ("multi_authority", "centralized"):
+            from roostos_web.interfaces.auth import LDAPAuthProvider
             binder.bind(
                 AuthProvider,
-                to=MultiAuthorityAuthProvider(local_provider=PAMAuthProvider()),
+                to=MultiAuthorityAuthProvider(
+                    local_provider=PAMAuthProvider(),
+                    central_provider=LDAPAuthProvider()
+                ),
                 scope=singleton
             )
         else:

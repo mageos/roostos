@@ -33,8 +33,11 @@ class ClusterSettingsConfig(BaseModel):
 
 class SystemIdentityServerConfig(BaseModel):
     enabled: bool = False
+    provider: str = "samba_ad"
     url: Optional[str] = None
     realm: Optional[str] = None
+    workgroup: Optional[str] = "ROOSTOS"
+    admin_user: Optional[str] = "Administrator"
     authority_label: Optional[str] = "RoostOS Central Identity"
     timeout_seconds: float = 3.0
 

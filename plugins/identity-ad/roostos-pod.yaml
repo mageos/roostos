@@ -1,0 +1,55 @@
+id: identity-ad
+name: Samba Active Directory & Central Identity
+known_services:
+  - identityServer
+  - ldapServer
+  - kerberosKDC
+network_mode: bridge
+ui_entrypoint: /app/ui/ui.js
+containers:
+  - name: samba-dc
+    image: nowsci/samba-domain:latest
+    ports:
+      - host_port: 88
+        container_port: 88
+        protocol: tcp
+      - host_port: 88
+        container_port: 88
+        protocol: udp
+      - host_port: 389
+        container_port: 389
+        protocol: tcp
+      - host_port: 389
+        container_port: 389
+        protocol: udp
+      - host_port: 636
+        container_port: 636
+        protocol: tcp
+      - host_port: 464
+        container_port: 464
+        protocol: tcp
+      - host_port: 464
+        container_port: 464
+        protocol: udp
+      - host_port: 3268
+        container_port: 3268
+        protocol: tcp
+      - host_port: 3269
+        container_port: 3269
+        protocol: tcp
+    volumes:
+      - host_path: /var/lib/roostos/plugins/identity-ad/data
+        container_path: /var/lib/samba
+        mode: rw
+      - host_path: /var/lib/roostos/plugins/identity-ad/etc
+        container_path: /etc/samba
+        mode: rw
+    environment:
+      DOMAIN: "ROOSTOS"
+      REALM: "ROOSTOS.LOCAL"
+      ADMIN_PASS: "RoostOS!Admin2026"
+  - name: identity-bridge
+    image: roostos-identity-samba:latest
+    environment:
+      SAMBA_HOST: "localhost"
+      ROOSTOS_SESSION_BUS: "1"

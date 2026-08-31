@@ -9,9 +9,19 @@ from roostos_engine.models.system import (
     SystemUpdatesConfig,
     SystemDNSConfig,
     ClusterSettingsConfig,
+    SystemIdentityServerConfig,
     SystemSettings,
     UserConfig,
     SystemConfig,
+)
+from roostos_engine.models.identity import (
+    DomainUser,
+    DomainUserCreate,
+    DomainUserUpdate,
+    DomainPasswordReset,
+    DomainGroup,
+    DomainStatus,
+    WorkstationEnrollmentInfo,
 )
 from roostos_engine.models.network import (
     PPPoEConfig,
