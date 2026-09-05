@@ -91,3 +91,83 @@ class DNSResolverServer(ServiceInterface):
             print("DNS Resolver D-Bus service stopped.")
         else:
             print("DNS Resolver D-Bus service was not running.")
+
+
+IDENTITY_BUS_NAME = "org.roostos.IdentityService"
+IDENTITY_OBJECT_PATH = "/org/roostos/IdentityService"
+
+
+class IdentityServer(ServiceInterface):
+    """Base class for implementing the org.roostos.IdentityService D-Bus service."""
+
+    def __init__(self):
+        super().__init__(IDENTITY_BUS_NAME)
+        self._bus = None
+
+    # ==========================================
+    # Decorated D-Bus Endpoint Methods
+    # ==========================================
+
+    @method()
+    async def GetStatus(self) -> 's':
+        """Returns runtime domain controller status as JSON."""
+        return await self.get_status()
+
+    @method()
+    async def ListUsers(self) -> 's':
+        """Returns all domain user accounts as JSON."""
+        return await self.list_users()
+
+    @method()
+    async def CreateUser(self, username: 's', password: 's', role: 's', person: 's') -> 'b':
+        """Provisions a new domain user account."""
+        return await self.create_user(username, password, role, person)
+
+    @method()
+    async def DeleteUser(self, username: 's') -> 'b':
+        """Removes a domain user account."""
+        return await self.delete_user(username)
+
+    @method()
+    async def ResetPassword(self, username: 's', new_password: 's') -> 'b':
+        """Resets a domain user account password."""
+        return await self.reset_password(username, new_password)
+
+    # ==========================================
+    # Hook Methods (Overridden by Subclasses)
+    # ==========================================
+
+    async def get_status(self) -> str:
+        return "{}"
+
+    async def list_users(self) -> str:
+        return "[]"
+
+    async def create_user(self, username: str, password: str, role: str, person: str) -> bool:
+        return False
+
+    async def delete_user(self, username: str) -> bool:
+        return False
+
+    async def reset_password(self, username: str, new_password: str) -> bool:
+        return False
+
+    # ==========================================
+    # Lifecycle Control
+    # ==========================================
+
+    async def start(self, session: bool = False) -> None:
+        """Connects to D-Bus and registers org.roostos.IdentityService."""
+        bus_type = BusType.SESSION if session else BusType.SYSTEM
+        self._bus = await MessageBus(bus_type=bus_type).connect()
+        self._bus.export(IDENTITY_OBJECT_PATH, self)
+        await self._bus.request_name(IDENTITY_BUS_NAME)
+        print(f"Identity D-Bus service registered successfully: '{IDENTITY_BUS_NAME}' at '{IDENTITY_OBJECT_PATH}'")
+
+    def stop(self) -> None:
+        """Disconnects and releases the D-Bus service."""
+        if self._bus:
+            self._bus.disconnect()
+            self._bus = None
+            print("Identity D-Bus service stopped.")
+
