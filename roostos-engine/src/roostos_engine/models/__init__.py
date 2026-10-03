@@ -89,6 +89,15 @@ from roostos_engine.models.plugins import (
     PluginConfig,
     PluginsConfig,
 )
+from roostos_engine.models.catalog import (
+    PullPolicy,
+    IngressPreset,
+    CatalogContainerSpec,
+    CatalogAppEntry,
+    CatalogIndex,
+    CatalogSourceConfig,
+    InstallAppRequest,
+)
 from roostos_engine.models.providers import (
     ProvidersSettings,
     ProvidersConfigFile,
@@ -118,6 +127,7 @@ class RoostConfig(BaseModel):
     firewall: FirewallSettings
     schedules: List[ScheduleConfig]
     plugins: List[PluginConfig]
+    catalog_sources: List[CatalogSourceConfig] = Field(default_factory=list)
     providers: Optional[ProvidersSettings] = Field(default_factory=ProvidersSettings)
 
     @model_validator(mode="after")

@@ -130,6 +130,7 @@ window.switchView = function(viewId) {
         people: "Family Profiles & Operator Logins",
         locations: "Buildings & Rooms",
         devices: "Registered Devices",
+        catalog: "Application Catalog & Extensions",
         plugins: "Hosted Sidecar Plugins",
         system: "System Administration"
     };
@@ -146,6 +147,7 @@ window.switchView = function(viewId) {
         people: "Management",
         locations: "Management",
         devices: "Management",
+        catalog: "Management",
         plugins: "Management",
         system: "Management"
     };
@@ -323,7 +325,7 @@ window.loadDashboard = async function() {
 
         // Fetch sidecar Plugins
         const plugins = await window.systemService.fetchPlugins();
-        window.pluginsComponent.render(plugins);
+        if (window.pluginsComponent) window.pluginsComponent.render(plugins);
 
         // Refresh canvas graphs
         window.statusComponent.drawCharts();
@@ -384,7 +386,12 @@ function init() {
         window.peopleComponent.mount(viewContainer);
         window.locationsComponent.mount(viewContainer);
         window.systemComponent.mount(viewContainer);
-        window.pluginsComponent.mount(viewContainer);
+        const catalogPane = document.createElement("div");
+        catalogPane.id = "catalog-view";
+        catalogPane.className = "view-pane";
+        catalogPane.innerHTML = "<roost-app-catalog></roost-app-catalog>";
+        viewContainer.appendChild(catalogPane);
+        if (window.pluginsComponent) window.pluginsComponent.mount(viewContainer);
     }
 
     // 2. Setup theme settings
