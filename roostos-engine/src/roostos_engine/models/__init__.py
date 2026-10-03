@@ -39,6 +39,13 @@ from roostos_engine.models.network import (
     VPNConfig,
     NetworkConfig,
 )
+from roostos_engine.models.edge import (
+    IngressRoute,
+    EdgeGatewayConfig,
+    EdgeBootstrapToken,
+    EdgeEnrollmentPayload,
+    EdgeEnrollmentResponse,
+)
 from roostos_engine.models.node import (
     NodeRole,
     InterfaceType,
@@ -103,6 +110,7 @@ class RoostConfig(BaseModel):
     nodes: List[NodeConfig] = Field(default_factory=list)
     wifi: Optional[WifiSettings] = None
     vpns: List[VPNConfig]
+    edge_gateways: List[EdgeGatewayConfig] = Field(default_factory=list)
     people: List[PersonConfig]
     buildings: List[BuildingConfig]
     rooms: List[RoomConfig]
@@ -239,6 +247,7 @@ def load_config_directory(config_dir: str) -> RoostConfig:
             raw_data["network"] = parsed.network
             raw_data["wifi"] = parsed.wifi
             raw_data["vpns"] = parsed.vpns
+            raw_data["edge_gateways"] = parsed.edge_gateways
         elif namespace == "devices":
             raw_data["people"] = parsed.people
             raw_data["buildings"] = parsed.buildings

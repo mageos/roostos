@@ -56,42 +56,40 @@ You can create isolated subnets and VLANs for specific tags. For example, you ca
 
 ---
 
-## Building RoostOS Images
+## Installation via Debian Packages (`.deb`)
 
-We use the **`debos`** tool to bootstrap, configure, and package RoostOS system images.
+RoostOS is packaged as modular, role-oriented `.deb` packages for Debian and Ubuntu Server LTS (both `amd64` and `arm64`). This enables installing an all-in-one router, separating routing gateways from compute application nodes, or provisioning VPS edge proxies.
 
-### 1. Build using Docker (Recommended)
-Running `debos` in Docker avoids installing dependencies locally (like `systemd-nspawn`, `qemu-user-static`, and `debootstrap` tools):
+### 1. Compile Packages from Source
+To compile all architecture-independent and architecture-specific packages:
+```bash
+make deb
+```
+This generates all `.deb` artifacts in `dist/debs/`:
+* `roostos-router_*.deb`: Complete standalone all-in-one router (Gateway + Controller).
+* `roostos-gateway-node_*.deb`: Dedicated Edge Gateway Router (packet filtering, Kea DHCP, Wi-Fi mesh).
+* `roostos-controller-node_*.deb`: Central Controller & Application Server (domain registry, MQTT broker, container workloads).
+* `roostos-workstation_*.deb`: Client Workstation agent (screen time limits, PAM session locking).
+* `roostos-edge-node_*.deb`: Cloud VPS Edge Gateway (CGNAT bypass & reverse-proxy ingress).
 
-*   **Build the x86_64 (amd64) bootable ISO**:
-    ```bash
-    docker run --rm --interactive --tty --device /dev/kvm --privileged \
-      -v $(pwd):/workspace \
-      -w /workspace \
-      godebos/debos roostos-debos/roostos-amd64.yaml
-    ```
+### 2. Install on a Target Node
+Copy the appropriate `.deb` package to your target Debian/Ubuntu machine and install via `apt`:
 
-*   **Build the ARM64 (arm64) flashable SD card image**:
-    ```bash
-    docker run --rm --interactive --tty --device /dev/kvm --privileged \
-      -v $(pwd):/workspace \
-      -w /workspace \
-      godebos/debos roostos-debos/roostos-arm64.yaml
-    ```
-
-### 2. Build Natively
-If you have `debos` installed on your host system:
-
-*   **Build amd64 ISO**:
-    ```bash
-    sudo debos roostos-debos/roostos-amd64.yaml
-    ```
-*   **Build arm64 Image**:
-    ```bash
-    sudo debos roostos-debos/roostos-arm64.yaml
-    ```
+* **All-in-One Home Router**:
+  ```bash
+  sudo apt update && sudo apt install -y ./dist/debs/roostos-router_*.deb
+  ```
+* **Dedicated Gateway Node**:
+  ```bash
+  sudo apt update && sudo apt install -y ./dist/debs/roostos-gateway-node_*.deb
+  ```
+* **Dedicated Controller / App Server**:
+  ```bash
+  sudo apt update && sudo apt install -y ./dist/debs/roostos-controller-node_*.deb
+  ```
 
 ---
+
 
 ## Local Development & Testing Sandbox
 
@@ -116,12 +114,11 @@ Once running:
 
 ## Initial Guided Setup Wizard
 
-If you are deploying RoostOS to a new router device (or want to re-configure interface bindings at any time), you can run the guided setup wizard. This python utility prompts you to configure:
+RoostOS includes a universal hardware-aware setup wizard (`roostos setup`) that inspects physical interfaces, detects form factors, and guides configuration:
 * The WAN (Internet) interface (DHCP or static IP parameters).
 * IPv6 settings toggle.
-* One or more LAN interface bindings.
-* The LAN network scope (e.g. `192.168.1.0/24`) and router bridge IP.
-* The Kea DHCP server range.
+* One or more LAN interface bindings and bridge IP (e.g. `192.168.1.1/24`).
+* Kea DHCP server range and dynamic lease scope.
 * Upstream DNS forwarders.
 * Live diagnostic validations (ping checks, operstate verification, and DNS resolution).
 
@@ -129,11 +126,11 @@ If you are deploying RoostOS to a new router device (or want to re-configure int
 
 * **On a live RoostOS system (installed globally)**:
   ```bash
-  sudo roostos-setup
+  sudo roostos setup
   ```
 * **In the local development environment (dry-run / custom folder)**:
   ```bash
-  .venv/bin/roostos-setup --dir ./dev_root/etc/roostos
+  .venv/bin/roostos setup --config-dir ./dev_root/etc/roostos
   ```
 
 ---

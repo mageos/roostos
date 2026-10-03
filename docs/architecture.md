@@ -12,13 +12,11 @@ This document outlines the three-service architecture, system layers, communicat
 
 RoostOS separates concerns into distinct, modular services that can run on a single standalone router or be distributed across multiple systems in a home network.
 
-* **`roostos-engine` (Configuration & Domain Object Service)**: The central source of truth for all domain objects (devices, people, buildings, rooms, schedules, firewall policies, plugins). It exposes a comprehensive REST API and broadcasts configuration changes and domain events over a secure MQTT broker. It manages persistent configuration storage (`/etc/roostos/`) and central state aggregation.
-* **`roostos-core` (Local System Management Daemon)**: The node management daemon installed on router hardware. It subscribes to MQTT configuration updates from `roostos-engine` and translates them into physical system states (generating `systemd-networkd` network configs, `Kea DHCP` leases/subnets, applying `nftables` rulesets, and managing `IWD` Wi-Fi mesh). It also bridges local system events (e.g. `org.roostos.DNSResolver` sidecar D-Bus signals) to MQTT.
-* **`roostos-web` (Web Console SPA & API)**: A modern web interface built on FastAPI and Vanilla JS / Web Components. It communicates with `roostos-engine` via REST and OAuth2 JWT authentication. It supports PAM for system user authentication, manages automatic HTTPS SSL certificates (Let's Encrypt), and dynamically loads UI extension modules provided by installed plugins.
-* **`roostos-timeguardd` (Family Controls Client Daemon)**: A lightweight daemon installed on client workstations (and mobile devices) that monitors active human sessions via `systemd-logind` over local D-Bus. It enforces session locks locally when time limits are reached, reports usage heartbeats to `roostos-engine` via MQTT, and receives global lock events when cross-device daily allowances expire.
-* **Certificate Manager**: Provisioning authority issuing mTLS client certificates with embedded X.509 scope permissions (`requested_scopes`). These certificates secure intra-service REST API calls and enforce topic-level ACLs on the central MQTT broker.
-* **Router & Access Point**: Turn target hardware into multi-zone network controllers providing firewall, routing, DHCP, mDNS forwarding, and high-performance mesh Wi-Fi (`IWD`).
-* **Container Services & Plugins**: Orchestrates containerized plugin workloads (Docker/Podman). Supports two plugin types: `core_service` (system interface providers like DNS, DHCP, LDAP) and `application` (cluster compute workloads like Home Assistant or Plex).
+* **`roostos` (Root Base Package & Universal Setup Wizard)**: Provides the `/usr/bin/roostos` CLI, hardware introspection, and a hardware-aware guided setup wizard (`roostos setup`) that detects system capabilities and installs/configures the appropriate roles.
+* **`roostos-node` (Base Infrastructure Agent & Local REST API)**: The base management daemon running on every infrastructure node (port 8000). Provides host telemetry, physical interface controls, system diagnostics, and serves the local Web Console SPA, ensuring independent local survivability and management during network or central server outages.
+* **`roostos-gateway` (Edge Gateway Router Stack)**: The routing and firewall stack installed on gateway hardware. It manages physical system states (`systemd-networkd`, `Kea DHCP` leases/subnets, `nftables` rulesets/sets, and `IWD` mesh), maintaining an autonomous local SQLite state cache.
+* **`roostos-engine` (Central Domain Controller & Cluster Service)**: The central source of truth for all domain objects across nodes (devices, people, buildings, rooms, schedules, firewall policies, plugins). It manages persistent multi-node configuration storage (`/etc/roostos/`), coordinates cluster sync, runs the central MQTT broker (`mosquitto`), and orchestrates container workloads.
+* **`roostos-workstation` (Unified Client Endpoint Stack)**: Screen time, parental controls, and domain enrollment client installed on client workstations (laptops/desktops). Runs the lightweight `roostos-timeguardd` daemon (monitoring `systemd-logind` sessions), enforces daily screen time and bedtime curfews via PAM hooks, and connects to RoostOS domain controllers without opening any inbound listening ports.
 
 ---
 
@@ -28,11 +26,12 @@ RoostOS separates concerns clearly into distinct operational layers:
 
 ```mermaid
 graph TD
-    UI[Web UI: roostos-web SPA] -->|FastAPI REST API| Engine[roostos-engine: Central Domain Service]
-    CLI[Terminal: roostos-cli] -->|REST API / YAML Write| Engine
+    UI[Web UI: roostos-web / roostos-node SPA] -->|FastAPI REST API: port 8000| NodeAgent[roostos-node: Local REST Daemon]
+    CLI[Terminal: roostos CLI] -->|Local REST API / Setup| NodeAgent
     
-    Engine <-->|MQTT Broker: roostos/config/*| CoreDaemon[roostos-core: Local Router Daemon]
-    Engine <-->|MQTT Broker: roostos/timeguard/*| TimeGuard[roostos-timeguardd: Family Controls Client]
+    Engine[roostos-engine: Central Controller] <-->|mTLS / REST & MQTT Sync| NodeAgent
+    NodeAgent --> Gateway[roostos-gateway: Routing Stack]
+    Engine <-->|MQTT Broker: roostos/timeguard/*| Workstation[roostos-workstation: Client Daemon]
     
     subgraph Configuration Layer (Split YAML Files)
         Engine -->|Read/Write| ConfigSys[system.yaml]
@@ -43,35 +42,23 @@ graph TD
         Engine -->|Read/Write| ConfigPlg[plugins.yaml]
     end
     
-    CoreDaemon -->|Read/Write| Cache[(Transient Cache: SQLite)]
+    Gateway -->|Read/Write| Cache[(Transient Cache: SQLite)]
     
-    subgraph System Services Layer (Managed by roostos-core)
-        CoreDaemon -->|Write Config & Reload| Networkd[systemd-networkd]
-        CoreDaemon -->|Write Config & Restart| IWD[IWD Wireless Daemon]
-        CoreDaemon -->|Write Config & Reload| Kea[Kea DHCP Server]
-        CoreDaemon -->|nft CLI Commands| Nftables[nftables Firewall]
-        CoreDaemon -->|Docker API| Docker[Docker Engine]
+    subgraph System Services Layer (Managed by roostos-gateway)
+        Gateway -->|Write Config & Reload| Networkd[systemd-networkd]
+        Gateway -->|Write Config & Restart| IWD[IWD Wireless Daemon]
+        Gateway -->|Write Config & Reload| Kea[Kea DHCP Server]
+        Gateway -->|nft CLI Commands| Nftables[nftables Firewall]
     end
-    
-    subgraph DNS Plugin Container (Decoupled Sidecar)
-        Docker -.->|Runs| DNS[DNS Server e.g., Technitium]
-        Docker -.->|Runs| Sidecar[RoostOS D-Bus Bridge Sidecar]
-        DNS <-->|Localhost HTTP API| Sidecar
-    end
-
-    Kea -->|Event Hook| Hook[Kea Lease Hook]
-    Hook -->|Local D-Bus Signal| CoreDaemon
-    Sidecar <-->|Local D-Bus API: org.roostos.DNSResolver| CoreDaemon
-    CoreDaemon <-->|MQTT Bridge| Engine
 ```
 
 ### A. The UI & CLI Layer
-* **Web Management Console (`roostos-web`)**: Built using HTML, CSS, and Vanilla JS / Web Components, served by FastAPI. It communicates with `roostos-engine` strictly through HTTPS REST API calls protected by OAuth2 Bearer tokens.
-* **Command Line Interface (`roostos-cli`)**: Terminal utility enabling administrators to inspect status, edit configuration files, or issue commands directly via the `roostos-engine` REST interface or local YAML file reloads.
+* **Web Management Console (`roostos-web` / `roostos-node`)**: Built using HTML, CSS, and Vanilla JS / Web Components, served by FastAPI on port 8000 on each node for independent local survivability and single-pane-of-glass cluster management.
+* **Command Line Interface (`roostos`)**: Universal root CLI utility providing hardware inspection, environment discovery, and the setup wizard (`roostos setup`).
 
 ### B. The Management Layer
-* **`roostos-engine`**: Python-based central coordinator daemon. Maintains the single source of truth for domain objects, validates 6-file split YAML configurations, issues mTLS certificates, and broadcasts change notifications over MQTT.
-* **`roostos-core`**: Host-level execution daemon. Subscribes to MQTT topics (`roostos/config/#`), updates `nftables` sets, writes `systemd-networkd` / `Kea DHCP` configurations, and maintains the local SQLite lease cache.
+* **`roostos-engine`**: Python-based central coordinator daemon. Maintains the single source of truth for domain objects across all nodes, validates 6-file split YAML configurations, issues mTLS certificates, and broadcasts change notifications over MQTT.
+* **`roostos-gateway`**: Host-level edge routing daemon. Applies firewall rules via `nftables`, manages physical interface configs with `systemd-networkd`, runs `Kea DHCP`, and maintains the local SQLite lease cache.
 
 ### C. Configuration & State Layer
 Configuration is divided into **six strict YAML files** under `/etc/roostos/`:

@@ -1,6 +1,6 @@
 [project]
 name = "roostos-timeguardd"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Linux screen time monitoring daemon for RoostOS clients"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -18,3 +18,7 @@ roostos-timeguard-setup = "roostos_timeguardd.setup:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "../VERSION"
+pattern = "(?P<version>[^\\s]+)"

@@ -15,7 +15,8 @@ COPY roostos-engine/ /build/roostos-engine/
 COPY roostos-web/ /build/roostos-web/
 COPY roostos-ui/ /build/roostos-ui/
 COPY roostos-timeguardd/ /build/roostos-timeguardd/
-COPY roostos-debos/ /build/roostos-debos/
+COPY roostos-cli/ /build/roostos-cli/
+COPY packaging/ /build/packaging/
 COPY debian/ /build/debian/
 
 # Compile and package all modular .deb packages
@@ -61,7 +62,8 @@ RUN pip install --no-cache-dir --break-system-packages \
 
 # Copy and install the built RoostOS Debian packages (Validating DEB installation & file placement)
 COPY --from=builder /build/dist/debs/*.deb /tmp/debs/
-RUN dpkg -i --force-depends /tmp/debs/*.deb \
+RUN HOST_ARCH=$(dpkg --print-architecture) && \
+    dpkg -i --force-depends /tmp/debs/*_${HOST_ARCH}.deb /tmp/debs/*_all.deb \
     && apt-get install -y -f --no-install-recommends \
     && rm -rf /tmp/debs
 

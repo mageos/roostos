@@ -20,16 +20,16 @@ class IdentityManager:
 
     def __init__(
         self,
-        repo: ConfigRepository,
+        repo: Optional[ConfigRepository] = None,
         realm: str = "ROOSTOS.LOCAL",
         workgroup: str = "ROOSTOS",
         dc_hostname: str = "roost-dc",
         state_file: Optional[str] = None
     ):
         self.repo = repo
-        self.realm = realm.upper()
-        self.workgroup = workgroup.upper()
-        self.dc_hostname = dc_hostname
+        self.realm = str(realm).upper() if isinstance(realm, str) else "ROOSTOS.LOCAL"
+        self.workgroup = str(workgroup).upper() if isinstance(workgroup, str) else "ROOSTOS"
+        self.dc_hostname = str(dc_hostname) if isinstance(dc_hostname, str) else "roost-dc"
         self.state_file = state_file or os.environ.get(
             "ROOSTOS_IDENTITY_STATE_FILE",
             "/var/lib/roostos/identity/users.json"
@@ -100,9 +100,10 @@ class IdentityManager:
             raise ValueError(f"Domain user '{payload.username}' already exists")
 
         # Validate linked person if specified
-        config = self.repo.get_config()
-        if payload.person and not any(p.id == payload.person for p in config.people):
-            raise ValueError(f"Person ID '{payload.person}' not found in registered people")
+        if payload.person and self.repo:
+            config = self.repo.get_config()
+            if not any(p.id == payload.person for p in config.people):
+                raise ValueError(f"Person ID '{payload.person}' not found in registered people")
 
         user = DomainUser(
             username=payload.username,
@@ -127,9 +128,10 @@ class IdentityManager:
 
         if payload.person is not None:
             if payload.person != "":
-                config = self.repo.get_config()
-                if not any(p.id == payload.person for p in config.people):
-                    raise ValueError(f"Person ID '{payload.person}' not found")
+                if self.repo:
+                    config = self.repo.get_config()
+                    if not any(p.id == payload.person for p in config.people):
+                        raise ValueError(f"Person ID '{payload.person}' not found")
                 user.person = payload.person
             else:
                 user.person = None

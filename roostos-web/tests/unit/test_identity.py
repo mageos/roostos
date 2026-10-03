@@ -67,58 +67,72 @@ def test_multi_authority_auth_provider(tmp_path):
     assert multi_p.authenticate("centraluser", "centralpass", authority="central") is True
 
 
+from roostos_web.routers.identity import get_identity_manager
+from roostos_engine.identity_manager import IdentityManager
+
+
 def test_identity_router_endpoints(tmp_path):
     """Verifies identity REST API endpoints."""
-    client = TestClient(app)
+    state_file = str(tmp_path / "domain_users.json")
+    test_mgr = IdentityManager(
+        realm="ROOSTOS.LOCAL",
+        workgroup="ROOSTOS",
+        state_file=state_file
+    )
+    app.dependency_overrides[get_identity_manager] = lambda: test_mgr
+    try:
+        client = TestClient(app)
 
-    # 1. Status
-    res = client.get("/api/v1/identity/status")
-    assert res.status_code == 200
-    status_data = res.json()
-    assert "realm" in status_data
-    assert "status" in status_data
+        # 1. Status
+        res = client.get("/api/v1/identity/status")
+        assert res.status_code == 200
+        status_data = res.json()
+        assert "realm" in status_data
+        assert "status" in status_data
 
-    # 2. List users
-    res = client.get("/api/v1/identity/users")
-    assert res.status_code == 200
-    users = res.json()
-    assert isinstance(users, list)
+        # 2. List users
+        res = client.get("/api/v1/identity/users")
+        assert res.status_code == 200
+        users = res.json()
+        assert isinstance(users, list)
 
-    # 3. Create user
-    new_user_payload = {
-        "username": "testuser1",
-        "password": "UserPass123!",
-        "first_name": "Test",
-        "last_name": "User",
-        "role": "member"
-    }
-    res = client.post("/api/v1/identity/users", json=new_user_payload)
-    assert res.status_code == 201
-    created = res.json()
-    assert created["username"] == "testuser1"
+        # 3. Create user
+        new_user_payload = {
+            "username": "testuser1",
+            "password": "UserPass123!",
+            "first_name": "Test",
+            "last_name": "User",
+            "role": "member"
+        }
+        res = client.post("/api/v1/identity/users", json=new_user_payload)
+        assert res.status_code == 201
+        created = res.json()
+        assert created["username"] == "testuser1"
 
-    # 4. Update user
-    res = client.put("/api/v1/identity/users/testuser1", json={"role": "parent"})
-    assert res.status_code == 200
-    assert res.json()["role"] == "parent"
+        # 4. Update user
+        res = client.put("/api/v1/identity/users/testuser1", json={"role": "parent"})
+        assert res.status_code == 200
+        assert res.json()["role"] == "parent"
 
-    # 5. Reset password
-    res = client.post("/api/v1/identity/users/testuser1/password", json={"new_password": "NewSecretPass!"})
-    assert res.status_code == 200
-    assert res.json()["status"] == "success"
+        # 5. Reset password
+        res = client.post("/api/v1/identity/users/testuser1/password", json={"new_password": "NewSecretPass!"})
+        assert res.status_code == 200
+        assert res.json()["status"] == "success"
 
-    # 6. Delete user
-    res = client.delete("/api/v1/identity/users/testuser1")
-    assert res.status_code == 200
-    assert res.json()["deleted"] == "testuser1"
+        # 6. Delete user
+        res = client.delete("/api/v1/identity/users/testuser1")
+        assert res.status_code == 200
+        assert res.json()["deleted"] == "testuser1"
 
-    # 7. Enrollment info
-    res = client.get("/api/v1/identity/enrollment-info")
-    assert res.status_code == 200
-    assert "enrollment_command" in res.json()
+        # 7. Enrollment info
+        res = client.get("/api/v1/identity/enrollment-info")
+        assert res.status_code == 200
+        assert "enrollment_command" in res.json()
 
-    # 8. Join script
-    res = client.get("/api/v1/identity/join.sh")
-    assert res.status_code == 200
-    assert "#!/usr/bin/env bash" in res.text
-    assert "realm join" in res.text
+        # 8. Join script
+        res = client.get("/api/v1/identity/join.sh")
+        assert res.status_code == 200
+        assert "#!/usr/bin/env bash" in res.text
+        assert "realm join" in res.text
+    finally:
+        app.dependency_overrides.clear()
