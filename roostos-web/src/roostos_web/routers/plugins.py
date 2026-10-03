@@ -101,8 +101,13 @@ async def upload_plugin_zip(
             try:
                 await dbus.extract_plugin_ui(primary_image, ui_entrypoint, plugin_id)
             except Exception as e:
-                local_dev_path = f"/home/matt/source/github/mageos/roostos/plugins/{plugin_id}/ui.js"
-                if os.path.exists(local_dev_path):
+                local_dir = os.environ.get("ROOSTOS_LOCAL_PLUGINS_DIR")
+                if not local_dir:
+                    candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "plugins")
+                    if os.path.isdir(candidate):
+                        local_dir = candidate
+                local_dev_path = os.path.join(local_dir, plugin_id, "ui.js") if local_dir else None
+                if local_dev_path and os.path.exists(local_dev_path):
                     print(f"Warning: Failed to extract UI from image, but local ui.js is available: {e}", file=sys.stderr)
                 else:
                     raise HTTPException(status_code=500, detail=f"Failed to extract plugin UI: {e}")

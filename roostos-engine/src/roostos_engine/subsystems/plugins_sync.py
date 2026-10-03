@@ -10,8 +10,13 @@ class PluginsSyncSubsystem(Subsystem):
 
     def update(self) -> None:
         # For local plugin development: sync local ui.js assets directly if they exist
-        local_plugins_dir = "/home/matt/source/github/mageos/roostos/plugins"
-        if os.path.isdir(local_plugins_dir):
+        local_plugins_dir = os.environ.get("ROOSTOS_LOCAL_PLUGINS_DIR")
+        if not local_plugins_dir:
+            candidate = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), "plugins")
+            if os.path.isdir(candidate):
+                local_plugins_dir = candidate
+
+        if local_plugins_dir and os.path.isdir(local_plugins_dir):
             for plugin in self.config.plugins:
                 local_ui_file = os.path.join(local_plugins_dir, plugin.id, "ui.js")
                 if os.path.isfile(local_ui_file):
@@ -117,6 +122,20 @@ class PluginsSyncSubsystem(Subsystem):
                             image_name = f"{registry.rstrip('/')}/{image_name}"
                     else:
                         image_name = f"{registry.rstrip('/')}/{image_name}"
+
+                pull_policy = getattr(c_cfg, "pull_policy", "if_not_present")
+                if pull_policy == "never":
+                    try:
+                        client.images.get(image_name)
+                    except Exception:
+                        print(f"Error: Image {image_name} not found locally (pull_policy=never)", file=sys.stderr)
+                        continue
+                elif pull_policy == "always":
+                    try:
+                        print(f"Pulling image {image_name} (pull_policy=always)...")
+                        client.images.pull(image_name)
+                    except Exception as e:
+                        print(f"Warning: Failed to pull image {image_name}: {e}", file=sys.stderr)
 
                 print(f"Starting plugin container: {container_name} ({image_name})")
                 try:

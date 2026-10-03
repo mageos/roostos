@@ -14,6 +14,7 @@ class VolumeMount(BaseModel):
 class ContainerConfig(BaseModel):
     name: str
     image: str
+    pull_policy: str = "if_not_present"  # "always", "if_not_present", "never"
     ports: List[PortMapping] = Field(default_factory=list)
     volumes: List[VolumeMount] = Field(default_factory=list)
     environment: Dict[str, str] = Field(default_factory=dict)

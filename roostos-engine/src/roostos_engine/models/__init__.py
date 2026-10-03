@@ -83,16 +83,16 @@ from roostos_engine.models.firewall import (
     FirewallConfig,
 )
 from roostos_engine.models.plugins import (
-    PortMapping,
-    VolumeMount,
-    ContainerConfig,
-    PluginConfig,
-    PluginsConfig,
+    PortMapping, VolumeMount, ContainerConfig, PluginConfig, PluginsConfig,
 )
-from roostos_engine.models.providers import (
-    ProvidersSettings,
-    ProvidersConfigFile,
+from roostos_engine.models.catalog import (
+    PullPolicy, IngressPreset, CatalogContainerSpec, CatalogAppEntry,
+    CatalogIndex, CatalogSourceConfig, InstallAppRequest,
+    SourceBuildSpec, PackageManifest, ImportFromSourceRequest,
+    InstallFromSourceRequest, UpdateImportedAppRequest,
+    SandboxConfig, BuildManifest,
 )
+from roostos_engine.models.providers import ProvidersSettings, ProvidersConfigFile
 from roostos_engine.models.state import (
     ActiveLease,
     PendingUPnPRequest,
@@ -118,6 +118,7 @@ class RoostConfig(BaseModel):
     firewall: FirewallSettings
     schedules: List[ScheduleConfig]
     plugins: List[PluginConfig]
+    catalog_sources: List[CatalogSourceConfig] = Field(default_factory=list)
     providers: Optional[ProvidersSettings] = Field(default_factory=ProvidersSettings)
 
     @model_validator(mode="after")

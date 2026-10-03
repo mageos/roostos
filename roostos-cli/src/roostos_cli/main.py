@@ -17,6 +17,7 @@ from roostos_cli.inspector import EnvironmentInspector
 from roostos_cli.discovery import NetworkDiscoverer
 from roostos_cli.wizard import SetupWizard
 from roostos_cli.edge import edge_group
+from roostos_cli.app_cmd import app_group
 
 
 @click.group()
@@ -27,6 +28,7 @@ def cli() -> None:
 
 
 cli.add_command(edge_group)
+cli.add_command(app_group)
 
 
 @cli.command(name="status")

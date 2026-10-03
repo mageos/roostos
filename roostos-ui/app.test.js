@@ -281,6 +281,22 @@ describe('View Routing', () => {
         expect(btn.classList.contains('active')).toBe(true);
         expect(pane.classList.contains('active')).toBe(true);
 
+        // Test catalog view routing
+        const catBtn = document.createElement('button');
+        catBtn.id = 'nav-catalog';
+        catBtn.className = 'nav-item';
+        document.querySelector('.sidebar-nav').appendChild(catBtn);
+
+        const catPane = document.createElement('div');
+        catPane.id = 'catalog-view';
+        catPane.className = 'view-pane';
+        document.querySelector('.view-container').appendChild(catPane);
+
+        window.switchView('catalog');
+        expect(document.getElementById('view-title').textContent).toBe('Application Catalog & Extensions');
+        expect(catBtn.classList.contains('active')).toBe(true);
+        expect(catPane.classList.contains('active')).toBe(true);
+
         // Restore
         window.loadDashboard = originalLoadDashboard;
     });
