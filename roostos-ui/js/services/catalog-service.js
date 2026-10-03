@@ -79,6 +79,78 @@ class CatalogService {
         }
         return await res.json();
     }
+
+    async inspectManifest(sourceUrlOrPath, gitRef = "main") {
+        const res = await window.authService.apiFetch("/api/catalog/manifest/inspect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source_url_or_path: sourceUrlOrPath, git_ref: gitRef })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to inspect package manifest");
+        }
+        return await res.json();
+    }
+
+    async buildAndInstallFromSource(payload) {
+        const res = await window.authService.apiFetch("/api/catalog/build-and-install", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to build and install application from source");
+        }
+        return await res.json();
+    }
+
+    async importAppFromSource(payload) {
+        const res = await window.authService.apiFetch("/api/catalog/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to import application into catalog");
+        }
+        return await res.json();
+    }
+
+    async checkAppUpdate(appId) {
+        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/check-update`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to check application updates");
+        }
+        return await res.json();
+    }
+
+    async updateImportedApp(appId, payload = {}) {
+        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/update`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to update application");
+        }
+        return await res.json();
+    }
+
+    async deleteLocalApp(appId) {
+        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/local`, {
+            method: "DELETE"
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || "Failed to remove local application");
+        }
+        return true;
+    }
 }
 
 window.catalogService = new CatalogService();

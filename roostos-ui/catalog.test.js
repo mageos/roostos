@@ -34,6 +34,7 @@ function loadScript(relPath) {
 
 loadScript('js/services/auth-service.js');
 loadScript('js/services/catalog-service.js');
+loadScript('js/components/app-catalog-modal.js');
 loadScript('js/components/app-catalog-templates.js');
 loadScript('js/components/app-catalog.js');
 

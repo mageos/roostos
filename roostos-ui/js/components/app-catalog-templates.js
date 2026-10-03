@@ -2,23 +2,19 @@
  * AppCatalogTemplates - HTML Template helpers for RoostOS App Catalog
  */
 
+import { renderInstallModalTemplate } from "./app-catalog-modal.js";
+export { renderInstallModalTemplate };
+
 export const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
 
 export const renderCatalogTemplate = (activeTab, counts, bodyHtml) => html`
     <div class="view-tabs-header" style="margin-bottom: 20px;">
-        <button class="tab-btn ${activeTab === 'apps' ? 'active' : ''}" data-tab="apps">
-            Applications (${counts.apps})
-        </button>
-        <button class="tab-btn ${activeTab === 'sources' ? 'active' : ''}" data-tab="sources">
-            Repositories (${counts.sources})
-        </button>
-        <button class="tab-btn ${activeTab === 'images' ? 'active' : ''}" data-tab="images">
-            Local Images (${counts.images})
-        </button>
+        <button class="tab-btn ${activeTab === 'apps' ? 'active' : ''}" data-tab="apps">Applications (${counts.apps})</button>
+        <button class="tab-btn ${activeTab === 'source' ? 'active' : ''}" data-tab="source">Import from Source</button>
+        <button class="tab-btn ${activeTab === 'sources' ? 'active' : ''}" data-tab="sources">Repositories (${counts.sources})</button>
+        <button class="tab-btn ${activeTab === 'images' ? 'active' : ''}" data-tab="images">Local Images (${counts.images})</button>
     </div>
-    <div class="catalog-content-container">
-        ${bodyHtml}
-    </div>
+    <div class="catalog-content-container">${bodyHtml}</div>
 `;
 
 export const renderAppsGridTemplate = (apps, selectedCategory, categories) => html`
@@ -33,13 +29,9 @@ export const renderAppsGridTemplate = (apps, selectedCategory, categories) => ht
         <button class="btn btn-secondary btn-sm" id="refresh-catalogs-btn">↻ Refresh Repositories</button>
     </div>
     ${apps.length === 0 ? html`
-        <div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);">
-            <p>No applications found matching the selected category.</p>
-        </div>
+        <div class="card" style="text-align:center; padding:32px; color:var(--text-secondary);"><p>No applications found matching the selected category.</p></div>
     ` : html`
-        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">
-            ${apps.map(app => renderAppCardTemplate(app)).join("")}
-        </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(320px, 1fr)); gap:16px;">${apps.map(app => renderAppCardTemplate(app)).join("")}</div>
     `}
 `;
 
@@ -53,28 +45,45 @@ export const renderAppCardTemplate = (app) => html`
                     </div>
                     <div>
                         <h4 style="margin:0; font-size:16px; font-weight:600;">${app.name}</h4>
-                        <span style="font-size:12px; color:var(--text-secondary);">v${app.version} • ${app.author || 'RoostOS'}</span>
+                        <span style="font-size:12px; color:var(--text-secondary);">v${app.version} • ${app.author || (app.imported ? 'Imported' : 'RoostOS')}</span>
                     </div>
                 </div>
-                <span class="badge badge-info">${app.category}</span>
+                <div style="display:flex; gap:4px; align-items:center;">
+                    ${app.imported ? html`<span class="badge badge-primary">Imported</span>` : ''}
+                    <span class="badge badge-info">${app.category}</span>
+                </div>
             </div>
             <p style="font-size:13px; color:var(--text-secondary); line-height:1.5; margin-bottom:12px;">
                 ${app.description}
             </p>
+            ${app.imported && app.source_repo ? html`
+                <div style="font-size:11px; color:var(--text-secondary); margin-bottom:8px;">
+                    <span>Git: <code>${app.source_ref || 'main'}</code> (${app.last_commit_built || 'local'})</span>
+                </div>
+            ` : ''}
         </div>
         <div>
             <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:12px; font-size:11px;">
-                ${(app.container.ports || []).map(p => html`
+                ${(app.container?.ports || []).map(p => html`
                     <span class="badge badge-outline">Port ${p.host_port}:${p.container_port}</span>
                 `).join("")}
-                ${(app.container.volumes || []).map(v => html`
+                ${(app.container?.volumes || []).map(v => html`
                     <span class="badge badge-outline">${v.container_path}</span>
                 `).join("")}
-                <span class="badge badge-secondary">${app.container.pull_policy}</span>
+                <span class="badge badge-secondary">${app.container?.pull_policy || 'never'}</span>
             </div>
-            <button class="btn btn-primary btn-sm install-app-btn" style="width:100%;" data-id="${app.id}">
-                Deploy / Install
-            </button>
+            <div style="display:flex; gap:8px;">
+                ${app.installed ? html`
+                    <button class="btn btn-secondary btn-sm" style="flex:1;" disabled>✓ Installed</button>
+                ` : html`
+                    <button class="btn btn-primary btn-sm install-app-btn" style="flex:1;" data-id="${app.id}">
+                        Deploy / Install
+                    </button>
+                `}
+                ${app.imported ? html`
+                    <button class="btn btn-secondary btn-sm check-update-btn" data-id="${app.id}" title="Check for git updates">↻ Update</button>
+                ` : ''}
+            </div>
         </div>
     </div>
 `;
@@ -203,6 +212,60 @@ export const renderImagesTemplate = (images) => html`
                     `).join("")}
                 </tbody>
             </table>
+        </div>
+    </div>
+`;
+
+export const renderSourceDeployTemplate = (manifest = null, statusMsg = "", srcUrl = "", srcRef = "main") => html`
+    <div class="card" style="margin-bottom:20px;">
+        <div class="card-header">
+            <h3>Build & Import Application from Source</h3>
+            <p style="margin:4px 0 0; font-size:12px; color:var(--text-secondary);">
+                Clone a Git repository or reference a local folder containing a <code>roost-app.yaml</code> package manifest or <code>Dockerfile</code> to build and register it in your Local Catalog.
+            </p>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+            <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                <input type="text" id="source-input" class="input-field" placeholder="https://github.com/org/repo.git or /path/to/local/app" value="${srcUrl}" style="flex:3; min-width:260px;">
+                <input type="text" id="source-ref-input" class="input-field" placeholder="main" value="${srcRef}" style="flex:1; min-width:100px;">
+                <button class="btn btn-secondary btn-sm" id="inspect-manifest-btn">Inspect Manifest</button>
+            </div>
+            ${manifest ? html`
+                <div style="background:rgba(255,255,255,0.03); border:1px solid var(--card-border); border-radius:8px; padding:16px; margin-top:8px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <h4 style="margin:0; font-size:16px;">${manifest.name} (<code>${manifest.id}</code>)</h4>
+                        <span class="badge badge-info">v${manifest.version}</span>
+                    </div>
+                    <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">${manifest.description || 'No description provided.'}</p>
+                    <div style="font-size:12px; color:var(--text-secondary); line-height:1.6; margin-bottom:12px;">
+                        <div><strong>Category:</strong> ${manifest.category}</div>
+                        <div><strong>Ports:</strong> ${(manifest.container?.ports || []).map(p => `${p.host_port}➔${p.container_port}`).join(", ") || "None"}</div>
+                        <div><strong>Volumes:</strong> ${(manifest.container?.volumes || []).map(v => `${v.host_path}➔${v.container_path}`).join(", ") || "None"}</div>
+                        <div><strong>Sandbox:</strong> <span class="badge badge-success" style="font-size:10px;">Isolated</span> ${manifest.build?.sandbox?.max_memory_mb || 2048}MB RAM, ${manifest.build?.sandbox?.max_cpu_cores || 2.0} CPUs</div>
+                    </div>
+                    ${manifest.build?.sandbox?.network_required ? html`
+                        <div style="background:rgba(234,179,8,0.08); border:1px solid rgba(234,179,8,0.3); border-radius:6px; padding:10px 12px; margin-bottom:12px;">
+                            <div style="font-weight:600; font-size:12px; color:#eab308; margin-bottom:4px;">⚠️ Network Access Required by Build</div>
+                            <div style="font-size:11px; color:var(--text-secondary); margin-bottom:6px;">
+                                ${manifest.build?.sandbox?.network_justification || "This build requests access to:"}
+                                <strong>${(manifest.build?.sandbox?.allowed_endpoints || []).join(", ") || "None"}</strong>
+                            </div>
+                            <label style="font-size:12px; display:flex; align-items:center; gap:8px; cursor:pointer;">
+                                <input type="checkbox" id="approve-network-check">
+                                <span>I approve network access to the specified endpoints during build</span>
+                            </label>
+                        </div>
+                    ` : ''}
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:13px; display:flex; align-items:center; gap:8px; cursor:pointer;">
+                            <input type="checkbox" id="source-consent-check">
+                            <span>I consent to building this Docker image and adding it to the local catalog.</span>
+                        </label>
+                    </div>
+                    <button class="btn btn-primary btn-sm" id="deploy-source-btn">Import & Build into Catalog</button>
+                </div>
+            ` : ''}
+            <div id="build-status-msg" style="font-size:13px; color:var(--accent-blue); margin-top:6px;">${statusMsg}</div>
         </div>
     </div>
 `;

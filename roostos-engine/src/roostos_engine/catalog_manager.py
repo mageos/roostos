@@ -4,7 +4,7 @@ import os
 import json
 import base64
 import urllib.request
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any
 import yaml
 
 from roostos_engine.models.catalog import (
@@ -21,112 +21,59 @@ from roostos_engine.models.plugins import (
     PortMapping,
     VolumeMount,
 )
-
-
-DEFAULT_BUILTIN_APPS: List[Dict[str, Any]] = [
-    {
-        "id": "homeassistant",
-        "name": "Home Assistant",
-        "version": "2026.10.1",
-        "category": "automation",
-        "description": "Open source home automation that puts local control and privacy first.",
-        "icon": "homeassistant",
-        "author": "Home Assistant Community",
-        "homepage": "https://www.home-assistant.io",
-        "architectures": ["amd64", "arm64"],
-        "recommended_role": "compute",
-        "requested_scopes": ["devices:read", "network:read"],
-        "container": {
-            "image": "homeassistant/home-assistant:stable",
-            "pull_policy": "if_not_present",
-            "network_mode": "bridge",
-            "ports": [{"host_port": 8123, "container_port": 8123, "protocol": "tcp"}],
-            "volumes": [{"host_path": "/var/lib/roostos/apps/homeassistant", "container_path": "/config", "mode": "rw"}],
-            "environment": {"TZ": "UTC"},
-        },
-        "ingress_preset": {"target_port": 8123, "suggested_subdomain": "ha", "ssl_required": True},
-    },
-    {
-        "id": "immich",
-        "name": "Immich",
-        "version": "1.118.0",
-        "category": "media",
-        "description": "High performance self-hosted photo and video management solution.",
-        "icon": "immich",
-        "author": "Immich Authors",
-        "homepage": "https://immich.app",
-        "architectures": ["amd64", "arm64"],
-        "recommended_role": "compute",
-        "requested_scopes": [],
-        "container": {
-            "image": "ghcr.io/imagegenius/immich:latest",
-            "pull_policy": "if_not_present",
-            "network_mode": "bridge",
-            "ports": [{"host_port": 2283, "container_port": 2283, "protocol": "tcp"}],
-            "volumes": [{"host_path": "/var/lib/roostos/apps/immich/upload", "container_path": "/usr/src/app/upload", "mode": "rw"}],
-            "environment": {"DB_HOSTNAME": "localhost"},
-        },
-        "ingress_preset": {"target_port": 2283, "suggested_subdomain": "photos", "ssl_required": True},
-    },
-    {
-        "id": "vaultwarden",
-        "name": "Vaultwarden",
-        "version": "1.32.0",
-        "category": "privacy",
-        "description": "Unofficial Bitwarden compatible server written in Rust for password sync.",
-        "icon": "vaultwarden",
-        "author": "Vaultwarden Community",
-        "homepage": "https://github.com/dani-garcia/vaultwarden",
-        "architectures": ["amd64", "arm64"],
-        "recommended_role": "compute",
-        "requested_scopes": [],
-        "container": {
-            "image": "vaultwarden/server:latest",
-            "pull_policy": "if_not_present",
-            "network_mode": "bridge",
-            "ports": [{"host_port": 8080, "container_port": 80, "protocol": "tcp"}],
-            "volumes": [{"host_path": "/var/lib/roostos/apps/vaultwarden", "container_path": "/data", "mode": "rw"}],
-            "environment": {"SIGNUPS_ALLOWED": "true"},
-        },
-        "ingress_preset": {"target_port": 8080, "suggested_subdomain": "passwords", "ssl_required": True},
-    },
-    {
-        "id": "technitium-dns",
-        "name": "Technitium DNS Server",
-        "version": "12.2.0",
-        "category": "privacy",
-        "description": "Secure, self-hosted DNS server for ad-blocking and local domain resolution.",
-        "icon": "shield",
-        "author": "Technitium Software",
-        "homepage": "https://technitium.com/dns/",
-        "architectures": ["amd64", "arm64"],
-        "recommended_role": "gateway",
-        "requested_scopes": ["dns:manage", "network:read"],
-        "container": {
-            "image": "technitium/dns-server:latest",
-            "pull_policy": "if_not_present",
-            "network_mode": "bridge",
-            "ports": [
-                {"host_port": 53, "container_port": 53, "protocol": "udp"},
-                {"host_port": 53, "container_port": 53, "protocol": "tcp"},
-                {"host_port": 5380, "container_port": 5380, "protocol": "tcp"},
-            ],
-            "volumes": [{"host_path": "/var/lib/roostos/apps/technitium", "container_path": "/etc/dns", "mode": "rw"}],
-            "environment": {},
-        },
-        "ingress_preset": {"target_port": 5380, "suggested_subdomain": "dns", "ssl_required": True},
-    },
-]
+from roostos_engine.catalog_defaults import DEFAULT_BUILTIN_APPS
 
 
 class CatalogManager:
-    """Orchestrates configurable catalog sources, signature checks, and app provisioning."""
+    """Orchestrates configurable catalog sources, local catalog, and app provisioning."""
 
     def __init__(self, config_dir: str = "/etc/roostos", cache_dir: Optional[str] = None):
         self.config_dir = config_dir
         self.cache_dir = cache_dir or os.path.join(config_dir, "cache", "catalogs")
         os.makedirs(self.cache_dir, exist_ok=True)
         self.catalogs_file = os.path.join(self.config_dir, "catalogs.yaml")
+        self.local_catalog_file = os.path.join(self.config_dir, "local_catalog.json")
+
+    def get_local_catalog(self) -> CatalogIndex:
+        """Returns the local imported applications catalog index."""
+        if os.path.exists(self.local_catalog_file):
+            try:
+                with open(self.local_catalog_file, "r") as f:
+                    data = json.load(f)
+                return CatalogIndex.model_validate(data)
+            except Exception:
+                pass
+        return CatalogIndex(
+            catalog_id="local",
+            name="Local / Imported Applications",
+            description="Applications built locally or imported from source",
+            applications=[],
+        )
+
+    def save_local_catalog(self, index: CatalogIndex) -> None:
+        """Persists the local imported applications catalog to disk."""
+        os.makedirs(self.config_dir, exist_ok=True)
+        with open(self.local_catalog_file, "w") as f:
+            json.dump(index.model_dump(mode="json"), f, indent=2)
+
+    def add_local_app(self, entry: CatalogAppEntry) -> None:
+        """Adds or updates an application entry in the local catalog."""
+        entry.catalog_id = "local"
+        entry.imported = True
+        index = self.get_local_catalog()
+        index.applications = [a for a in index.applications if a.id != entry.id]
+        index.applications.append(entry)
+        self.save_local_catalog(index)
+
+    def remove_local_app(self, app_id: str) -> bool:
+        """Removes an application from the local catalog."""
+        index = self.get_local_catalog()
+        initial_len = len(index.applications)
+        index.applications = [a for a in index.applications if a.id != app_id]
+        if len(index.applications) != initial_len:
+            self.save_local_catalog(index)
+            return True
+        return False
 
     def list_sources(self) -> List[CatalogSourceConfig]:
         """Reads configured catalog sources from catalogs.yaml, falling back to default."""
@@ -174,7 +121,6 @@ class CatalogManager:
         """Verifies Ed25519 signature of catalog manifest bytes."""
         try:
             from cryptography.hazmat.primitives.asymmetric import ed25519
-            # Handle hex or raw base64 key
             if public_key_str.startswith("ed25519:"):
                 public_key_str = public_key_str[8:]
             try:
@@ -204,7 +150,6 @@ class CatalogManager:
                 with urllib.request.urlopen(req, timeout=5) as resp:
                     content_bytes = resp.read()
 
-            # Cryptographic signature validation if public key is configured
             if source.public_key:
                 sig_url = f"{source.url}.sig"
                 sig_bytes = b""
@@ -227,13 +172,11 @@ class CatalogManager:
             data = json.loads(content_bytes.decode("utf-8"))
             data["catalog_id"] = source.id
             index = CatalogIndex.model_validate(data)
-            # Cache locally
             cache_file = os.path.join(self.cache_dir, f"{source.id}.json")
             with open(cache_file, "w") as cf:
                 cf.write(content_bytes.decode("utf-8"))
             return index
         except Exception:
-            # Fallback to local cache if offline
             cache_file = os.path.join(self.cache_dir, f"{source.id}.json")
             if os.path.exists(cache_file):
                 try:
@@ -245,7 +188,7 @@ class CatalogManager:
             return None
 
     def get_available_apps(self, installed_plugin_ids: Optional[List[str]] = None) -> List[CatalogAppEntry]:
-        """Returns aggregated apps from all enabled sources, falling back to built-ins."""
+        """Returns aggregated apps from all enabled sources, local catalog, and built-ins."""
         installed = set(installed_plugin_ids or [])
         sources = [s for s in self.list_sources() if s.enabled]
         apps: Dict[str, CatalogAppEntry] = {}
@@ -258,12 +201,19 @@ class CatalogManager:
                     app.installed = app.id in installed
                     apps[app.id] = app
 
-        # Guarantee high-quality built-ins if no external sources resolved apps
         if not apps:
             for raw in DEFAULT_BUILTIN_APPS:
                 app = CatalogAppEntry.model_validate(raw)
                 app.installed = app.id in installed
                 apps[app.id] = app
+
+        # Merge local catalog applications
+        local_index = self.get_local_catalog()
+        for local_app in local_index.applications:
+            local_app.catalog_id = "local"
+            local_app.imported = True
+            local_app.installed = local_app.id in installed
+            apps[local_app.id] = local_app
 
         return list(apps.values())
 
@@ -294,5 +244,11 @@ class CatalogManager:
             network_mode=app.container.network_mode,
             requested_scopes=app.requested_scopes,
             containers=[container],
-            settings={"catalog_id": req.catalog_id, "version": app.version},
+            settings={
+                "catalog_id": req.catalog_id or app.catalog_id,
+                "version": app.version,
+                "imported": app.imported,
+                "source_repo": app.source_repo or "",
+                "last_commit_built": app.last_commit_built or "",
+            },
         )

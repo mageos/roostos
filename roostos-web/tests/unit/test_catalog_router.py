@@ -139,3 +139,125 @@ def test_list_local_docker_images(catalog_client, admin_headers):
     res = client.get("/api/catalog/images", headers=admin_headers)
     assert res.status_code == 200
     assert isinstance(res.json(), list)
+
+
+def test_inspect_source_manifest(catalog_client, admin_headers, tmp_path):
+    client, _ = catalog_client
+    repo_dir = tmp_path / "mock-source"
+    repo_dir.mkdir()
+    manifest_file = repo_dir / "roost-app.yaml"
+    manifest_file.write_text("""
+id: custom-logger
+name: Custom Logger
+version: 1.0.0
+category: tools
+""")
+    res = client.post(
+        "/api/catalog/manifest/inspect",
+        json={"source_url_or_path": str(repo_dir)},
+        headers=admin_headers,
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["id"] == "custom-logger"
+    assert data["name"] == "Custom Logger"
+
+
+def test_build_and_install_source_app(catalog_client, admin_headers, tmp_path):
+    from unittest.mock import patch
+    from roostos_engine.models.plugins import ContainerConfig, PortMapping
+    client, repo = catalog_client
+
+    repo_dir = tmp_path / "built-app"
+    repo_dir.mkdir()
+
+    mock_plugin = PluginConfig(
+        id="built-app",
+        name="Built App",
+        type="application",
+        enabled=True,
+        containers=[
+            ContainerConfig(
+                name="app-built-app",
+                image="roostos-local/built-app:1.0.0",
+                pull_policy="never",
+                ports=[PortMapping(host_port=7000, container_port=7000)],
+            )
+        ],
+    )
+
+    with patch("roostos_engine.source_builder.SourceBuilder.build_and_prepare_plugin", return_value=(mock_plugin, None, "Build success")):
+        payload = {
+            "source_url_or_path": str(repo_dir),
+            "expose_edge_ingress": True,
+            "ingress_domain": "app.familydomain.org",
+        }
+        res = client.post("/api/catalog/build-and-install", json=payload, headers=admin_headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["plugin_id"] == "built-app"
+        assert data["ingress_route_id"] is not None
+        assert repo.save_plugins_config.called
+        assert repo.save_network_config.called
+
+
+def test_import_source_app_endpoint(catalog_client, admin_headers, tmp_path):
+    from unittest.mock import patch
+    from roostos_engine.models.catalog import CatalogAppEntry, CatalogContainerSpec
+    client, _ = catalog_client
+
+    repo_dir = tmp_path / "imported-app"
+    repo_dir.mkdir()
+
+    mock_entry = CatalogAppEntry(
+        id="imported-app",
+        name="Imported App",
+        version="1.0.0",
+        description="Imported test app",
+        container=CatalogContainerSpec(image="roostos-local/imported-app:1.0.0"),
+        catalog_id="local",
+        imported=True,
+        last_commit_built="fedcba98",
+    )
+
+    with patch("roostos_engine.source_builder.SourceBuilder.import_to_catalog", return_value=(mock_entry, "Build succeeded")):
+        payload = {"source_url_or_path": str(repo_dir)}
+        res = client.post("/api/catalog/import", json=payload, headers=admin_headers)
+        assert res.status_code == 201
+        data = res.json()
+        assert data["success"] is True
+        assert data["app"]["id"] == "imported-app"
+        assert data["app"]["imported"] is True
+        assert "Build succeeded" in data["build_logs"]
+
+
+def test_check_app_update_endpoint(catalog_client, admin_headers, tmp_path):
+    from unittest.mock import patch
+    from roostos_engine.models.catalog import CatalogAppEntry, CatalogContainerSpec
+    from roostos_engine.catalog_manager import CatalogManager
+
+    client, repo = catalog_client
+    mgr = CatalogManager(config_dir=str(tmp_path))
+    app_entry = CatalogAppEntry(
+        id="check-update-app",
+        name="Check Update App",
+        version="1.0.0",
+        description="Test",
+        container=CatalogContainerSpec(image="roostos-local/check-update-app:1.0.0"),
+        source_repo="https://github.com/example/test.git",
+        source_ref="main",
+        last_commit_built="11111111",
+        catalog_id="local",
+        imported=True,
+    )
+    mgr.add_local_app(app_entry)
+
+    with patch("roostos_engine.source_builder.SourceBuilder.check_app_updates", return_value=(True, "22222222")):
+        res = client.get("/api/catalog/apps/check-update-app/check-update", headers=admin_headers)
+        assert res.status_code == 200
+        data = res.json()
+        assert data["update_available"] is True
+        assert data["current_commit"] == "11111111"
+        assert data["latest_commit"] == "22222222"
+

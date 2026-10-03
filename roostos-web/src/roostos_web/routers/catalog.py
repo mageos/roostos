@@ -1,10 +1,8 @@
-"""FastAPI router for RoostOS decentralized application catalog and local image deployment."""
+"""FastAPI router for RoostOS decentralized application catalog."""
 
 import os
-import uuid
-import tempfile
 from typing import List, Dict, Any, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from roostos_engine.models.catalog import (
     CatalogAppEntry,
@@ -12,14 +10,17 @@ from roostos_engine.models.catalog import (
     InstallAppRequest,
 )
 from roostos_engine.models.plugins import PluginsConfig
-from roostos_engine.models.network import NetworkConfig
-from roostos_engine.models.edge import IngressRoute
 from roostos_engine.catalog_manager import CatalogManager
+from roostos_engine.ingress_helper import provision_ingress_route
 from roostos_engine.repository import ConfigRepository
 from roostos_web.auth import get_current_admin, get_current_user, UserSession
 from roostos_web.di import Injected
+from roostos_web.routers.catalog_images import images_router
+from roostos_web.routers.catalog_import import import_router
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
+router.include_router(images_router)
+router.include_router(import_router)
 
 _catalog_mgr: Optional[CatalogManager] = None
 
@@ -126,7 +127,6 @@ async def install_catalog_app(
     if not app:
         raise HTTPException(status_code=404, detail=f"Application '{req.app_id}' not found in catalog.")
 
-    # 1. Convert catalog entry to plugin configuration and persist
     new_plugin = mgr.create_plugin_from_app(app, req)
     updated_plugins = list(config.plugins) + [new_plugin]
     try:
@@ -134,37 +134,12 @@ async def install_catalog_app(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save plugin configuration: {e}")
 
-    # 2. Configure Edge Gateway Ingress Route if requested
     ingress_route_id: Optional[str] = None
     if req.expose_edge_ingress and req.ingress_domain:
-        edge_gateways = getattr(config.network, "edge_gateways", [])
-        if edge_gateways:
-            gw = edge_gateways[0]
-            target_port = 8080
-            if app.container.ports:
-                target_port = req.custom_ports.get(
-                    app.container.ports[0].container_port,
-                    app.container.ports[0].host_port
-                )
-            # Default target IP is bridge IP or local LAN
-            target_ip = "192.168.1.1"
-            if config.network.bridges:
-                target_ip = config.network.bridges[0].ip.split("/")[0]
-
-            ingress_route_id = f"route-{uuid.uuid4().hex[:6]}"
-            new_route = IngressRoute(
-                id=ingress_route_id,
-                domain=req.ingress_domain.strip().lower(),
-                target_ip=target_ip,
-                target_port=target_port,
-                ssl_enabled=True,
-                edge_gateway_id=gw.id,
-            )
-            gw.ingress_routes.append(new_route)
-            try:
-                repo.save_network_config(config.network)
-            except Exception:
-                pass
+        target_port = 8080
+        if app.container.ports:
+            target_port = req.custom_ports.get(app.container.ports[0].container_port, app.container.ports[0].host_port)
+        ingress_route_id = provision_ingress_route(config, repo, req.ingress_domain, target_port)
 
     return {
         "success": True,
@@ -172,59 +147,3 @@ async def install_catalog_app(
         "plugin_id": app.id,
         "ingress_route_id": ingress_route_id,
     }
-
-
-@router.post("/images/load")
-async def load_local_docker_image(
-    file: UploadFile = File(...),
-    current_user: UserSession = Depends(get_current_admin),
-) -> Dict[str, Any]:
-    """Loads a container image from an uploaded .tar archive directly into the local Docker daemon."""
-    try:
-        import docker
-        client = docker.from_env()
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Docker service unavailable: {e}")
-
-    contents = await file.read()
-    with tempfile.NamedTemporaryFile(suffix=".tar", delete=False) as tmp:
-        tmp.write(contents)
-        tmp_path = tmp.name
-
-    try:
-        with open(tmp_path, "rb") as f:
-            images = client.images.load(f.read())
-        loaded_tags = [tag for img in images for tag in img.tags]
-        return {
-            "success": True,
-            "message": f"Loaded {len(images)} image(s) into local cache.",
-            "loaded_tags": loaded_tags or ["(untagged)"],
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to load image archive: {e}")
-    finally:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-
-
-@router.get("/images")
-async def list_local_docker_images(
-    current_user: UserSession = Depends(get_current_user),
-) -> List[Dict[str, Any]]:
-    """Lists Docker container images available in the local daemon cache."""
-    try:
-        import docker
-        client = docker.from_env()
-        images = client.images.list()
-        return [
-            {
-                "id": img.short_id,
-                "tags": img.tags,
-                "size_mb": round(img.attrs.get("Size", 0) / (1024 * 1024), 1),
-                "created": img.attrs.get("Created", ""),
-            }
-            for img in images
-        ]
-    except Exception:
-        # Graceful fallback in environments without active Docker daemon
-        return []

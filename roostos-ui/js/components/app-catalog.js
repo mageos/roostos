@@ -8,7 +8,9 @@ import {
     renderSourcesTemplate,
     renderSourceRowTemplate,
     renderInlineSourceRowTemplate,
-    renderImagesTemplate
+    renderImagesTemplate,
+    renderSourceDeployTemplate,
+    renderInstallModalTemplate
 } from "./app-catalog-templates.js";
 
 export class AppCatalogComponent extends HTMLElement {
@@ -19,6 +21,10 @@ export class AppCatalogComponent extends HTMLElement {
         this.apps = [];
         this.sources = [];
         this.images = [];
+        this.inspectedManifest = null;
+        this.buildStatusMsg = "";
+        this.sourceUrl = "";
+        this.sourceRef = "main";
         this.categories = ["all", "automation", "media", "privacy", "tools", "networking"];
     }
 
@@ -53,6 +59,8 @@ export class AppCatalogComponent extends HTMLElement {
                 ? this.apps
                 : this.apps.filter(a => a.category.toLowerCase() === this.selectedCategory.toLowerCase());
             bodyHtml = renderAppsGridTemplate(filtered, this.selectedCategory, this.categories);
+        } else if (this.activeTab === "source") {
+            bodyHtml = renderSourceDeployTemplate(this.inspectedManifest, this.buildStatusMsg, this.sourceUrl, this.sourceRef);
         } else if (this.activeTab === "sources") {
             const rowsHtml = this.sources.length === 0
                 ? `<tr><td colspan="6" class="empty-state">No catalog sources configured. Click "+ Add Repository" to add one.</td></tr>`
@@ -79,10 +87,7 @@ export class AppCatalogComponent extends HTMLElement {
         });
 
         this.querySelectorAll(".category-filter-btn").forEach(btn => {
-            btn.onclick = () => {
-                this.selectedCategory = btn.dataset.category;
-                this.render();
-            };
+            btn.onclick = () => { this.selectedCategory = btn.dataset.category; this.render(); };
         });
 
         this.querySelector("#refresh-catalogs-btn")?.addEventListener("click", () => this.refreshCatalogs());
@@ -96,20 +101,84 @@ export class AppCatalogComponent extends HTMLElement {
         this.querySelectorAll("#top-add-source-btn, #bottom-add-source-btn").forEach(btn => {
             btn.onclick = () => this.showInlineAddSource();
         });
-
         this.querySelectorAll(".edit-source-btn").forEach(btn => {
             btn.onclick = (e) => this.showInlineEditSource(e.target.dataset.id);
         });
-
         this.querySelectorAll(".delete-source-btn").forEach(btn => {
             btn.onclick = (e) => this.deleteSource(e.target.dataset.id);
         });
-
         this.querySelectorAll(".install-app-btn").forEach(btn => {
             btn.onclick = (e) => this.showInstallModal(e.target.dataset.id);
         });
+        this.querySelectorAll(".check-update-btn").forEach(btn => {
+            btn.onclick = (e) => this.handleCheckUpdate(e.target.dataset.id);
+        });
 
         this.querySelector("#upload-image-btn")?.addEventListener("click", () => this.uploadDockerImage());
+        this.querySelector("#inspect-manifest-btn")?.addEventListener("click", () => this.handleInspectManifest());
+        this.querySelector("#deploy-source-btn")?.addEventListener("click", () => this.handleDeploySource());
+    }
+
+    async handleInspectManifest() {
+        this.sourceUrl = this.querySelector("#source-input")?.value.trim() || "";
+        this.sourceRef = this.querySelector("#source-ref-input")?.value.trim() || "main";
+        if (!this.sourceUrl) return alert("Please enter a Git repo URL or local path.");
+        this.buildStatusMsg = "Inspecting repository manifest...";
+        this.render();
+        try {
+            this.inspectedManifest = await window.catalogService.inspectManifest(this.sourceUrl, this.sourceRef);
+            this.buildStatusMsg = "Package manifest loaded successfully.";
+        } catch (e) {
+            this.buildStatusMsg = `Error: ${e.message}`;
+        }
+        this.render();
+    }
+
+    async handleDeploySource() {
+        if (!this.inspectedManifest) return;
+        const consented = this.querySelector("#source-consent-check")?.checked;
+        if (!consented) return alert("Please confirm consent to build and add to catalog.");
+        const networkRequired = this.inspectedManifest.build?.sandbox?.network_required;
+        const networkApproved = this.querySelector("#approve-network-check")?.checked;
+        if (networkRequired && !networkApproved) {
+            return alert("Please review and approve the requested network access endpoints to build this application.");
+        }
+        const source = this.sourceUrl || this.querySelector("#source-input")?.value.trim();
+        const ref = this.sourceRef || this.querySelector("#source-ref-input")?.value.trim() || "main";
+        this.buildStatusMsg = `Building container for ${this.inspectedManifest.name}...`;
+        this.render();
+        try {
+            await window.catalogService.importAppFromSource({
+                source_url_or_path: source,
+                git_ref: ref,
+                approve_network: Boolean(networkApproved),
+                approved_endpoints: this.inspectedManifest.build?.sandbox?.allowed_endpoints || [],
+            });
+            alert(`Successfully imported ${this.inspectedManifest.name} into Local Catalog! You can now install it from the Applications tab.`);
+            await this.loadData();
+            this.activeTab = "apps";
+            this.render();
+        } catch (e) {
+            this.buildStatusMsg = `Import failed: ${e.message}`;
+            this.render();
+        }
+    }
+
+    async handleCheckUpdate(appId) {
+        try {
+            const res = await window.catalogService.checkAppUpdate(appId);
+            if (res.update_available) {
+                if (confirm(`Update available for ${appId} (${res.current_commit} ➔ ${res.latest_commit}). Rebuild and update now?`)) {
+                    await window.catalogService.updateImportedApp(appId);
+                    alert(`Application ${appId} updated successfully!`);
+                    await this.loadData();
+                }
+            } else {
+                alert(`Application ${appId} is already up to date (${res.current_commit || 'latest'}).`);
+            }
+        } catch (e) {
+            alert(`Update check failed: ${e.message}`);
+        }
     }
 
     showInlineAddSource() {
@@ -197,42 +266,7 @@ export class AppCatalogComponent extends HTMLElement {
         const modal = document.createElement("div");
         modal.id = "app-install-modal";
         modal.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,15,30,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:10000;";
-        modal.innerHTML = `
-            <div class="card" style="width:90%;max-width:540px;background:#131b2e;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:24px;color:#f1f5f9;font-family:'Outfit',sans-serif;">
-                <h3 style="margin-top:0;margin-bottom:8px;">Install ${app.name}</h3>
-                <p style="font-size:13px;color:#94a3b8;margin-bottom:16px;">${app.description}</p>
-                <div style="background:rgba(255,255,255,0.04);border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">
-                    <div style="font-weight:600;margin-bottom:6px;color:#e2e8f0;">Required System Scopes & Permissions:</div>
-                    <div style="color:#94a3b8;">Ports: ${(app.container.ports || []).map(p => `${p.host_port}➔${p.container_port}`).join(", ") || "None"}</div>
-                    <div style="color:#94a3b8;">Volumes: ${(app.container.volumes || []).map(v => `${v.host_path}➔${v.container_path}`).join(", ") || "None"}</div>
-                </div>
-                <div style="margin-bottom:12px;">
-                    <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Target Node / Compute:</label>
-                    <select id="install-node-select" class="input-field" style="width:100%;">
-                        <option value="local">local (Current Node)</option>
-                    </select>
-                </div>
-                <div style="margin-bottom:16px;">
-                    <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;">
-                        <input type="checkbox" id="install-consent-check">
-                        <span>I consent to granting these container volume & port permissions.</span>
-                    </label>
-                </div>
-                <div style="border-top:1px solid rgba(255,255,255,0.08);padding-top:12px;margin-bottom:16px;">
-                    <label style="font-size:13px;display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:8px;">
-                        <input type="checkbox" id="install-edge-check">
-                        <span>Expose externally via Edge Gateway (CGNAT Bypass)</span>
-                    </label>
-                    <div id="install-edge-domain-box" style="display:none;margin-left:22px;">
-                        <input type="text" id="install-edge-domain" class="input-field" placeholder="${app.id}.yourdomain.com" style="width:100%;font-size:13px;">
-                    </div>
-                </div>
-                <div style="display:flex;justify-content:flex-end;gap:12px;">
-                    <button class="btn btn-secondary btn-sm" id="close-install-modal-btn">Cancel</button>
-                    <button class="btn btn-primary btn-sm" id="confirm-install-btn">Confirm & Install</button>
-                </div>
-            </div>
-        `;
+        modal.innerHTML = renderInstallModalTemplate(app);
         document.body.appendChild(modal);
 
         const edgeCheck = modal.querySelector("#install-edge-check");
@@ -241,17 +275,13 @@ export class AppCatalogComponent extends HTMLElement {
         modal.querySelector("#close-install-modal-btn").onclick = () => modal.remove();
 
         modal.querySelector("#confirm-install-btn").onclick = async () => {
-            const consented = modal.querySelector("#install-consent-check").checked;
-            if (!consented) return alert("Please confirm consent to the required container permissions.");
+            if (!modal.querySelector("#install-consent-check").checked) return alert("Please confirm consent to permissions.");
             const target_node = modal.querySelector("#install-node-select").value;
             const expose_edge = edgeCheck.checked;
             const domain = modal.querySelector("#install-edge-domain").value.trim() || `${app.id}.roost.local`;
             try {
                 await window.catalogService.installApp({
-                    app_id: app.id,
-                    target_node,
-                    expose_edge_ingress: expose_edge,
-                    edge_domain: expose_edge ? domain : null
+                    app_id: app.id, target_node, expose_edge_ingress: expose_edge, edge_domain: expose_edge ? domain : null
                 });
                 modal.remove();
                 alert(`Successfully deployed ${app.name}!`);
