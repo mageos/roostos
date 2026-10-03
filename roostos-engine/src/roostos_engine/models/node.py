@@ -10,6 +10,7 @@ class NodeRole(str, Enum):
     DNS_RESOLVER = "dns_resolver"
     COMPUTE_NODE = "compute_node"
     SWITCH = "switch"
+    EDGE_GATEWAY = "edge_gateway"
 
 
 class InterfaceType(str, Enum):

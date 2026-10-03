@@ -2,6 +2,7 @@
 
 REGISTRY ?= localhost:5000
 VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.1.0")
+ARCHITECTURES ?= amd64 arm64
 
 .PHONY: all images push deb arch pkgs bump-version test test-ui install-ui-deps clean help
 
@@ -35,9 +36,9 @@ bump-version:
 
 deb:
 	@echo "============================================="
-	@echo "Building RoostOS Debian Packages (v$(VERSION))"
+	@echo "Building RoostOS Debian Packages (v$(VERSION)) [$(ARCHITECTURES)]"
 	@echo "============================================="
-	bash packaging/debian/build-debs.sh
+	ARCHITECTURES="$(ARCHITECTURES)" bash scripts/build-all-debs.sh
 
 arch:
 	@echo "============================================="

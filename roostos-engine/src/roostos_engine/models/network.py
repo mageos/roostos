@@ -112,6 +112,8 @@ class WifiSettings(BaseModel):
     access_points: List[WifiAccessPoint] = Field(default_factory=list)
     mesh: Optional[WifiMesh] = None
 
+from roostos_engine.models.edge import EdgeGatewayConfig
+
 class VPNConfig(BaseModel):
     id: str
     name: str
@@ -124,3 +126,4 @@ class NetworkConfig(BaseModel):
     network: Optional[NetworkSettings] = Field(default_factory=NetworkSettings)
     wifi: Optional[WifiSettings] = None
     vpns: List[VPNConfig] = Field(default_factory=list)
+    edge_gateways: List[EdgeGatewayConfig] = Field(default_factory=list)

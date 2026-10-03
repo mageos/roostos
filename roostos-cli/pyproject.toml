@@ -1,12 +1,16 @@
 [project]
-name = "roostos-sdk"
+name = "roostos-cli"
 dynamic = ["version"]
-description = "Python SDK for building RoostOS extensions and D-Bus interfaces"
-requires-python = ">=3.10"
+description = "Universal root CLI and setup wizard for RoostOS"
+requires-python = ">=3.11"
 dependencies = [
-    "dbus-next>=0.2.3",
+    "click>=8.0.0",
     "pydantic>=2.0.0",
+    "prompt-toolkit>=3.0.0",
 ]
+
+[project.scripts]
+roostos = "roostos_cli.main:main"
 
 [build-system]
 requires = ["hatchling"]

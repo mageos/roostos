@@ -4,6 +4,7 @@ requires-python = ">=3.13"
 
 [manifest]
 members = [
+    "roostos-cli",
     "roostos-dns-technitium",
     "roostos-engine",
     "roostos-identity-samba",
@@ -647,8 +648,23 @@ wheels = [
 ]
 
 [[package]]
+name = "roostos-cli"
+source = { editable = "roostos-cli" }
+dependencies = [
+    { name = "click" },
+    { name = "prompt-toolkit" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click", specifier = ">=8.0.0" },
+    { name = "prompt-toolkit", specifier = ">=3.0.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+]
+
+[[package]]
 name = "roostos-dns-technitium"
-version = "0.1.0"
 source = { editable = "roostos-dns-technitium" }
 dependencies = [
     { name = "dbus-next" },
@@ -665,7 +681,6 @@ requires-dist = [
 
 [[package]]
 name = "roostos-engine"
-version = "0.1.0"
 source = { editable = "roostos-engine" }
 dependencies = [
     { name = "click" },
@@ -676,6 +691,7 @@ dependencies = [
     { name = "prompt-toolkit" },
     { name = "pydantic" },
     { name = "pyyaml" },
+    { name = "roostos-sdk" },
 ]
 
 [package.metadata]
@@ -688,11 +704,11 @@ requires-dist = [
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "roostos-sdk", editable = "roostos-sdk" },
 ]
 
 [[package]]
 name = "roostos-identity-samba"
-version = "0.1.0"
 source = { editable = "roostos-identity-samba" }
 dependencies = [
     { name = "dbus-next" },
@@ -709,7 +725,6 @@ requires-dist = [
 
 [[package]]
 name = "roostos-sdk"
-version = "0.1.0"
 source = { editable = "roostos-sdk" }
 dependencies = [
     { name = "dbus-next" },
@@ -724,7 +739,6 @@ requires-dist = [
 
 [[package]]
 name = "roostos-timeguardd"
-version = "0.1.0"
 source = { editable = "roostos-timeguardd" }
 dependencies = [
     { name = "click" },
@@ -743,7 +757,6 @@ requires-dist = [
 
 [[package]]
 name = "roostos-web"
-version = "0.1.0"
 source = { editable = "roostos-web" }
 dependencies = [
     { name = "fastapi" },
@@ -752,6 +765,7 @@ dependencies = [
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "python-pam" },
+    { name = "roostos-cli" },
     { name = "roostos-engine" },
     { name = "roostos-sdk" },
     { name = "six" },
@@ -766,6 +780,7 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.0.0" },
     { name = "python-multipart" },
     { name = "python-pam", specifier = ">=2.0.0" },
+    { name = "roostos-cli", editable = "roostos-cli" },
     { name = "roostos-engine", editable = "roostos-engine" },
     { name = "roostos-sdk", editable = "roostos-sdk" },
     { name = "six" },

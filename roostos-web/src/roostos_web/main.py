@@ -10,7 +10,10 @@ from fastapi.staticfiles import StaticFiles
 from roostos_engine.repository import ConfigRepository, YAMLConfigRepository
 from roostos_sdk.client import RoostClient
 
-from roostos_web.routers import auth, system, devices, network, schedules, plugins, diagnostics, config, certificates, cluster, health, events, identity
+from roostos_web.routers import (
+    auth, system, devices, network, schedules, plugins, diagnostics,
+    config, certificates, cluster, health, events, identity, setup, edge
+)
 from roostos_web.services.events import event_publisher
 
 from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
@@ -40,6 +43,8 @@ app.add_middleware(
 )
 
 # Mount modular routes
+app.include_router(setup.router)
+app.include_router(edge.router)
 app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(identity.router)
@@ -70,7 +75,7 @@ from roostos_web.di import create_web_injector, set_injector
 from roostos_engine.di import load_providers_settings
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="RoostOS Web API & UI Service")
     parser.add_argument("--config-dir", default=os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos"), help="Directory containing RoostOS configuration files")
     parser.add_argument("--providers-config", default=os.environ.get("ROOSTOS_PROVIDERS_CONFIG"), help="Path to custom providers.yaml")

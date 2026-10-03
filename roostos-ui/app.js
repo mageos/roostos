@@ -123,6 +123,7 @@ window.switchView = function(viewId) {
         networks: "Networks & Interfaces",
         dhcp: "DHCP Server Status",
         vpn: "VPN Connection Tunnels",
+        edge: "Edge Gateway & Ingress",
         firewall: "Firewall Rules & NAT",
         parental: "Parental Controls & Bedtimes",
         dns: "DNS Resolver Settings",
@@ -138,6 +139,7 @@ window.switchView = function(viewId) {
         networks: "Connectivity",
         dhcp: "Connectivity",
         vpn: "Connectivity",
+        edge: "Connectivity",
         firewall: "Security",
         parental: "Security",
         dns: "Security",
@@ -370,6 +372,11 @@ function init() {
         window.networkComponent.mount(viewContainer);
         window.dhcpComponent.mount(viewContainer);
         window.vpnComponent.mount(viewContainer);
+        const edgePane = document.createElement("div");
+        edgePane.id = "edge-view";
+        edgePane.className = "view-pane";
+        edgePane.innerHTML = "<roost-edge-gateway></roost-edge-gateway>";
+        viewContainer.appendChild(edgePane);
         window.deviceComponent.mount(viewContainer);
         window.firewallComponent.mount(viewContainer);
         window.parentalComponent.mount(viewContainer);
@@ -386,6 +393,9 @@ function init() {
 
     // 3. Populate default viewport dashboard info and switch to status view
     window.switchView('status');
+    if (window.setupWizard) {
+        window.setupWizard.checkAndPromptSetup();
+    }
     
     // Start periodic status refresh (every 10 seconds fallback)
     setInterval(() => {

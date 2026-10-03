@@ -29,10 +29,13 @@ def get_identity_manager(repo: ConfigRepository = Injected(ConfigRepository)) ->
     global _identity_mgr
     if _identity_mgr is None:
         config = repo.get_config()
-        realm = getattr(config.system, "realm", "ROOSTOS.LOCAL")
+        raw_realm = getattr(getattr(config, "system", None), "realm", "ROOSTOS.LOCAL")
+        realm = raw_realm if isinstance(raw_realm, str) else "ROOSTOS.LOCAL"
         workgroup = "ROOSTOS"
-        if config.system.identity_server and config.system.identity_server.workgroup:
-            workgroup = config.system.identity_server.workgroup
+        system = getattr(config, "system", None)
+        identity_server = getattr(system, "identity_server", None) if system else None
+        if identity_server and isinstance(getattr(identity_server, "workgroup", None), str):
+            workgroup = identity_server.workgroup
         _identity_mgr = IdentityManager(repo=repo, realm=realm, workgroup=workgroup)
     return _identity_mgr
 

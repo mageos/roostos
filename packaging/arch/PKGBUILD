@@ -1,7 +1,7 @@
 # Maintainer: RoostOS Core Team <info@roostos.org>
 pkgbase=roostos
-pkgname=('roostos-sdk' 'roostos-engine' 'roostos-core' 'roostos-web' 'roostos-timeguardd' 'roostos-router')
-pkgver=0.1.0
+pkgname=('roostos-cli' 'roostos-sdk' 'roostos-engine' 'roostos-core' 'roostos-web' 'roostos-timeguardd' 'roostos-router')
+pkgver=0.1.4
 pkgrel=1
 pkgdesc="RoostOS Family Router & Local Infrastructure Management System"
 arch=('any')
@@ -11,6 +11,25 @@ makedepends=('python')
 
 _pyver() {
     python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+}
+
+package_roostos-cli() {
+    pkgdesc="Universal root CLI and setup wizard for RoostOS"
+    depends=('python' 'python-click' 'python-pydantic' 'python-yaml')
+    provides=('roostos')
+
+    local py_site="/usr/lib/python$(_pyver)/site-packages"
+    mkdir -p "$pkgdir/$py_site"
+    mkdir -p "$pkgdir/usr/bin"
+
+    cp -r "$SRC_DIR/roostos-cli/src/roostos_cli" "$pkgdir/$py_site/"
+    cat << 'EOF' > "$pkgdir/usr/bin/roostos"
+#!/usr/bin/env python3
+from roostos_cli.main import main
+if __name__ == "__main__":
+    main()
+EOF
+    chmod 755 "$pkgdir/usr/bin/roostos"
 }
 
 package_roostos-sdk() {
