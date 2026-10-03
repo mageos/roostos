@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict
 from pydantic import BaseModel, Field, field_validator
 
 class SystemHTTPSConfig(BaseModel):
@@ -41,6 +41,33 @@ class SystemIdentityServerConfig(BaseModel):
     authority_label: Optional[str] = "RoostOS Central Identity"
     timeout_seconds: float = 3.0
 
+class TelemetryExportConfig(BaseModel):
+    enabled: bool = False
+    endpoint: Optional[str] = None
+    headers: Dict[str, str] = Field(default_factory=dict)
+
+class TelemetryConfig(BaseModel):
+    enabled: bool = True
+    retention_period: str = "30d"
+    listen_addr: str = "127.0.0.1:8428"
+    storage_data_path: str = "/var/lib/roostos/metrics"
+    scrape_interval_seconds: int = 15
+    export: TelemetryExportConfig = Field(default_factory=TelemetryExportConfig)
+
+class NotificationChannelConfig(BaseModel):
+    id: str
+    name: str
+    type: str  # "webhook", "ntfy", "discord", "slack"
+    enabled: bool = True
+    url: str
+    auth_token: Optional[str] = None
+    min_severity: str = "warning"  # "info", "warning", "critical"
+
+class NotificationsConfig(BaseModel):
+    enabled: bool = True
+    channels: List[NotificationChannelConfig] = Field(default_factory=list)
+
+
 class SystemSettings(BaseModel):
     hostname: str = "roost-router"
     domain: str = "lan"
@@ -53,6 +80,8 @@ class SystemSettings(BaseModel):
     dns: Optional[SystemDNSConfig] = Field(default_factory=SystemDNSConfig)
     cluster: Optional[ClusterSettingsConfig] = Field(default_factory=ClusterSettingsConfig)
     identity_server: Optional[SystemIdentityServerConfig] = Field(default_factory=SystemIdentityServerConfig)
+    telemetry: Optional[TelemetryConfig] = Field(default_factory=TelemetryConfig)
+    notifications: Optional[NotificationsConfig] = Field(default_factory=NotificationsConfig)
 
     @field_validator("unregistered_device_policy")
     @classmethod
