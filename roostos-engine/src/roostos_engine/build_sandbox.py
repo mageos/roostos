@@ -1,74 +1,13 @@
 """BuildSandbox for safely building containers within isolated resource and security boundaries."""
 
 import os
-import re
 import subprocess
+import tempfile
 from typing import Dict, List, Optional, Tuple
 
 from roostos_engine.models.catalog import SandboxConfig
 from roostos_engine.sandbox_network import SandboxNetworkFilter
-
-
-class SandboxSecurityError(RuntimeError):
-    """Raised when a build violates sandbox security policies or resource boundaries."""
-    pass
-
-
-def validate_build_safety(
-    context_path: str,
-    dockerfile: str,
-    sandbox_config: SandboxConfig,
-) -> None:
-    """Performs static pre-build security analysis on Dockerfile and paths."""
-    context_abs = os.path.abspath(context_path)
-    if not os.path.isdir(context_abs):
-        raise SandboxSecurityError(f"Build context path does not exist: {context_abs}")
-
-    dockerfile_abs = (
-        dockerfile if os.path.isabs(dockerfile) else os.path.join(context_abs, dockerfile)
-    )
-    if not os.path.isfile(dockerfile_abs):
-        raise SandboxSecurityError(f"Dockerfile not found at: {dockerfile_abs}")
-
-    # 1. Path traversal check: verify Dockerfile is within context or repo root
-    try:
-        common = os.path.commonpath([context_abs, dockerfile_abs])
-        if common != context_abs and not dockerfile_abs.startswith(context_abs):
-            # Allow Dockerfile in parent dir of context if still inside repo
-            pass
-    except ValueError:
-        raise SandboxSecurityError(f"Path traversal detected for Dockerfile: {dockerfile}")
-
-    # 2. Inspect Dockerfile instructions for dangerous directives
-    with open(dockerfile_abs, "r", encoding="utf-8", errors="replace") as f:
-        content = f.read()
-
-    for disallowed in sandbox_config.disallowed_mounts:
-        # Check for bind mounts in RUN --mount=type=bind,source=...
-        pattern = re.compile(
-            rf"--mount=.*(?:source|from)=['\"]?{re.escape(disallowed)}['\"]?",
-            re.IGNORECASE,
-        )
-        if pattern.search(content):
-            raise SandboxSecurityError(
-                f"Disallowed host mount target '{disallowed}' detected in Dockerfile build instructions."
-            )
-
-    # Check for direct references to docker.sock or containerd.sock inside untrusted Dockerfile
-    if "docker.sock" in content or "containerd.sock" in content:
-        raise SandboxSecurityError(
-            "Direct reference to host docker.sock or containerd.sock detected in Dockerfile. Build rejected for security."
-        )
-
-    # 3. Block forbidden host root copies
-    forbidden_copy_patterns = [
-        re.compile(r"^\s*(?:COPY|ADD)\s+(?:--[a-z=]+\s+)?/(?:etc/shadow|proc|sys|root/\.ssh)", re.MULTILINE | re.IGNORECASE),
-    ]
-    for cp_pat in forbidden_copy_patterns:
-        if cp_pat.search(content):
-            raise SandboxSecurityError(
-                "Attempt to COPY/ADD protected host system path detected in Dockerfile."
-            )
+from roostos_engine.sandbox_validator import SandboxSecurityError, validate_build_safety
 
 
 def build_sandboxed_command(
@@ -86,6 +25,13 @@ def build_sandboxed_command(
         and sandbox_config.user_approved
         and sandbox_config.allow_network
     )
+    if not allow_net:
+        network_mode = "none"
+    elif sandbox_config.restricted_network:
+        network_mode = sandbox_config.isolated_network_name
+    else:
+        network_mode = "bridge"
+
     cmd = [
         "docker",
         "build",
@@ -106,7 +52,7 @@ def build_sandboxed_command(
         "--ulimit",
         "nproc=512:1024",
         "--network",
-        "bridge" if allow_net else "none",
+        network_mode,
     ]
 
     if proxy_env:
@@ -131,17 +77,21 @@ def build_container_sandbox_command(
     sandbox_config: SandboxConfig,
     target_stage: Optional[str] = None,
     proxy_env: Optional[Dict[str, str]] = None,
+    output_dir: Optional[str] = None,
 ) -> List[str]:
-    """Constructs command to run build inside isolated build container with containerd socket."""
-    sock = sandbox_config.containerd_socket
-    if not os.path.exists(sock) and os.path.exists("/var/run/docker.sock"):
-        sock = "/var/run/docker.sock"
-
+    """Constructs command to run build inside isolated build container without root socket."""
     allow_net = bool(
         sandbox_config.network_required
         and sandbox_config.user_approved
         and sandbox_config.allow_network
     )
+    if not allow_net:
+        network_mode = "none"
+    elif sandbox_config.restricted_network:
+        network_mode = sandbox_config.isolated_network_name
+    else:
+        network_mode = "bridge"
+
     rel_dockerfile = (
         os.path.relpath(dockerfile, context_path)
         if os.path.isabs(dockerfile)
@@ -151,8 +101,18 @@ def build_container_sandbox_command(
         "docker",
         "run",
         "--rm",
-        "-v",
-        f"{sock}:/run/containerd/containerd.sock",
+    ]
+
+    if sandbox_config.rootless_build:
+        if output_dir:
+            cmd.extend(["-v", f"{os.path.abspath(output_dir)}:/output:rw"])
+    else:
+        sock = sandbox_config.containerd_socket
+        if not os.path.exists(sock) and os.path.exists("/var/run/docker.sock"):
+            sock = "/var/run/docker.sock"
+        cmd.extend(["-v", f"{sock}:/run/containerd/containerd.sock"])
+
+    cmd.extend([
         "-v",
         f"{os.path.abspath(context_path)}:/workspace:ro",
         "--memory",
@@ -162,8 +122,8 @@ def build_container_sandbox_command(
         "--security-opt",
         f"no-new-privileges:{'true' if sandbox_config.no_new_privileges else 'false'}",
         "--network",
-        "bridge" if allow_net else "none",
-    ]
+        network_mode,
+    ])
 
     if proxy_env:
         cmd.extend(["--add-host", "host.docker.internal:host-gateway"])
@@ -179,6 +139,9 @@ def build_container_sandbox_command(
         "--context",
         "/workspace",
     ])
+
+    if sandbox_config.rootless_build and output_dir:
+        cmd.extend(["--output-tar", "/output/image.tar"])
 
     for k, v in build_args.items():
         cmd.extend(["--build-arg", f"{k}={v}"])
@@ -204,7 +167,6 @@ def execute_sandboxed_build(
     except SandboxSecurityError as sec_err:
         return False, f"Sandbox Security Rejection: {sec_err}"
 
-    # Enforce network requirement declaration & user approval
     net_filter: Optional[SandboxNetworkFilter] = None
     proxy_env: Optional[Dict[str, str]] = None
     if cfg.network_required:
@@ -219,34 +181,47 @@ def execute_sandboxed_build(
         net_filter = SandboxNetworkFilter(active_endpoints)
         host_ip, _ = net_filter.start()
         proxy_env = net_filter.get_proxy_env(host_ip)
+        if cfg.restricted_network:
+            net_filter.ensure_restricted_network(cfg.isolated_network_name)
 
     try:
-        # Build Container with containerd socket (primary strategy)
+        # Build Container strategy (rootless by default)
         if builder in ("container", "sandbox-container") or (cfg.use_build_container and builder != "direct"):
-            container_cmd = build_container_sandbox_command(
-                context_path=context_path,
-                dockerfile=dockerfile,
-                image_tag=image_tag,
-                build_args=build_args,
-                sandbox_config=cfg,
-                target_stage=target_stage,
-                proxy_env=proxy_env,
-            )
-            try:
-                res = subprocess.run(
-                    container_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=cfg.timeout_seconds,
+            with tempfile.TemporaryDirectory() as output_dir:
+                container_cmd = build_container_sandbox_command(
+                    context_path=context_path,
+                    dockerfile=dockerfile,
+                    image_tag=image_tag,
+                    build_args=build_args,
+                    sandbox_config=cfg,
+                    target_stage=target_stage,
+                    proxy_env=proxy_env,
+                    output_dir=output_dir if cfg.rootless_build else None,
                 )
-                if res.returncode == 0:
-                    return True, f"Successfully built {image_tag} in build container.\n{res.stdout}"
-                if not ("Unable to find image" in res.stderr or "image not found" in res.stderr):
-                    return False, f"Build container failed (exit {res.returncode}):\n{res.stderr}\n{res.stdout}"
-            except subprocess.TimeoutExpired:
-                return False, f"Build aborted: exceeded sandbox execution timeout of {cfg.timeout_seconds} seconds."
-            except Exception:
-                pass
+                try:
+                    res = subprocess.run(
+                        container_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=cfg.timeout_seconds,
+                    )
+                    if res.returncode == 0:
+                        tar_path = os.path.join(output_dir, "image.tar")
+                        if cfg.rootless_build and os.path.exists(tar_path):
+                            load_res = subprocess.run(
+                                ["docker", "load", "-i", tar_path],
+                                capture_output=True,
+                                text=True,
+                            )
+                            if load_res.returncode != 0:
+                                return False, f"Failed to load built image into daemon:\n{load_res.stderr}"
+                        return True, f"Successfully built {image_tag} in build container.\n{res.stdout}"
+                    if not ("Unable to find image" in res.stderr or "image not found" in res.stderr):
+                        return False, f"Build container failed (exit {res.returncode}):\n{res.stderr}\n{res.stdout}"
+                except subprocess.TimeoutExpired:
+                    return False, f"Build aborted: exceeded sandbox execution timeout of {cfg.timeout_seconds} seconds."
+                except Exception:
+                    pass
 
         # Direct hardened daemon sandbox execution (fallback or direct)
         cmd = build_sandboxed_command(

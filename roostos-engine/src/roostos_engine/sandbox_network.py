@@ -4,26 +4,50 @@ import os
 import re
 import socket
 import asyncio
+import subprocess
 import threading
 from typing import List, Set, Optional, Tuple, Dict, Any
 
 
-def is_endpoint_allowed(requested_host: str, allowed_endpoints: List[str]) -> bool:
-    """Checks if requested host matches any approved endpoint or wildcard domain."""
+IPV4_REGEX = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+
+
+def is_endpoint_allowed(
+    requested_host: str, allowed_endpoints: List[str], target_port: int = 80
+) -> bool:
+    """Checks if requested host matches any approved endpoint, enforcing IP and domain rules."""
     if not requested_host or not allowed_endpoints:
         return False
 
     norm_host = requested_host.split(":")[0].strip().lower()
 
+    # Block loopback and link-local cloud metadata
+    if norm_host in ("127.0.0.1", "localhost", "169.254.169.254"):
+        return False
+
+    is_raw_ip = bool(IPV4_REGEX.match(norm_host) or ":" in norm_host)
+
     for pattern in allowed_endpoints:
         norm_pat = pattern.strip().lower()
         if not norm_pat:
             continue
-        if norm_pat.startswith("*."):
-            suffix = norm_pat[1:]  # e.g. .github.com
-            if norm_host.endswith(suffix) or norm_host == norm_pat[2:]:
+        pat_parts = norm_pat.split(":")
+        pat_host = pat_parts[0]
+        pat_port = int(pat_parts[1]) if len(pat_parts) > 1 else None
+
+        if pat_port is not None and pat_port != target_port:
+            continue
+
+        if is_raw_ip:
+            if norm_host == pat_host:
                 return True
-        elif norm_host == norm_pat or norm_host.endswith(f".{norm_pat}"):
+            continue
+
+        if pat_host.startswith("*."):
+            suffix = pat_host[1:]
+            if norm_host.endswith(suffix) or norm_host == pat_host[2:]:
+                return True
+        elif norm_host == pat_host or norm_host.endswith(f".{pat_host}"):
             return True
 
     return False
@@ -88,9 +112,27 @@ class SandboxDomainProxy:
                     client_writer.close()
                     return
 
+            # Restrict non-standard ports to prevent reverse shells
+            if target_port not in (80, 443) and not any(f":{target_port}" in ep for ep in self.allowed_endpoints):
+                self.blocked_attempts.append(f"{target_host}:{target_port}")
+                if target_host not in self.blocked_attempts:
+                    self.blocked_attempts.append(target_host)
+                resp = (
+                    b"HTTP/1.1 403 Forbidden\r\n"
+                    b"Content-Type: text/plain\r\n"
+                    b"Connection: close\r\n\r\n"
+                    b"Blocked by RoostOS Build Sandbox: non-standard port not allowed\r\n"
+                )
+                client_writer.write(resp)
+                await client_writer.drain()
+                client_writer.close()
+                return
+
             # Validate against approved endpoints
-            if not is_endpoint_allowed(target_host, self.allowed_endpoints):
-                self.blocked_attempts.append(target_host)
+            if not is_endpoint_allowed(target_host, self.allowed_endpoints, target_port):
+                self.blocked_attempts.append(f"{target_host}:{target_port}")
+                if target_host not in self.blocked_attempts:
+                    self.blocked_attempts.append(target_host)
                 resp = (
                     b"HTTP/1.1 403 Forbidden\r\n"
                     b"Content-Type: text/plain\r\n"
@@ -102,7 +144,9 @@ class SandboxDomainProxy:
                 client_writer.close()
                 return
 
-            self.allowed_attempts.append(target_host)
+            self.allowed_attempts.append(f"{target_host}:{target_port}")
+            if target_host not in self.allowed_attempts:
+                self.allowed_attempts.append(target_host)
 
             # Establish upstream connection
             upstream_reader, upstream_writer = await asyncio.open_connection(target_host, target_port)
@@ -191,3 +235,25 @@ class SandboxNetworkFilter:
             self.loop.call_soon_threadsafe(self.loop.stop)
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=2.0)
+
+    @staticmethod
+    def ensure_restricted_network(network_name: str = "roostos-build-net") -> str:
+        """Ensures an isolated internal docker network exists for sandbox builds."""
+        try:
+            inspect_res = subprocess.run(
+                ["docker", "network", "inspect", network_name],
+                capture_output=True,
+                text=True,
+            )
+            if inspect_res.returncode != 0:
+                create_res = subprocess.run(
+                    ["docker", "network", "create", "--internal", network_name],
+                    capture_output=True,
+                    text=True,
+                )
+                if create_res.returncode != 0:
+                    return "bridge"
+            return network_name
+        except Exception:
+            return "none"
+

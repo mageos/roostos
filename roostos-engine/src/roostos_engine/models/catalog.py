@@ -50,6 +50,9 @@ class SandboxConfig(BaseModel):
     use_build_container: bool = True
     builder_image: str = "roostos-builder:latest"
     containerd_socket: str = "/run/containerd/containerd.sock"
+    rootless_build: bool = True
+    restricted_network: bool = True
+    isolated_network_name: str = "roostos-build-net"
 
 
 class BuildManifest(BaseModel):

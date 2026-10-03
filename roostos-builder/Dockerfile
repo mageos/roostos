@@ -9,17 +9,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     tar \
+    iptables \
+    iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Install nerdctl for direct containerd socket image building
+# Install nerdctl for containerd socket image building
 ARG NERDCTL_VERSION=1.7.6
 RUN curl -fsSL https://github.com/containerd/nerdctl/releases/download/v${NERDCTL_VERSION}/nerdctl-${NERDCTL_VERSION}-linux-amd64.tar.gz \
     | tar -xz -C /usr/local/bin nerdctl || true
 
-# Install buildctl (BuildKit client)
+# Install buildctl and buildkitd (BuildKit)
 ARG BUILDKIT_VERSION=0.13.2
 RUN curl -fsSL https://github.com/moby/buildkit/releases/download/v${BUILDKIT_VERSION}/buildkit-v${BUILDKIT_VERSION}.linux-amd64.tar.gz \
-    | tar -xz -C /usr/local/bin --strip-components=1 bin/buildctl || true
+    | tar -xz -C /usr/local/bin --strip-components=1 bin/buildctl bin/buildkitd || true
 
 COPY roostos-builder-entrypoint.sh /usr/local/bin/roostos-builder-entrypoint.sh
 RUN chmod +x /usr/local/bin/roostos-builder-entrypoint.sh

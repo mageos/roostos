@@ -164,12 +164,16 @@ def test_source_builder_discovers_roost_build_yaml(temp_sandbox_workspace):
     assert manifest.build.sandbox.timeout_seconds == 900
 
 
-def test_build_container_sandbox_command():
+def test_build_container_sandbox_command_rootless():
     cfg = SandboxConfig(
         allow_network=True,
+        network_required=True,
+        user_approved=True,
         max_memory_mb=2048,
         max_cpu_cores=2.0,
-        containerd_socket="/run/containerd/containerd.sock",
+        rootless_build=True,
+        restricted_network=True,
+        isolated_network_name="roostos-build-net",
         builder_image="roostos-builder:latest",
     )
     cmd = build_container_sandbox_command(
@@ -179,15 +183,22 @@ def test_build_container_sandbox_command():
         build_args={"KEY": "VAL"},
         sandbox_config=cfg,
         target_stage="prod",
+        output_dir="/tmp/output_123",
     )
 
     assert "docker" in cmd[0]
     assert "run" in cmd[1]
     assert "--rm" in cmd
-    sock_mount = [arg for arg in cmd if "/run/containerd/containerd.sock" in arg]
-    assert len(sock_mount) > 0
-    source_mount = [arg for arg in cmd if ":/workspace:ro" in arg]
-    assert len(source_mount) > 0
+    # Socket must NOT be mounted in rootless mode
+    sock_mount = [arg for arg in cmd if "containerd.sock" in arg or "docker.sock" in arg]
+    assert len(sock_mount) == 0
+    # Output tar dir and workspace must be mounted
+    assert "/tmp/output_123:/output:rw" in cmd
+    assert "/home/user/app:/workspace:ro" in cmd
+    assert "--output-tar" in cmd
+    assert "/output/image.tar" in cmd
+    assert "--network" in cmd
+    assert "roostos-build-net" in cmd
     assert "--memory" in cmd
     assert "2048m" in cmd
     assert "--cpus" in cmd
@@ -201,6 +212,22 @@ def test_build_container_sandbox_command():
     assert "KEY=VAL" in cmd
     assert "--target" in cmd
     assert "prod" in cmd
+
+
+def test_build_container_sandbox_command_legacy_socket():
+    cfg = SandboxConfig(
+        rootless_build=False,
+        containerd_socket="/run/containerd/containerd.sock",
+    )
+    cmd = build_container_sandbox_command(
+        context_path="/home/user/app",
+        dockerfile="/home/user/app/Dockerfile",
+        image_tag="roostos-local/my-app:1.0.0",
+        build_args={},
+        sandbox_config=cfg,
+    )
+    sock_mount = [arg for arg in cmd if "/run/containerd/containerd.sock" in arg]
+    assert len(sock_mount) > 0
 
 
 def test_execute_sandboxed_build_rejects_unapproved_network(temp_sandbox_workspace):
