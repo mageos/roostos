@@ -21,7 +21,10 @@ mkdir -p "$STAGE_DIR/opt/roostos-timeguardd/wheels"
 
 # 1. Copy source files and daemon script
 echo "Adding TimeGuard daemon files..."
-cp "$SRC_DIR/roostos-timeguardd/src/roostos_timeguardd/main.py" "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
+cat << 'EOF' > "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
+#!/usr/bin/env sh
+exec /usr/lib/roostos/runtime/bin/python3 -m roostos_timeguardd.main "$@"
+EOF
 cp "$SRC_DIR/roostos-timeguardd/src/roostos_timeguardd/setup.py" "$STAGE_DIR/usr/local/bin/roostos-timeguard-setup"
 chmod 755 "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
 chmod 755 "$STAGE_DIR/usr/local/bin/roostos-timeguard-setup"
@@ -74,7 +77,7 @@ Version: $PACKAGE_VERSION
 Section: admin
 Priority: optional
 Architecture: $Architecture
-Depends: python3, python3-dbus, python3-paho-mqtt, libpam-ldapd, nslcd, avahi-utils
+Depends: roostos-runtime, libpam-ldapd, nslcd, avahi-utils
 Maintainer: RoostOS Core Team <info@roostos.org>
 Description: Screen time monitoring daemon for RoostOS clients
  roostos-timeguardd monitors user logins and lock state using systemd-logind,

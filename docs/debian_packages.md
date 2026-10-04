@@ -1,6 +1,6 @@
 # RoostOS Debian Package Architecture & Specification
 
-RoostOS is packaged into modular, role-oriented Debian (`.deb`) packages for Debian/Ubuntu systems. This enables users to deploy an all-in-one router, separate management controllers from edge routing gateways, or install lightweight client daemons on workstations without unnecessary overhead.
+RoostOS is packaged into modular, role-oriented Debian (`.deb`) packages for Debian/Ubuntu systems. To ensure that installed systems run the exact, tested Python library versions without relying on fragmented or outdated system distribution packages, RoostOS bundles a self-contained Python 3.13 runtime and locked virtual environment in `roostos-runtime`.
 
 ---
 
@@ -8,11 +8,18 @@ RoostOS is packaged into modular, role-oriented Debian (`.deb`) packages for Deb
 
 ```
                                ┌────────────────────────────────────────────────────────┐
+                               │             roostos-runtime (Base Runtime)             │
+                               │  • Bundled Python 3.13 standalone runtime               │
+                               │  • Pinned & locked dependencies from uv.lock           │
+                               │  • Installed at /usr/lib/roostos/runtime               │
+                               └───────────────────────────┬────────────────────────────┘
+                                                           │
+                               ┌───────────────────────────┴────────────────────────────┐
                                │                 roostos (Root Package)                 │
                                │  • Unified CLI (/usr/bin/roostos)                      │
                                │  • Generic hardware inspector & mDNS discovery         │
                                │  • Guided Setup Wizard (roostos setup)                 │
-                               │  • Minimal base deps: python3, iproute2, curl          │
+                               │  • Depends: roostos-runtime                            │
                                └───────────────────────────┬────────────────────────────┘
                                                            │
         ┌──────────────────────────────────────────────────┼──────────────────────────────────────────────────┐
@@ -39,58 +46,67 @@ RoostOS is packaged into modular, role-oriented Debian (`.deb`) packages for Deb
 
 ## 2. Package Specifications
 
-### A. `roostos-cli` (Root Base Package)
+### A. `roostos-runtime` (Standalone Python Runtime & Locked Venv)
+Contains the self-contained Python 3.13 runtime and all project dependencies locked to `uv.lock`.
+- **Binary Package Name**: `roostos-runtime`
+- **Architecture**: `amd64`, `arm64`
+- **Installed Files**:
+  - `/usr/lib/roostos/runtime/` (Python 3.13 interpreter, stdlib, site-packages, and CLI entrypoint binaries)
+- **Dependencies (`Depends`)**: `libc6 (>= 2.31)`
+- **Description**: Self-contained runtime ensuring exact version parity across all Debian and Ubuntu releases.
+
+---
+
+### B. `roostos-cli` (Root Base Package)
 The universal entry-point package for any machine running or interacting with RoostOS.
 - **Binary Package Name**: `roostos-cli` (Provides/Replaces: `roostos`)
 - **Architecture**: `all`
 - **Installed Files**:
   - `/usr/bin/roostos`
-  - `/usr/lib/python3/dist-packages/roostos_cli/`
-- **Dependencies (`Depends`)**: `python3`, `python3-click`, `python3-pydantic`, `python3-yaml`
+- **Dependencies (`Depends`)**: `roostos-runtime`
 - **Description**: Universal command-line interface, hardware inspector, and guided setup wizard for RoostOS.
 
 ---
 
-### B. `roostos-node` (Node Agent & Local REST API)
+### C. `roostos-node` (Node Agent & Local REST API)
 Base infrastructure agent running on all server, gateway, and compute nodes.
 - **Binary Package Name**: `roostos-node` (Provides/Replaces: `roostos-web`)
 - **Architecture**: `all`
 - **Installed Files**:
   - `/usr/bin/roostos-node`
-  - `/usr/lib/python3/dist-packages/roostos_web/`
   - `/usr/share/roostos/web/` (Web Console SPA assets)
   - `/etc/systemd/system/roostos-node.service`
-- **Dependencies (`Depends`)**: `roostos-cli`, `roostos-sdk`, `roostos-engine`, `python3`, `python3-fastapi`, `python3-uvicorn`, `python3-pam`, `python3-jwt`
+- **Dependencies (`Depends`)**: `roostos-runtime`, `roostos-cli`
 - **Description**: Local node agent and REST API service ensuring independent survivability and management.
 
 ---
 
-### C. `roostos-gateway` (Home Router & LAN Gateway Stack)
+### D. `roostos-gateway` (Home Router & LAN Gateway Stack)
 Local routing, packet filtering, and DHCP address allocation module for physical on-premises routers.
 - **Binary Package Name**: `roostos-gateway` (Provides/Replaces: `roostos-core`)
 - **Architecture**: `amd64`, `arm64`
 - **Installed Files**:
   - `/usr/local/bin/roost-dhcp-hook`
   - `/etc/dbus-1/system.d/org.roostos.conf`
-- **Dependencies (`Depends`)**: `roostos-node`, `nftables`, `kea-dhcp4-server`, `wireguard`, `systemd`, `python3-paho-mqtt`
+- **Dependencies (`Depends`)**: `roostos-node`, `nftables`, `kea-dhcp4-server`, `wireguard`, `systemd`
 - **Description**: Home router stack configuring nftables firewall sets, Kea DHCP leases, WireGuard tunnels, and systemd-networkd for local physical networks.
 
 ---
 
-### D. `roostos-engine` (Central Controller & Cluster Coordinator)
+### E. `roostos-engine` (Central Controller & Cluster Coordinator)
 Central domain object registry, cluster coordinator, and application plugin host.
 - **Binary Package Name**: `roostos-engine`
 - **Architecture**: `all`
 - **Installed Files**:
-  - `/usr/lib/python3/dist-packages/roostos_engine/`
   - `/usr/bin/roostos-engine`
+  - `/usr/bin/roostd`
   - `/etc/systemd/system/roostos-engine.service`
-- **Dependencies (`Depends`)**: `roostos-sdk`, `mosquitto`, `python3-paho-mqtt`, `python3-pydantic`, `python3-yaml`
+- **Dependencies (`Depends`)**: `roostos-runtime`, `mosquitto`
 - **Description**: Central configuration storage service, cluster sync coordinator, and domain object REST API.
 
 ---
 
-### E. `roostos-workstation` (Unified Client Endpoint)
+### F. `roostos-workstation` (Unified Client Endpoint)
 Screen time, family schedule limits, and workstation domain enrollment client.
 - **Binary Package Name**: `roostos-workstation` (Provides/Replaces: `roostos-timeguardd`)
 - **Architecture**: `all`
@@ -99,28 +115,28 @@ Screen time, family schedule limits, and workstation domain enrollment client.
   - `/usr/local/bin/roostos-workstation-join`
   - `/usr/local/bin/roostos-workstation-enroll`
   - `/etc/systemd/system/roostos-timeguardd.service`
-- **Dependencies (`Depends`)**: `roostos-cli`, `python3`, `python3-paho-mqtt`, `systemd`, `dbus`
+- **Dependencies (`Depends`)**: `roostos-runtime`, `systemd`, `dbus`
 - **Description**: Screen time monitoring, session locking, and domain enrollment client for managed workstations.
 
 ---
 
-### F. `roostos-edge-node` (Cloud VPS Edge Gateway & Ingress Proxy)
+### G. `roostos-edge-node` (Cloud VPS Edge Gateway & Ingress Proxy)
 Dedicated package for a public Debian/Ubuntu VPS to bypass Carrier-Grade NAT (CGNAT) and reverse proxy external traffic into the home network.
 - **Binary Package Name**: `roostos-edge-node`
 - **Architecture**: `all`
 - **Installed Files**:
   - `/usr/local/bin/roostos-edge-setup`
 - **Dependencies (`Depends`)**: `roostos-cli`, `roostos-node`, `wireguard`, `nftables`
-- **Description**: Provisions a lightweight VPS edge ingress node with WireGuard tunnel termination, bootstrap enrollment API (`/api/edge/enroll`), automatic WAN firewall lockdown, and containerized Nginx reverse proxy.
+- **Description**: Provisions a lightweight VPS edge ingress node with WireGuard tunnel termination, bootstrap enrollment API, automatic WAN firewall lockdown, and containerized Nginx reverse proxy.
 
 ---
 
-### G. Meta-Packages & Compatibility Packages
+### H. Meta-Packages & Compatibility Packages
 
 * **`roostos-gateway-node`**: Installs a complete dedicated Home Gateway Router (`roostos-cli` + `roostos-gateway`).
 * **`roostos-controller-node`**: Installs a complete dedicated Central Controller Server (`roostos-cli` + `roostos-engine`).
 * **`roostos-router`**: Installs an all-in-one standalone router combining Gateway and Controller (`roostos-gateway` + `roostos-engine`).
-* **`roostos-edge-node`**: Installs a dedicated VPS Edge Gateway & Ingress proxy (`roostos-cli` + `roostos-node` + `wireguard` + `nftables` + `/usr/local/bin/roostos-edge-setup`).
+* **`roostos-edge-node`**: Installs a dedicated VPS Edge Gateway & Ingress proxy (`roostos-cli` + `roostos-node` + `wireguard` + `nftables`).
 * **`roostos`**: Compatibility metapackage depending on `roostos-cli`.
 * **`roostos-core`**: Compatibility transitional package depending on `roostos-gateway`.
 * **`roostos-web`**: Compatibility transitional package depending on `roostos-node`.
@@ -133,16 +149,9 @@ Dedicated package for a public Debian/Ubuntu VPS to bypass Carrier-Grade NAT (CG
 The packages are compiled using standard `dpkg-deb` automation via `scripts/`:
 
 ```bash
-# Builds all architecture-independent (.deb all) and multi-arch (.deb amd64 and arm64) packages
+# Builds all architecture-independent (.deb all) and multi-arch (.deb amd64) packages
 bash scripts/build-all-debs.sh
 
-# Or via Makefile (defaults to ARCHITECTURES="amd64 arm64"):
-make deb
-
-# To compile for a specific architecture only:
-ARCHITECTURES="arm64" make deb
-# or
-ARCH=arm64 bash scripts/build-all-debs.sh
+# Or specifying architecture:
+ARCH=amd64 bash scripts/build-all-debs.sh
 ```
-
-Architecture-specific packages (such as `roostos-gateway` and transitional `roostos-core`) automatically generate artifacts for both `amd64` and `arm64` targets into `dist/debs/`. Uploading these deb packages to the APT repository inbound queue publishes both `binary-amd64` and `binary-arm64` distribution indices.
