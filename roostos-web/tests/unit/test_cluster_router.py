@@ -16,6 +16,8 @@ class DummyClusterConfigRepo(ConfigRepository):
     def __init__(self):
         self.config = MagicMock()
         self.config.system = SystemSettings(hostname="roost-unit-router")
+        from roostos_engine.models.network import NetworkSettings
+        self.config.network = NetworkSettings(bridges=[])
         self.config.nodes = [
             NodeConfig(
                 id="node-01",
@@ -69,6 +71,7 @@ def cluster_test_setup(tmp_path):
     }
     dbus.get_nodes.return_value = [repo.config.nodes[0].model_dump()]
     dbus.generate_join_token.return_value = "roost-test-token"
+    dbus.validate_join_token.side_effect = lambda t: t.startswith("roost-")
     dbus.discover_controllers.return_value = [{"hostname": "roost-other.local", "ip": "192.168.1.50", "port": 8000, "node_id": "node-02"}]
     dbus.get_detected_hardware.return_value = [{"name": "eth0", "mac_address": "52:54:00:12:34:56", "type": "ethernet"}]
     dbus.get_node_health.return_value = {
@@ -154,3 +157,69 @@ def test_health_endpoint(cluster_test_setup, auth_headers):
     assert data["node_id"] == "node-01"
     assert data["status"] == "healthy"
     assert data["mqtt_health"] is not None
+
+
+def test_cluster_sync_and_heartbeat_endpoints(cluster_test_setup, auth_headers):
+    repo, dbus = cluster_test_setup
+    client = TestClient(app)
+
+    # 1. Join with invalid token
+    res = client.post("/api/cluster/join", json={
+        "token": "invalid-token",
+        "node_id": "node-02",
+        "name": "Access Point",
+        "roles": ["access_point"],
+    })
+    assert res.status_code == 400
+
+    # 2. Join with mock valid token (in mock mode "roost-" prefix passes)
+    res = client.post("/api/cluster/join", json={
+        "token": "roost-valid-1234",
+        "node_id": "node-02",
+        "name": "Access Point",
+        "roles": ["access_point"],
+        "management_ip": "192.168.1.50",
+    })
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+    assert res.json()["node_id"] == "node-02"
+
+    # 3. Post Heartbeat
+    hb_payload = {
+        "status": "healthy",
+        "telemetry": {"cpu_percent": 14.0, "memory_percent": 30.0},
+        "warnings": [],
+        "updates_status": {"updates_available": 0, "security_updates_available": 0}
+    }
+    res = client.post("/api/cluster/nodes/node-02/heartbeat", json=hb_payload)
+    assert res.status_code == 200
+    assert res.json()["status"] == "acknowledged"
+
+    # 4. Get Heartbeat
+    res = client.get("/api/cluster/nodes/node-02/heartbeat", headers=auth_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "healthy"
+    assert data["telemetry"]["cpu_percent"] == 14.0
+
+    # 5. Get Config Slice
+    res = client.get("/api/cluster/nodes/node-02/config")
+    assert res.status_code == 200
+    slice_data = res.json()
+    assert slice_data["node_id"] == "node-02"
+    assert "access_point" in slice_data["roles"]
+
+    # 6. Get Cluster Updates Summary
+    res = client.get("/api/cluster/updates", headers=auth_headers)
+    assert res.status_code == 200
+    up_summary = res.json()
+    assert "total_updates" in up_summary
+    assert len(up_summary["nodes"]) >= 1
+
+    # 7. Queue Node Update Command
+    res = client.post("/api/cluster/nodes/node-02/updates/install?security_only=true", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+    assert res.json()["command"] == "install_security_updates"
+
+

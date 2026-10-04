@@ -83,7 +83,7 @@ EOF
 
 # 5. Build the debian package
 echo "Building the deb package..."
-dpkg-deb --build "$STAGE_DIR" "$SRC_DIR/roostos-timeguardd_${PACKAGE_VERSION}_${Architecture}.deb"
+dpkg-deb --root-owner-group --build "$STAGE_DIR" "$SRC_DIR/roostos-timeguardd_${PACKAGE_VERSION}_${Architecture}.deb"
 
 echo "============================================="
 echo "Successfully built roostos-timeguardd_${PACKAGE_VERSION}_${Architecture}.deb"

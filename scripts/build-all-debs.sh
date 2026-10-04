@@ -54,7 +54,7 @@ EOF
     fi
 
     deb_filename="${pkg_name}_${PACKAGE_VERSION}_${pkg_arch}.deb"
-    dpkg-deb --build "$stage_path" "$DIST_DIR/$deb_filename"
+    dpkg-deb --root-owner-group --build "$stage_path" "$DIST_DIR/$deb_filename"
     echo "✓ Built: $DIST_DIR/$deb_filename"
 }
 

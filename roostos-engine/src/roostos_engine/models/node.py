@@ -95,3 +95,47 @@ class NodeConfig(BaseModel):
 
 class NodesConfigFile(BaseModel):
     nodes: List[NodeConfig] = Field(default_factory=list)
+
+
+class NodeJoinRequest(BaseModel):
+    token: str
+    node_id: str
+    name: str
+    roles: List[NodeRole] = Field(default_factory=lambda: [NodeRole.GATEWAY_ROUTER])
+    management_ip: Optional[str] = None
+    mac_address: Optional[str] = None
+    location_id: Optional[str] = None
+    capabilities: Optional[NodeCapabilities] = Field(default_factory=NodeCapabilities)
+    interfaces: List[NodeInterface] = Field(default_factory=list)
+
+
+class NodeJoinResponse(BaseModel):
+    status: str = "success"
+    node_id: str
+    controller_url: str
+    message: str = "Node registered successfully"
+
+
+class NodeHeartbeatRequest(BaseModel):
+    status: str = "healthy"
+    telemetry: Dict[str, Any] = Field(default_factory=dict)
+    warnings: List[str] = Field(default_factory=list)
+    updates_status: Optional[Dict[str, Any]] = None
+
+
+class NodeHeartbeatResponse(BaseModel):
+    status: str = "acknowledged"
+    commands: List[str] = Field(default_factory=list)
+
+
+class NodeConfigSlice(BaseModel):
+    node_id: str
+    name: str
+    roles: List[str] = Field(default_factory=list)
+    controller_url: Optional[str] = None
+    dns_servers: List[str] = Field(default_factory=list)
+    interfaces: List[Dict[str, Any]] = Field(default_factory=list)
+    bridges: List[Dict[str, Any]] = Field(default_factory=list)
+    vlans: List[Dict[str, Any]] = Field(default_factory=list)
+    wifi_access_points: List[Dict[str, Any]] = Field(default_factory=list)
+

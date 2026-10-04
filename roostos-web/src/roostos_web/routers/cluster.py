@@ -2,6 +2,13 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from pydantic import BaseModel
 
+from roostos_engine.models.node import (
+    NodeJoinRequest,
+    NodeJoinResponse,
+    NodeHeartbeatRequest,
+    NodeHeartbeatResponse,
+    NodeConfigSlice,
+)
 from roostos_web.auth import get_current_user, get_current_admin, UserSession
 from roostos_web.services.cluster import ClusterService
 from roostos_web.di import Injected
@@ -99,3 +106,79 @@ async def get_detected_hardware(
     """Returns detected physical network hardware adapters on the host."""
     hardware = await cluster_service.get_detected_hardware()
     return {"hardware": hardware}
+
+
+@router.post("/join", response_model=NodeJoinResponse)
+async def join_cluster(
+    request: NodeJoinRequest,
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Enrolls and registers a worker node into the cluster via pre-shared token."""
+    try:
+        res = await cluster_service.join_cluster(request.model_dump())
+        return NodeJoinResponse(**res)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/nodes/{node_id}/heartbeat", response_model=NodeHeartbeatResponse)
+async def record_node_heartbeat(
+    node_id: str,
+    request: NodeHeartbeatRequest,
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Ingests periodic telemetry and health reports from a cluster node."""
+    res = await cluster_service.record_heartbeat(node_id, request.model_dump())
+    return NodeHeartbeatResponse(**res)
+
+
+@router.get("/nodes/{node_id}/heartbeat")
+async def get_node_heartbeat(
+    node_id: str,
+    current_user: UserSession = Depends(get_current_user),
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Returns the most recent recorded heartbeat telemetry for a node."""
+    hb = await cluster_service.get_node_heartbeat(node_id)
+    if not hb:
+        raise HTTPException(status_code=404, detail=f"No heartbeat recorded for node '{node_id}'.")
+    return hb
+
+
+@router.get("/nodes/{node_id}/config", response_model=NodeConfigSlice)
+async def get_node_config_slice(
+    node_id: str,
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Fetches the tailored configuration slice for a specific cluster node."""
+    config_slice = await cluster_service.get_node_config_slice(node_id)
+    return NodeConfigSlice(**config_slice)
+
+
+@router.get("/updates")
+async def get_cluster_updates(
+    current_user: UserSession = Depends(get_current_user),
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Returns aggregated OS update status across all nodes in the cluster."""
+    return await cluster_service.get_cluster_updates_summary()
+
+
+@router.post("/nodes/{node_id}/updates/install")
+async def trigger_node_update(
+    node_id: str,
+    security_only: bool = False,
+    current_user: UserSession = Depends(get_current_admin),
+    cluster_service: ClusterService = Injected(ClusterService)
+):
+    """Queues an OS update command for a specific cluster node."""
+    cmd = "install_security_updates" if security_only else "install_updates"
+    await cluster_service.queue_node_command(node_id, cmd)
+    return {
+        "status": "success",
+        "node_id": node_id,
+        "command": cmd,
+        "message": f"Update command '{cmd}' queued for node '{node_id}'."
+    }
+
+
