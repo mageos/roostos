@@ -17,7 +17,10 @@ class SystemUpdatesRebootWindow(BaseModel):
 class SystemUpdatesConfig(BaseModel):
     auto_install: bool = True
     auto_reboot: bool = True
+    security_only: bool = False
     reboot_window: SystemUpdatesRebootWindow = Field(default_factory=SystemUpdatesRebootWindow)
+    last_check_time: Optional[str] = None
+    last_install_time: Optional[str] = None
 
 class SystemDNSConfig(BaseModel):
     forwarders: List[str] = Field(default_factory=list)
