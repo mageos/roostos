@@ -164,6 +164,40 @@ class SystemService {
         }
         throw new Error("Failed to fetch logs");
     }
+
+    async fetchUpdatesStatus() {
+        const res = await window.authService.apiFetch("/api/v1/system/updates/status");
+        if (res.ok) return await res.json();
+        throw new Error("Failed to fetch updates status");
+    }
+
+    async checkUpdates() {
+        const res = await window.authService.apiFetch("/api/v1/system/updates/check", { method: "POST" });
+        if (res.ok) return await res.json();
+        throw new Error("Failed to check for updates");
+    }
+
+    async installUpdates(securityOnly = false) {
+        const res = await window.authService.apiFetch(`/api/v1/system/updates/install?security_only=${securityOnly}`, { method: "POST" });
+        if (res.ok) return await res.json();
+        throw new Error("Failed to install updates");
+    }
+
+    async fetchUpdatesConfig() {
+        const res = await window.authService.apiFetch("/api/v1/system/updates/config");
+        if (res.ok) return await res.json();
+        throw new Error("Failed to fetch updates config");
+    }
+
+    async saveUpdatesConfig(config) {
+        const res = await window.authService.apiFetch("/api/v1/system/updates/config", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(config)
+        });
+        if (res.ok) return await res.json();
+        throw new Error("Failed to save updates config");
+    }
 }
 
 window.systemService = new SystemService();

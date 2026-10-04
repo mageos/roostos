@@ -413,10 +413,12 @@ function init() {
             return;
         }
         window.loadDashboard();
+        if (window.updateAlertsBadge) window.updateAlertsBadge();
     }, 10000);
 
     // Initialize real-time Server-Sent Events (SSE) telemetry
     window.initEventStream();
+    if (window.updateAlertsBadge) window.updateAlertsBadge();
 }
 
 window.initEventStream = function() {
@@ -429,6 +431,9 @@ window.initEventStream = function() {
         evtSource.addEventListener("devices_updated", () => window.loadDashboard());
         evtSource.addEventListener("schedules_updated", () => window.loadDashboard());
         evtSource.addEventListener("bypass_expired", () => window.loadDashboard());
+        evtSource.addEventListener("alert", () => {
+            if (window.updateAlertsBadge) window.updateAlertsBadge();
+        });
     } catch (e) {
         console.warn("Real-time SSE event stream could not be initialized:", e);
     }

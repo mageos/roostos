@@ -68,6 +68,7 @@ const scriptLoadOrder = [
     'js/services/system-service.js',
     // Modular Components
     'js/components/status-component.js',
+    'js/components/system-settings.js',
     'js/components/network-interfaces.js',
     'js/components/network-bridges.js',
     'js/components/network-zones.js',
