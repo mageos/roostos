@@ -85,7 +85,7 @@ Central domain object registry, cluster coordinator, and application plugin host
   - `/usr/lib/python3/dist-packages/roostos_engine/`
   - `/usr/bin/roostos-engine`
   - `/etc/systemd/system/roostos-engine.service`
-- **Dependencies (`Depends`)**: `roostos-sdk`, `mosquitto`, `python3-paho-mqtt`, `python3-pydantic`, `python3-pyyaml`
+- **Dependencies (`Depends`)**: `roostos-sdk`, `mosquitto`, `python3-paho-mqtt`, `python3-pydantic`, `python3-yaml`
 - **Description**: Central configuration storage service, cluster sync coordinator, and domain object REST API.
 
 ---

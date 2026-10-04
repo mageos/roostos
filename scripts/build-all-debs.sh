@@ -156,7 +156,7 @@ EOF
 chmod 755 "$STAGE_ENGINE/usr/bin/roostos-engine"
 cp "$STAGE_ENGINE/usr/bin/roostos-engine" "$STAGE_ENGINE/usr/bin/roostd"
 cp "$SRC_DIR/packaging/common/systemd/roostos-engine.service" "$STAGE_ENGINE/etc/systemd/system/roostos-engine.service" 2>/dev/null || true
-build_pkg "roostos-engine" "all" "Central domain object controller, cluster sync, and configuration storage service" "roostos-sdk, mosquitto, python3-paho-mqtt, python3-pydantic, python3-pyyaml"
+build_pkg "roostos-engine" "all" "Central domain object controller, cluster sync, and configuration storage service" "roostos-sdk, mosquitto, python3-paho-mqtt, python3-pydantic, python3-yaml"
 
 # 6. roostos-workstation (Consolidated Client Workstation Stack)
 STAGE_WS="$BUILD_DIR/roostos-workstation"
