@@ -132,6 +132,7 @@ window.switchView = function(viewId) {
         devices: "Registered Devices",
         catalog: "Application Catalog & Extensions",
         plugins: "Hosted Sidecar Plugins",
+        cluster: "Cluster Fleet Management",
         system: "System Administration"
     };
 
@@ -149,6 +150,7 @@ window.switchView = function(viewId) {
         devices: "Management",
         catalog: "Management",
         plugins: "Management",
+        cluster: "Management",
         system: "Management"
     };
 
@@ -391,6 +393,11 @@ function init() {
         catalogPane.className = "view-pane";
         catalogPane.innerHTML = "<roost-app-catalog></roost-app-catalog>";
         viewContainer.appendChild(catalogPane);
+        const clusterPane = document.createElement("div");
+        clusterPane.id = "cluster-view";
+        clusterPane.className = "view-pane";
+        clusterPane.innerHTML = "<roost-cluster-management></roost-cluster-management>";
+        viewContainer.appendChild(clusterPane);
         if (window.pluginsComponent) window.pluginsComponent.mount(viewContainer);
     }
 

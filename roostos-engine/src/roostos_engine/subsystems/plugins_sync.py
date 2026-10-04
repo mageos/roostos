@@ -45,8 +45,32 @@ class PluginsSyncSubsystem(Subsystem):
             print(f"Warning: Failed to list Docker containers: {e}", file=sys.stderr)
             return
 
-        # Compile list of active/desired plugins
-        active_plugins = {p.id: p for p in self.config.plugins if p.enabled}
+        # Resolve local node ID and active roles
+        node_id = None
+        current_roles = ["controller", "compute_node"]
+        if hasattr(self.config, "system") and self.config.system:
+            sys_obj = getattr(self.config.system, "system", self.config.system)
+            if hasattr(sys_obj, "cluster") and sys_obj.cluster:
+                node_id = sys_obj.cluster.node_id
+        
+        current_node = next((n for n in getattr(self.config, "nodes", []) if n.id == node_id), None) if node_id else None
+        if current_node and current_node.roles:
+            current_roles = [r.value if hasattr(r, "value") else str(r) for r in current_node.roles]
+
+        # Compile list of active/desired plugins targeted to this node
+        active_plugins = {}
+        for p in self.config.plugins:
+            if not p.enabled:
+                continue
+            if p.target_node_id:
+                if p.target_node_id == node_id:
+                    active_plugins[p.id] = p
+            elif p.target_role:
+                if p.target_role in current_roles:
+                    active_plugins[p.id] = p
+            else:
+                if "compute_node" in current_roles or "controller" in current_roles:
+                    active_plugins[p.id] = p
         
         # Stop and remove containers for disabled plugins
         for container in existing_containers:

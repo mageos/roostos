@@ -60,13 +60,26 @@ class ClusterSyncAgent:
         """Periodic loop that sends heartbeats and pulls node configuration."""
         while self._running:
             try:
-                await self.send_heartbeat()
+                hb_res = await self.send_heartbeat()
+                for cmd in hb_res.get("commands", []):
+                    await self.execute_command(cmd)
                 slice_data = await self.fetch_config_slice()
                 if slice_data:
                     await self.apply_config_slice(slice_data)
             except Exception as e:
                 print(f"ClusterSyncAgent error for node {self.node_id}: {e}", file=sys.stderr)
             await asyncio.sleep(self.sync_interval_seconds)
+
+    async def execute_command(self, cmd: str) -> None:
+        """Executes a remote command queued by the cluster controller."""
+        if cmd in ("install_updates", "install_security_updates"):
+            sec_only = (cmd == "install_security_updates")
+            try:
+                from roostos_engine.update_manager import UpdateManager
+                mgr = UpdateManager(config_dir=self.config_dir, mock=self.mock)
+                mgr.install_updates(security_only=sec_only)
+            except Exception as e:
+                print(f"Failed to execute command '{cmd}' on node {self.node_id}: {e}", file=sys.stderr)
 
     def _collect_local_telemetry(self) -> Dict[str, Any]:
         """Collects lightweight host telemetry for node heartbeat reporting."""
@@ -96,6 +109,15 @@ class ClusterSyncAgent:
         updates_status: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Sends node heartbeat with health report to the central controller."""
+        if updates_status is None:
+            try:
+                from roostos_engine.update_manager import UpdateManager
+                mgr = UpdateManager(config_dir=self.config_dir, mock=self.mock)
+                up_st = mgr.get_update_status()
+                updates_status = up_st.model_dump()
+            except Exception:
+                pass
+
         payload = NodeHeartbeatRequest(
             status=status,
             telemetry=telemetry or self._collect_local_telemetry(),

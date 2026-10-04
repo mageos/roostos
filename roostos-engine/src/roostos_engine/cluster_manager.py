@@ -40,6 +40,7 @@ class ClusterManager:
         self.mdns_service = mdns_service or MDNSDiscoveryService(mock=mock)
         self._node_heartbeats: Dict[str, Dict[str, Any]] = {}
         self._join_tokens: Dict[str, float] = {}  # token -> expiry timestamp
+        self._pending_commands: Dict[str, List[str]] = {}
 
     def get_cluster_status(
         self,
@@ -206,6 +207,51 @@ class ClusterManager:
             "bridges": bridges,
             "vlans": vlans,
             "wifi_access_points": wifi_aps,
+        }
+
+    def queue_node_command(self, node_id: str, command: str) -> None:
+        """Queues an operational command to be delivered to a node on its next heartbeat."""
+        self._pending_commands.setdefault(node_id, []).append(command)
+
+    def pop_node_commands(self, node_id: str) -> List[str]:
+        """Pops and returns all pending commands queued for a node."""
+        return self._pending_commands.pop(node_id, [])
+
+    def get_cluster_updates_summary(self, nodes: List[NodeConfig]) -> Dict[str, Any]:
+        """Aggregates OS updates status across all nodes in the cluster."""
+        total_updates = 0
+        total_security_updates = 0
+        nodes_reboot_required = []
+        node_summaries = []
+
+        for n in nodes:
+            hb = self._node_heartbeats.get(n.id, {})
+            up_status = hb.get("updates_status") or {}
+            avail = up_status.get("updates_available", 0)
+            sec_avail = up_status.get("security_updates_available", 0)
+            reboot_req = up_status.get("reboot_required", False)
+
+            total_updates += avail
+            total_security_updates += sec_avail
+            if reboot_req:
+                nodes_reboot_required.append(n.id)
+
+            node_summaries.append({
+                "node_id": n.id,
+                "name": n.name,
+                "roles": [r.value if hasattr(r, "value") else str(r) for r in n.roles],
+                "updates_available": avail,
+                "security_updates_available": sec_avail,
+                "reboot_required": reboot_req,
+                "packages": up_status.get("packages", []),
+                "last_seen": hb.get("last_seen"),
+            })
+
+        return {
+            "total_updates": total_updates,
+            "total_security_updates": total_security_updates,
+            "reboot_required_nodes": nodes_reboot_required,
+            "nodes": node_summaries,
         }
 
     def inspect_and_check_new_hardware(

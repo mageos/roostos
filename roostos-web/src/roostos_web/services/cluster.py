@@ -150,11 +150,21 @@ class ClusterService:
     async def record_heartbeat(self, node_id: str, report: Dict[str, Any]) -> Dict[str, Any]:
         """Records a periodic heartbeat and telemetry from a cluster node."""
         self.cluster_manager.record_heartbeat(node_id, report)
-        return {"status": "acknowledged", "commands": []}
+        commands = self.cluster_manager.pop_node_commands(node_id)
+        return {"status": "acknowledged", "commands": commands}
 
     async def get_node_heartbeat(self, node_id: str) -> Optional[Dict[str, Any]]:
         """Returns the latest heartbeat telemetry for a specific node."""
         return self.cluster_manager.get_node_heartbeat(node_id)
+
+    async def get_cluster_updates_summary(self) -> Dict[str, Any]:
+        """Returns aggregated OS update status across all nodes in the cluster."""
+        config = self.repo.get_config()
+        return self.cluster_manager.get_cluster_updates_summary(config.nodes)
+
+    async def queue_node_command(self, node_id: str, command: str) -> None:
+        """Queues an operational command for a node to pick up on heartbeat."""
+        self.cluster_manager.queue_node_command(node_id, command)
 
     async def get_node_config_slice(self, node_id: str) -> Dict[str, Any]:
         """Synthesizes a tailored configuration slice for a specific node."""
@@ -165,4 +175,5 @@ class ClusterService:
             network_config=config.network,
             nodes=config.nodes
         )
+
 

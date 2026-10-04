@@ -30,6 +30,8 @@ class PluginConfig(BaseModel):
     ui_entrypoint: Optional[str] = None
     settings: Dict[str, Any] = Field(default_factory=dict)
     known_services: List[str] = Field(default_factory=list)
+    target_node_id: Optional[str] = None
+    target_role: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod

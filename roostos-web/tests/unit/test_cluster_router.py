@@ -209,3 +209,17 @@ def test_cluster_sync_and_heartbeat_endpoints(cluster_test_setup, auth_headers):
     assert slice_data["node_id"] == "node-02"
     assert "access_point" in slice_data["roles"]
 
+    # 6. Get Cluster Updates Summary
+    res = client.get("/api/cluster/updates", headers=auth_headers)
+    assert res.status_code == 200
+    up_summary = res.json()
+    assert "total_updates" in up_summary
+    assert len(up_summary["nodes"]) >= 1
+
+    # 7. Queue Node Update Command
+    res = client.post("/api/cluster/nodes/node-02/updates/install?security_only=true", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "success"
+    assert res.json()["command"] == "install_security_updates"
+
+
