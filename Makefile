@@ -108,7 +108,7 @@ clean:
 	rm -rf build-deb-tmp build-arch-tmp
 	rm -rf test-harness/staged-config
 	rm -rf dist
-	rm -f roostos_*.deb *.pkg.tar* *.tar
+	rm -f *.deb *.pkg.tar* *.tar
 
 help:
 	@echo "Available targets:"
