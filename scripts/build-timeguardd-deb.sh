@@ -70,7 +70,7 @@ EOF
 chmod 755 "$STAGE_DIR/DEBIAN/prerm"
 
 # 4. Generate package control file
-Architecture=$(dpkg --print-architecture 2>/dev/null || echo "all")
+Architecture="${1:-${ARCH:-$(dpkg --print-architecture 2>/dev/null || echo "amd64")}}"
 cat <<EOF > "$STAGE_DIR/DEBIAN/control"
 Package: roostos-timeguardd
 Version: $PACKAGE_VERSION

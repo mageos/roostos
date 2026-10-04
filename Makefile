@@ -2,7 +2,8 @@
 
 REGISTRY ?= localhost:5000
 VERSION ?= $(shell cat VERSION 2>/dev/null | tr -d '[:space:]' || echo "0.1.0")
-ARCHITECTURES ?= amd64 arm64
+ARCH ?=
+ARCHITECTURES ?= $(if $(ARCH),$(ARCH),amd64 arm64)
 
 .PHONY: all images push deb arch pkgs bump-version test test-ui install-ui-deps clean help
 

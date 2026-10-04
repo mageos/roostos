@@ -10,7 +10,9 @@ fi
 BUILD_DIR="$SRC_DIR/build-deb-tmp"
 DIST_DIR="$SRC_DIR/dist/debs"
 
-if [[ -n "$ARCH" ]]; then
+if [[ -n "$1" ]]; then
+    ARCHITECTURES="$1"
+elif [[ -n "$ARCH" ]]; then
     ARCHITECTURES="$ARCH"
 else
     ARCHITECTURES="${ARCHITECTURES:-"amd64"}"

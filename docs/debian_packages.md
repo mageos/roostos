@@ -149,9 +149,12 @@ Dedicated package for a public Debian/Ubuntu VPS to bypass Carrier-Grade NAT (CG
 The packages are compiled using standard `dpkg-deb` automation via `scripts/`:
 
 ```bash
-# Builds all architecture-independent (.deb all) and multi-arch (.deb amd64) packages
-bash scripts/build-all-debs.sh
+# Option 1: Positional argument
+bash scripts/build-all-debs.sh amd64
 
-# Or specifying architecture:
+# Option 2: Environment variable
 ARCH=amd64 bash scripts/build-all-debs.sh
+
+# Option 3: Via Makefile
+make deb ARCH=amd64
 ```
