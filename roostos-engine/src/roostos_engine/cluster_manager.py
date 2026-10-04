@@ -119,6 +119,93 @@ class ClusterManager:
             "status": health_report.get("status", "healthy"),
             "telemetry": health_report.get("telemetry", {}),
             "warnings": health_report.get("warnings", []),
+            "updates_status": health_report.get("updates_status"),
+        }
+
+    def get_node_heartbeat(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the latest heartbeat recorded for a given node."""
+        return self._node_heartbeats.get(node_id)
+
+    def get_all_heartbeats(self) -> Dict[str, Dict[str, Any]]:
+        """Returns all recorded node heartbeats."""
+        return self._node_heartbeats.copy()
+
+    def register_node(
+        self,
+        join_data: Dict[str, Any],
+        nodes: List[NodeConfig]
+    ) -> NodeConfig:
+        """Registers or updates a joined node in the cluster node list."""
+        node_id = join_data.get("node_id") or join_data.get("id")
+        existing = next((n for n in nodes if n.id == node_id), None)
+        
+        # Parse roles
+        raw_roles = join_data.get("roles", ["gateway_router"])
+        roles = []
+        for r in raw_roles:
+            if isinstance(r, NodeRole):
+                roles.append(r)
+            else:
+                try:
+                    roles.append(NodeRole(r))
+                except ValueError:
+                    roles.append(NodeRole.GATEWAY_ROUTER)
+
+        new_node = NodeConfig(
+            id=node_id,
+            name=join_data.get("name", node_id),
+            roles=roles,
+            management_ip=join_data.get("management_ip"),
+            mac_address=join_data.get("mac_address"),
+            location_id=join_data.get("location_id"),
+            capabilities=join_data.get("capabilities") or getattr(existing, "capabilities", None),
+            interfaces=join_data.get("interfaces") or (existing.interfaces if existing else []),
+        )
+        return new_node
+
+    def get_node_config_slice(
+        self,
+        node_id: str,
+        system_config: Any,
+        network_config: Any,
+        nodes: List[NodeConfig]
+    ) -> Dict[str, Any]:
+        """Synthesizes a tailored configuration bundle for a specific node."""
+        target_node = next((n for n in nodes if n.id == node_id), None)
+        roles = [r.value if isinstance(r, NodeRole) else str(r) for r in (target_node.roles if target_node else [])]
+        
+        controller_url = None
+        dns_servers = []
+        if hasattr(system_config, "system"):
+            sys = system_config.system
+            if hasattr(sys, "cluster") and sys.cluster:
+                controller_url = sys.cluster.controller_url
+            if hasattr(sys, "dns") and sys.dns and sys.dns.forwarders:
+                dns_servers = sys.dns.forwarders
+
+        bridges = []
+        vlans = []
+        wifi_aps = []
+        if network_config:
+            net = network_config.network if hasattr(network_config, "network") else network_config
+            if hasattr(net, "bridges"):
+                bridges = [b.model_dump() if hasattr(b, "model_dump") else b for b in net.bridges]
+            if hasattr(net, "vlans"):
+                vlans = [v.model_dump() if hasattr(v, "model_dump") else v for v in net.vlans]
+            wifi = network_config.wifi if hasattr(network_config, "wifi") else None
+            if wifi and hasattr(wifi, "access_points"):
+                wifi_aps = [ap.model_dump() if hasattr(ap, "model_dump") else ap for ap in wifi.access_points]
+
+        return {
+            "node_id": node_id,
+            "name": target_node.name if target_node else node_id,
+            "roles": roles,
+            "controller_url": controller_url,
+            "dns_servers": dns_servers,
+            "interfaces": [i.model_dump() if hasattr(i, "model_dump") else i for i in (target_node.interfaces if target_node else [])],
+            "bridges": bridges,
+            "vlans": vlans,
+            "wifi_access_points": wifi_aps,
         }
 
     def inspect_and_check_new_hardware(
@@ -127,3 +214,4 @@ class ClusterManager:
     ) -> List[DetectedHardwareInterface]:
         """Scans hardware and returns any unconfigured interfaces."""
         return HardwareInspector.detect_new_hardware(current_node, mock=self.mock)
+

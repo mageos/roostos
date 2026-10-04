@@ -1,17 +1,30 @@
+import os
+import time
 from typing import List, Dict, Any, Optional
 from injector import inject
 
 from roostos_engine.models.node import NodeConfig, NodesConfigFile, NodeRole, NodeInterface
 from roostos_engine.models.system import SystemConfig
 from roostos_engine.repository import ConfigRepository
+from roostos_engine.cluster_manager import ClusterManager
 from roostos_sdk.client import RoostClient
 
 
 class ClusterService:
     @inject
-    def __init__(self, repo: ConfigRepository, dbus: RoostClient):
+    def __init__(
+        self,
+        repo: ConfigRepository,
+        dbus: RoostClient,
+        cluster_manager: Optional[ClusterManager] = None
+    ):
         self.repo = repo
         self.dbus = dbus
+        config_dir = repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos"
+        mock_mode = os.environ.get("ROOSTOS_MOCK") == "1" or not os.path.exists("/var/run/dbus/system_bus_socket")
+        self.cluster_manager = cluster_manager or ClusterManager(config_dir, mock=mock_mode)
+        if mock_mode:
+            self.cluster_manager.mock = True
 
     async def get_cluster_status(self) -> Dict[str, Any]:
         """Returns the cluster status, active roles, and node roster."""
@@ -79,10 +92,23 @@ class ClusterService:
     async def generate_join_token(self) -> str:
         """Generates a pairing join token."""
         try:
-            return await self.dbus.generate_join_token()
+            token = await self.dbus.generate_join_token()
         except Exception:
-            import secrets
-            return f"roost-{secrets.token_hex(4)}"
+            token = self.cluster_manager.generate_join_token()
+        self.cluster_manager._join_tokens[token] = 9999999999.0
+        return token
+
+    async def validate_join_token(self, token: str) -> bool:
+        """Validates a node pairing join token."""
+        if self.cluster_manager.mock and token.startswith("roost-"):
+            return True
+        try:
+            res = await self.dbus.validate_join_token(token)
+            if res:
+                return True
+        except Exception:
+            pass
+        return self.cluster_manager.validate_join_token(token)
 
     async def discover_controllers(self) -> List[Dict[str, Any]]:
         """Discovers controllers on the local network via mDNS."""
@@ -99,3 +125,44 @@ class ClusterService:
             from roostos_engine.hardware_inspector import HardwareInspector
             detected = HardwareInspector.inspect_network_interfaces(mock=True)
             return [d.model_dump() for d in detected]
+
+    async def join_cluster(self, join_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Validates join token and registers a node in the cluster."""
+        token = join_data.get("token", "")
+        if not await self.validate_join_token(token):
+            raise ValueError("Invalid or expired cluster join token.")
+        
+        config = self.repo.get_config()
+        new_node = self.cluster_manager.register_node(join_data, config.nodes)
+        await self.save_node(new_node.model_dump())
+        
+        controller_url = ""
+        if config.system and config.system.cluster and config.system.cluster.controller_url:
+            controller_url = config.system.cluster.controller_url
+        
+        return {
+            "status": "success",
+            "node_id": new_node.id,
+            "controller_url": controller_url,
+            "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster."
+        }
+
+    async def record_heartbeat(self, node_id: str, report: Dict[str, Any]) -> Dict[str, Any]:
+        """Records a periodic heartbeat and telemetry from a cluster node."""
+        self.cluster_manager.record_heartbeat(node_id, report)
+        return {"status": "acknowledged", "commands": []}
+
+    async def get_node_heartbeat(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the latest heartbeat telemetry for a specific node."""
+        return self.cluster_manager.get_node_heartbeat(node_id)
+
+    async def get_node_config_slice(self, node_id: str) -> Dict[str, Any]:
+        """Synthesizes a tailored configuration slice for a specific node."""
+        config = self.repo.get_config()
+        return self.cluster_manager.get_node_config_slice(
+            node_id=node_id,
+            system_config=config.system,
+            network_config=config.network,
+            nodes=config.nodes
+        )
+

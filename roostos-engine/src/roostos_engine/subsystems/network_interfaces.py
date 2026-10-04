@@ -7,6 +7,35 @@ class NetworkInterfacesSubsystem(Subsystem):
     name = "network"
     dependencies = ["system_settings"]
 
+    def _resolve_target_interfaces(self) -> list:
+        """Returns the interfaces to configure, respecting node-specific hardware if defined."""
+        node_id = None
+        if hasattr(self.config, "system") and self.config.system:
+            sys_obj = getattr(self.config.system, "system", self.config.system)
+            if hasattr(sys_obj, "cluster") and sys_obj.cluster:
+                node_id = sys_obj.cluster.node_id
+
+        current_node = next((n for n in getattr(self.config, "nodes", []) if n.id == node_id), None) if node_id else None
+
+        if current_node and current_node.interfaces:
+            from roostos_engine.models.network import NetworkInterface
+            from roostos_engine.models.node import InterfaceMode
+            resolved = []
+            for ni in current_node.interfaces:
+                is_wan = (ni.mode == InterfaceMode.WAN or ni.network_id == "wan")
+                bridge_name = ni.bridge or ("br0" if ni.mode == InterfaceMode.ACCESS else None)
+                resolved.append(NetworkInterface(
+                    name=ni.name,
+                    network="wan" if is_wan else "lan",
+                    protocol="dhcp" if is_wan else None,
+                    bridge=bridge_name,
+                    vlan_tag=ni.vlan_tag
+                ))
+            return resolved
+
+        net_obj = getattr(self.config.network, "network", self.config.network) if hasattr(self.config, "network") else None
+        return getattr(net_obj, "interfaces", [])
+
     def update(self) -> None:
         """Generates systemd-networkd configuration files dynamically from network settings."""
         network_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR")
@@ -47,7 +76,7 @@ class NetworkInterfacesSubsystem(Subsystem):
             pppoe_active = False
             pppoe_iface = ""
 
-            for interface in self.config.network.interfaces:
+            for interface in self._resolve_target_interfaces():
                 if interface.network == "wan":
                     target_iface_name = interface.name
                     
