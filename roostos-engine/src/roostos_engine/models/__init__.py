@@ -223,10 +223,21 @@ def load_config_directory(config_dir: str) -> RoostConfig:
         if not os.path.exists(filepath):
             yaml_content = {}
         else:
-            with open(filepath, "r") as f:
-                yaml_content = yaml.safe_load(f) or {}
+            try:
+                with open(filepath, "r") as f:
+                    raw_text = f.read()
+                if "\t" in raw_text:
+                    raw_text = raw_text.replace("\t", "  ")
+                yaml_content = yaml.safe_load(raw_text) or {}
+            except Exception as e:
+                print(f"Warning: Failed to parse configuration file '{filepath}': {e}", file=sys.stderr)
+                yaml_content = {}
 
-        parsed = schema_cls.model_validate(yaml_content)
+        try:
+            parsed = schema_cls.model_validate(yaml_content)
+        except Exception as e:
+            print(f"Warning: Schema validation failed for '{filepath}': {e}", file=sys.stderr)
+            parsed = schema_cls()
 
         if namespace == "system":
             raw_data["system"] = parsed.system

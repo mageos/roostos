@@ -4,8 +4,9 @@ set -e
 case "$1" in
     remove|deconfigure|upgrade)
         echo "Stopping RoostOS services..."
-        if [ -d /run/systemd/system ]; then
+        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
             systemctl stop roostos-engine.service || true
+            systemctl stop roostos-node.service || true
             systemctl stop roostos-web.service || true
         fi
         ;;

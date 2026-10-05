@@ -375,8 +375,9 @@ class SystemService:
         is_mock = getattr(self.dbus, "mock", False) or os.environ.get("ROOSTOS_MOCK", "false").lower() in ("true", "1")
         
         services = {
-            "roostd": ("RoostOS Engine Daemon", "roostd.service"),
-            "roostos-web": ("RoostOS Web Console", "roostos-web.service"),
+            "roostd": ("RoostOS Engine Daemon", "roostos-engine.service"),
+            "roostos-node": ("RoostOS Node Agent", "roostos-node.service"),
+            "roostos-web": ("RoostOS Web Console", "roostos-node.service"),
             "systemd-networkd": ("Systemd Network Manager", "systemd-networkd.service"),
             "kea": ("Kea DHCPv4 Server", "kea-dhcp4-server.service"),
             "iwd": ("iwd Wireless Daemon", "iwd.service"),

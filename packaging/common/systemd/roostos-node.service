@@ -1,0 +1,13 @@
+[Unit]
+Description=RoostOS Router Web API Service
+After=network.target roostos-engine.service
+Wants=roostos-engine.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/roostos-web
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
