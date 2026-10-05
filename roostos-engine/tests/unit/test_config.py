@@ -244,3 +244,34 @@ def test_input_rule_action_validation():
 
     with pytest.raises(ValueError, match="Input rule action"):
         InputRuleConfig(name="test", port=22, action="reject")
+
+
+def test_clean_schedules_and_firewall_separation(temp_config_dir):
+    """Verifies that schedules.yaml can be clean top-level schedules without firewall wrapper."""
+    write_yaml(temp_config_dir, "schedules.yaml", {
+        "schedules": [
+            {
+                "name": "Homework Time",
+                "targets": [{"tag": "kids"}],
+                "action": "block_internet"
+            }
+        ]
+    })
+    config = load_config_directory(temp_config_dir)
+    assert len(config.schedules) == 1
+    assert config.schedules[0].name == "Homework Time"
+
+
+def test_schedules_config_save_format(temp_config_dir):
+    """Verifies that saving SchedulesConfig writes clean top-level schedules without firewall wrapper."""
+    from roostos_engine.models.schedules import SchedulesConfig, ScheduleConfig
+    from roostos_engine.models import save_config_file
+    sch = SchedulesConfig(schedules=[ScheduleConfig(name="Bedtime", targets=[], action="block_internet")])
+    save_config_file(temp_config_dir, "schedules.yaml", sch)
+
+    with open(os.path.join(temp_config_dir, "schedules.yaml")) as f:
+        data = yaml.safe_load(f)
+    assert "schedules" in data
+    assert "firewall" not in data
+    assert data["schedules"][0]["name"] == "Bedtime"
+

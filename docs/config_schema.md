@@ -180,23 +180,22 @@ Declares time-window access rules and daily accumulated usage allowance limits.
 
 ```yaml
 # schedules.yaml
-firewall:
-  schedules:
-    # 1. Fixed Time-Window Block
-    - name: "Kids Bedtime Block"
-      targets:
-        - tag: kids
-      days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
-      start_time: "21:00"
-      end_time: "06:00"
-      action: block_internet
+schedules:
+  # 1. Fixed Time-Window Block
+  - name: "Kids Bedtime Block"
+    targets:
+      - tag: kids
+    days: ["Mon", "Tue", "Wed", "Thu", "Fri"]
+    start_time: "21:00"
+    end_time: "06:00"
+    action: block_internet
 
-    # 2. Daily Accumulated Usage Limit (Minutes)
-    - name: "Alice Daily Screen Time Limit"
-      targets:
-        - person: alice_profile
-      daily_limit: 120            # 2 hours per day
-      action: block_internet
+  # 2. Daily Accumulated Usage Limit (Minutes)
+  - name: "Alice Daily Screen Time Limit"
+    targets:
+      - person: alice_profile
+    daily_limit: 120            # 2 hours per day
+    action: block_internet
 ```
 
 ---

@@ -1,12 +1,37 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 class PortForwardConfig(BaseModel):
     name: str
-    protocol: str
-    external_port: int
-    internal_ip: str
-    internal_port: int
+    protocol: str = "tcp"
+    external_port: int = 0
+    internal_ip: str = ""
+    internal_port: int = 0
+    enabled: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "external_port" not in data and "wan_port" in data:
+                data["external_port"] = data["wan_port"]
+            if "internal_ip" not in data and "lan_ip" in data:
+                data["internal_ip"] = data["lan_ip"]
+            if "internal_port" not in data and "lan_port" in data:
+                data["internal_port"] = data["lan_port"]
+        return data
+
+    @property
+    def wan_port(self) -> int:
+        return self.external_port
+
+    @property
+    def lan_ip(self) -> str:
+        return self.internal_ip
+
+    @property
+    def lan_port(self) -> int:
+        return self.internal_port
 
     @field_validator("protocol")
     @classmethod
@@ -49,3 +74,14 @@ class FirewallSettings(BaseModel):
 
 class FirewallConfig(BaseModel):
     firewall: Optional[FirewallSettings] = Field(default_factory=FirewallSettings)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_firewall(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "firewall" not in data:
+                keys = {"rules", "port_forwards", "block_doh", "block_vpns", "block_quic", "custom_doh_ips", "custom_vpn_ips"}
+                if any(k in data for k in keys):
+                    return {"firewall": data}
+        return data
+

@@ -33,7 +33,7 @@ from roostos_engine.config import (
 
 def has_existing_config(config_dir: str) -> bool:
     """Check if main configuration files already exist in the target directory."""
-    expected_files = ["system.yaml", "network.yaml", "schedules.yaml"]
+    expected_files = ["system.yaml", "network.yaml", "firewall.yaml", "schedules.yaml"]
     return any(os.path.exists(os.path.join(config_dir, f)) for f in expected_files)
 
 def handle_cancel(val: Any) -> None:
@@ -638,9 +638,7 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     )
 
     schedules_config_obj = SchedulesConfig(
-        firewall=ScheduleSettings(
-            schedules=[s.model_dump() for s in existing_schedules]
-        )
+        schedules=[s.model_dump() for s in existing_schedules]
     )
 
     from roostos_engine.models.node import NodesConfigFile, NodeConfig, NodeRole, NodeInterface, InterfaceType, InterfaceMode

@@ -12,7 +12,7 @@ class SchedulesService:
 
     def get_schedules_config(self) -> SchedulesConfig:
         config = self.repo.get_config()
-        return config.firewall
+        return SchedulesConfig(schedules=config.schedules)
 
     async def save_schedules_config(self, schedules_config: SchedulesConfig):
         self.repo.save_schedules_config(schedules_config)

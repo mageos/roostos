@@ -383,5 +383,25 @@ def test_anti_evasion_endpoints(mock_dependencies, auth_headers):
     assert response.json()["status"] == "success"
 
 
+def test_schedules_endpoint(mock_dependencies, auth_headers):
+    from roostos_engine.models.schedules import ScheduleConfig
+    from roostos_engine.models.firewall import PortForwardConfig
+    client = TestClient(app)
+    repo, dbus = mock_dependencies
+
+    repo.config.schedules = [ScheduleConfig(name="Bedtime", targets=[], action="block_internet")]
+    repo.config.firewall.port_forwards = [PortForwardConfig(name="SSH", external_port=2222, internal_ip="192.168.1.10", internal_port=22)]
+
+    response = client.get("/api/schedules", headers=auth_headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert "schedules" in data
+    assert len(data["schedules"]) == 1
+    assert data["schedules"][0]["name"] == "Bedtime"
+    assert "port_forwards" in data
+    assert len(data["port_forwards"]) == 1
+
+
+
 
 

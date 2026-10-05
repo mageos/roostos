@@ -148,7 +148,10 @@ async def get_schedules(
 ) -> Dict[str, Any]:
     """Returns configured schedules and firewall port forwards."""
     config = repo.get_config()
-    return config.firewall.model_dump(exclude_none=True)
+    return {
+        "schedules": [s.model_dump(exclude_none=True) for s in config.schedules],
+        "port_forwards": [pf.model_dump(exclude_none=True) for pf in config.firewall.port_forwards]
+    }
 
 @router.post("/api/schedules/bypass")
 async def grant_bypass(

@@ -85,10 +85,19 @@ EOF
         if [ ! -f /etc/roostos/schedules.yaml ]; then
             echo "Creating default schedules.yaml..."
             cat << 'EOF' > /etc/roostos/schedules.yaml
+schedules: []
+EOF
+        fi
+
+        if [ ! -f /etc/roostos/firewall.yaml ]; then
+            echo "Creating default firewall.yaml..."
+            cat << 'EOF' > /etc/roostos/firewall.yaml
 firewall:
-  schedules: []
   rules: []
   port_forwards: []
+  block_doh: false
+  block_vpns: false
+  block_quic: false
 EOF
         fi
 

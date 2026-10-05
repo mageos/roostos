@@ -94,7 +94,12 @@ class ConfigDBusMixin:
                 rules_list[rule_idx] = new_rule.model_dump()
             else:
                 rules_list.append(new_rule.model_dump())
-            self.repository.save_firewall_config(FirewallConfig(firewall=FirewallSettings(port_forwards=self._config.firewall.port_forwards, rules=rules_list)))
+            fw = self._config.firewall
+            self.repository.save_firewall_config(FirewallConfig(firewall=FirewallSettings(
+                port_forwards=fw.port_forwards, rules=rules_list,
+                block_doh=fw.block_doh, block_vpns=fw.block_vpns, block_quic=fw.block_quic,
+                custom_doh_ips=fw.custom_doh_ips, custom_vpn_ips=fw.custom_vpn_ips,
+            )))
             self.reload_config()
             self.SchedulesUpdated()
             return True
@@ -106,7 +111,12 @@ class ConfigDBusMixin:
         try:
             self.reload_config()
             rules_list = [r.model_dump() for r in self._config.firewall.rules if r.name != name]
-            self.repository.save_firewall_config(FirewallConfig(firewall=FirewallSettings(port_forwards=self._config.firewall.port_forwards, rules=rules_list)))
+            fw = self._config.firewall
+            self.repository.save_firewall_config(FirewallConfig(firewall=FirewallSettings(
+                port_forwards=fw.port_forwards, rules=rules_list,
+                block_doh=fw.block_doh, block_vpns=fw.block_vpns, block_quic=fw.block_quic,
+                custom_doh_ips=fw.custom_doh_ips, custom_vpn_ips=fw.custom_vpn_ips,
+            )))
             self.reload_config()
             self.SchedulesUpdated()
             return True

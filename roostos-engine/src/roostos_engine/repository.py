@@ -117,12 +117,17 @@ class StagingConfigRepository(ConfigRepository):
                 config.devices = parsed_dev.devices
             if "schedules.yaml" in staged_files:
                 parsed_sch = SchedulesConfig.model_validate(self._load_staged_yaml("schedules.yaml"))
-                config.schedules = parsed_sch.firewall.schedules if parsed_sch.firewall else []
+                config.schedules = parsed_sch.schedules
             if "firewall.yaml" in staged_files:
                 parsed_fw = FirewallConfig.model_validate(self._load_staged_yaml("firewall.yaml"))
                 if parsed_fw.firewall:
                     config.firewall.port_forwards = parsed_fw.firewall.port_forwards
                     config.firewall.rules = parsed_fw.firewall.rules
+                    config.firewall.block_doh = parsed_fw.firewall.block_doh
+                    config.firewall.block_vpns = parsed_fw.firewall.block_vpns
+                    config.firewall.block_quic = parsed_fw.firewall.block_quic
+                    config.firewall.custom_doh_ips = parsed_fw.firewall.custom_doh_ips
+                    config.firewall.custom_vpn_ips = parsed_fw.firewall.custom_vpn_ips
             if "plugins.yaml" in staged_files:
                 parsed_plg = PluginsConfig.model_validate(self._load_staged_yaml("plugins.yaml"))
                 config.plugins = parsed_plg.plugins
@@ -207,7 +212,7 @@ class InMemoryConfigRepository(ConfigRepository):
                 buildings=[],
                 rooms=[],
                 devices=[],
-                firewall=FirewallSettings(schedules=[], port_forwards=[], rules=[]),
+                firewall=FirewallSettings(port_forwards=[], rules=[]),
                 schedules=[],
                 plugins=[],
             )
@@ -234,11 +239,17 @@ class InMemoryConfigRepository(ConfigRepository):
         self._config.vpns = data.vpns
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
-        self._config.firewall.schedules = data.schedules
+        self._config.schedules = data.schedules
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
-        self._config.firewall.port_forwards = data.port_forwards
-        self._config.firewall.rules = data.rules
+        fw = data.firewall if hasattr(data, "firewall") and data.firewall else data
+        self._config.firewall.port_forwards = getattr(fw, "port_forwards", [])
+        self._config.firewall.rules = getattr(fw, "rules", [])
+        self._config.firewall.block_doh = getattr(fw, "block_doh", False)
+        self._config.firewall.block_vpns = getattr(fw, "block_vpns", False)
+        self._config.firewall.block_quic = getattr(fw, "block_quic", False)
+        self._config.firewall.custom_doh_ips = getattr(fw, "custom_doh_ips", [])
+        self._config.firewall.custom_vpn_ips = getattr(fw, "custom_vpn_ips", [])
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         self._config.plugins = data.plugins

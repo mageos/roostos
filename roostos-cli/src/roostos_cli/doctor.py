@@ -100,7 +100,7 @@ class SystemDoctor:
 
     def _check_configs(self) -> List[CheckItem]:
         results: List[CheckItem] = []
-        expected_configs = ["system.yaml", "network.yaml", "devices.yaml", "schedules.yaml"]
+        expected_configs = ["system.yaml", "network.yaml", "devices.yaml", "schedules.yaml", "firewall.yaml"]
         for cfg in expected_configs:
             path = os.path.join(self.config_dir, cfg)
             if not os.path.exists(path):

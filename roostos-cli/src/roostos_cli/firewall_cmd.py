@@ -55,15 +55,28 @@ def fw_status_cmd(config_dir: str) -> None:
 
     click.echo(f"Blocked Clients:   {len(blocked_items)} ({', '.join(blocked_items) if blocked_items else 'None'})")
 
-    # 3. Read port forwards from schedules.yaml
+    # 3. Read port forwards from firewall.yaml (fallback to schedules.yaml)
+    fw_path = os.path.join(config_dir, "firewall.yaml")
     sch_path = os.path.join(config_dir, "schedules.yaml")
+    target_path = fw_path if os.path.exists(fw_path) else sch_path
     forwards: List[PortForward] = []
-    if os.path.exists(sch_path):
+    if os.path.exists(target_path):
         try:
-            with open(sch_path, "r") as f:
-                data = yaml.safe_load(f)
-            for pf in data.get("firewall", {}).get("port_forwards", []):
-                forwards.append(PortForward(**pf))
+            with open(target_path, "r") as f:
+                data = yaml.safe_load(f) or {}
+            raw_pfs = data.get("firewall", {}).get("port_forwards", []) if "firewall" in data else data.get("port_forwards", [])
+            for pf in raw_pfs:
+                wan = pf.get("wan_port") or pf.get("external_port", 0)
+                lan_ip = pf.get("lan_ip") or pf.get("internal_ip", "")
+                lan_p = pf.get("lan_port") or pf.get("internal_port", 0)
+                forwards.append(PortForward(
+                    name=pf.get("name", "Forward"),
+                    wan_port=wan,
+                    lan_ip=lan_ip,
+                    lan_port=lan_p,
+                    protocol=pf.get("protocol", "tcp"),
+                    enabled=pf.get("enabled", True),
+                ))
         except Exception:
             pass
 
@@ -118,17 +131,17 @@ def unblock_cmd(target: str) -> None:
 @click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
 def forward_cmd(wan_port: int, lan_ip: str, lan_port: int, proto: str, name: Optional[str], config_dir: str) -> None:
     """Configures a port forward from WAN to a local LAN device."""
-    sch_path = os.path.join(config_dir, "schedules.yaml")
+    fw_path = os.path.join(config_dir, "firewall.yaml")
     os.makedirs(config_dir, exist_ok=True)
-    data: Dict[str, Any] = {"firewall": {"port_forwards": []}}
-    if os.path.exists(sch_path):
+    data: Dict[str, Any] = {"firewall": {"port_forwards": [], "rules": []}}
+    if os.path.exists(fw_path):
         try:
-            with open(sch_path, "r") as f:
+            with open(fw_path, "r") as f:
                 loaded = yaml.safe_load(f)
                 if loaded:
                     data = loaded
         except Exception as e:
-            click.secho(f"Error reading schedules.yaml: {e}", fg="red", err=True)
+            click.secho(f"Error reading firewall.yaml: {e}", fg="red", err=True)
             sys.exit(1)
 
     fw = data.setdefault("firewall", {})
@@ -136,15 +149,18 @@ def forward_cmd(wan_port: int, lan_ip: str, lan_port: int, proto: str, name: Opt
     rule_name = name or f"Forward-{wan_port}-{lan_port}"
     pfs.append({
         "name": rule_name,
+        "protocol": proto,
+        "external_port": wan_port,
+        "internal_ip": lan_ip,
+        "internal_port": lan_port,
         "wan_port": wan_port,
         "lan_ip": lan_ip,
         "lan_port": lan_port,
-        "protocol": proto,
         "enabled": True,
     })
 
     try:
-        with open(sch_path, "w") as f:
+        with open(fw_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
         click.secho(f"✓ Port forward rule saved: WAN:{wan_port} -> {lan_ip}:{lan_port} ({proto})", fg="green", bold=True)
     except Exception as e:

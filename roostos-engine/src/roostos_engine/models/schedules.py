@@ -1,5 +1,5 @@
-from typing import List, Optional
-from pydantic import BaseModel, Field, field_validator
+from typing import Any, List, Optional
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 class ScheduleTarget(BaseModel):
     tag: Optional[str] = None
@@ -28,4 +28,26 @@ class ScheduleSettings(BaseModel):
     schedules: List[ScheduleConfig] = Field(default_factory=list)
 
 class SchedulesConfig(BaseModel):
-    firewall: Optional[ScheduleSettings] = Field(default_factory=ScheduleSettings)
+    schedules: List[ScheduleConfig] = Field(default_factory=list)
+    firewall: Optional[ScheduleSettings] = Field(default=None, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_schedules(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "firewall" in data and isinstance(data["firewall"], dict):
+                fw_sch = data["firewall"].get("schedules", [])
+                if "schedules" not in data or not data["schedules"]:
+                    data["schedules"] = fw_sch
+            elif "schedules" in data and "firewall" not in data:
+                data["firewall"] = {"schedules": data["schedules"]}
+        return data
+
+    @model_validator(mode="after")
+    def sync_firewall(self) -> "SchedulesConfig":
+        if self.firewall is None:
+            self.firewall = ScheduleSettings(schedules=self.schedules)
+        elif not self.schedules and self.firewall.schedules:
+            self.schedules = self.firewall.schedules
+        return self
+

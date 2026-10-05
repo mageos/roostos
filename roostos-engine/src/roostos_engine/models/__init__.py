@@ -4,87 +4,38 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from roostos_engine.models.system import (
-    SystemHTTPSConfig,
-    SystemUpdatesRebootWindow,
-    SystemUpdatesConfig,
-    SystemDNSConfig,
-    ClusterSettingsConfig,
-    SystemIdentityServerConfig,
-    TelemetryConfig,
-    TelemetryExportConfig,
-    NotificationChannelConfig,
-    NotificationsConfig,
-    SystemSettings,
-    UserConfig,
-    SystemConfig,
+    SystemHTTPSConfig, SystemUpdatesRebootWindow, SystemUpdatesConfig, SystemDNSConfig,
+    ClusterSettingsConfig, SystemIdentityServerConfig, TelemetryConfig, TelemetryExportConfig,
+    NotificationChannelConfig, NotificationsConfig, SystemSettings, UserConfig, SystemConfig,
 )
 from roostos_engine.models.identity import (
-    DomainUser,
-    DomainUserCreate,
-    DomainUserUpdate,
-    DomainPasswordReset,
-    DomainGroup,
-    DomainStatus,
-    WorkstationEnrollmentInfo,
+    DomainUser, DomainUserCreate, DomainUserUpdate, DomainPasswordReset,
+    DomainGroup, DomainStatus, WorkstationEnrollmentInfo,
 )
 from roostos_engine.models.network import (
-    PPPoEConfig,
-    NetworkInterface,
-    NetworkBridge,
-    NetworkVlan,
-    NetworkGateway,
-    QoSConfig,
-    ZoneConfig,
-    NetworkSettings,
-    WifiRadio,
-    WifiAccessPoint,
-    WifiMesh,
-    WifiSettings,
-    VPNConfig,
-    NetworkConfig,
+    PPPoEConfig, NetworkInterface, NetworkBridge, NetworkVlan, NetworkGateway,
+    QoSConfig, ZoneConfig, NetworkSettings, WifiRadio, WifiAccessPoint, WifiMesh,
+    WifiSettings, VPNConfig, NetworkConfig,
 )
 from roostos_engine.models.edge import (
-    IngressRoute,
-    EdgeGatewayConfig,
-    EdgeBootstrapToken,
-    EdgeEnrollmentPayload,
-    EdgeEnrollmentResponse,
+    IngressRoute, EdgeGatewayConfig, EdgeBootstrapToken,
+    EdgeEnrollmentPayload, EdgeEnrollmentResponse,
 )
 from roostos_engine.models.node import (
-    NodeRole,
-    InterfaceType,
-    InterfaceMode,
-    NodeInterface,
-    DetectedHardwareInterface,
-    NodeCapabilities,
-    NodeConfig,
-    NodesConfigFile,
+    NodeRole, InterfaceType, InterfaceMode, NodeInterface,
+    DetectedHardwareInterface, NodeCapabilities, NodeConfig, NodesConfigFile,
 )
 from roostos_engine.models.networks import (
-    Network,
-    NetworksConfigFile,
-    WifiSSIDConfig,
-    DHCPSettings,
+    Network, NetworksConfigFile, WifiSSIDConfig, DHCPSettings,
 )
 from roostos_engine.models.devices import (
-    PersonConfig,
-    BuildingConfig,
-    RoomConfig,
-    UPnPAllowedPort,
-    DeviceConfig,
-    DevicesConfig,
+    PersonConfig, BuildingConfig, RoomConfig, UPnPAllowedPort, DeviceConfig, DevicesConfig,
 )
 from roostos_engine.models.schedules import (
-    ScheduleTarget,
-    ScheduleConfig,
-    ScheduleSettings,
-    SchedulesConfig,
+    ScheduleTarget, ScheduleConfig, ScheduleSettings, SchedulesConfig,
 )
 from roostos_engine.models.firewall import (
-    PortForwardConfig,
-    InputRuleConfig,
-    FirewallSettings,
-    FirewallConfig,
+    PortForwardConfig, InputRuleConfig, FirewallSettings, FirewallConfig,
 )
 from roostos_engine.models.plugins import (
     PortMapping, VolumeMount, ContainerConfig, PluginConfig, PluginsConfig,
@@ -270,13 +221,22 @@ def load_config_directory(config_dir: str) -> RoostConfig:
             raw_data["rooms"] = parsed.rooms
             raw_data["devices"] = parsed.devices
         elif namespace == "schedules":
-            if parsed.firewall:
+            if parsed.schedules:
+                schedules_list = parsed.schedules
+            elif parsed.firewall and parsed.firewall.schedules:
                 schedules_list = parsed.firewall.schedules
-                # Migration fallback if port_forwards or rules were in schedules.yaml
-                if hasattr(parsed.firewall, "port_forwards") and getattr(parsed.firewall, "port_forwards"):
-                    firewall_settings.port_forwards = getattr(parsed.firewall, "port_forwards")
-                if hasattr(parsed.firewall, "rules") and getattr(parsed.firewall, "rules"):
-                    firewall_settings.rules = getattr(parsed.firewall, "rules")
+            if "firewall" in yaml_content and isinstance(yaml_content["firewall"], dict):
+                fw_dict = yaml_content["firewall"]
+                if "port_forwards" in fw_dict and not firewall_settings.port_forwards:
+                    try:
+                        firewall_settings.port_forwards = [PortForwardConfig.model_validate(pf) for pf in fw_dict["port_forwards"]]
+                    except Exception:
+                        pass
+                if "rules" in fw_dict and not firewall_settings.rules:
+                    try:
+                        firewall_settings.rules = [InputRuleConfig.model_validate(r) for r in fw_dict["rules"]]
+                    except Exception:
+                        pass
         elif namespace == "firewall":
             if parsed.firewall:
                 if parsed.firewall.port_forwards:

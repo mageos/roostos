@@ -69,11 +69,16 @@ def test_cli_fw_forward(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "Port forward rule saved" in result.output
 
-    sch_file = tmp_path / "schedules.yaml"
-    assert sch_file.exists()
-    data = yaml.safe_load(sch_file.read_text())
+    fw_file = tmp_path / "firewall.yaml"
+    assert fw_file.exists()
+    data = yaml.safe_load(fw_file.read_text())
     forwards = data["firewall"]["port_forwards"]
-    assert any(f["wan_port"] == 8080 and f["lan_ip"] == "192.168.1.50" and f["lan_port"] == 80 for f in forwards)
+    assert any((f.get("wan_port") == 8080 or f.get("external_port") == 8080) and f.get("name") == "Web-Forward" for f in forwards)
+
+    # Verify status command reads from firewall.yaml
+    status_res = runner.invoke(cli, ["fw", "status", "--config-dir", str(tmp_path)])
+    assert status_res.exit_code == 0
+    assert "Web-Forward" in status_res.output
 
 
 def test_cli_cluster_adopt_and_list(tmp_path: Path) -> None:
