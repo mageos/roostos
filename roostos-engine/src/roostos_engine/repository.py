@@ -97,45 +97,48 @@ class StagingConfigRepository(ConfigRepository):
 
         staged_files = [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]
         if staged_files:
-            import yaml
             if "system.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "system.yaml"), "r") as f:
-                    parsed = SystemConfig.model_validate(yaml.safe_load(f) or {})
-                    config.system = parsed.system
-                    config.users = parsed.users
+                parsed = SystemConfig.model_validate(self._load_staged_yaml("system.yaml"))
+                config.system = parsed.system
+                config.users = parsed.users
             if "nodes.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "nodes.yaml"), "r") as f:
-                    parsed_nodes = NodesConfigFile.model_validate(yaml.safe_load(f) or {})
-                    config.nodes = parsed_nodes.nodes
+                parsed_nodes = NodesConfigFile.model_validate(self._load_staged_yaml("nodes.yaml"))
+                config.nodes = parsed_nodes.nodes
             if "network.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "network.yaml"), "r") as f:
-                    parsed_net = NetworkConfig.model_validate(yaml.safe_load(f) or {})
-                    config.network = parsed_net.network
-                    config.wifi = parsed_net.wifi
-                    config.vpns = parsed_net.vpns
+                parsed_net = NetworkConfig.model_validate(self._load_staged_yaml("network.yaml"))
+                config.network = parsed_net.network
+                config.wifi = parsed_net.wifi
+                config.vpns = parsed_net.vpns
             if "devices.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "devices.yaml"), "r") as f:
-                    parsed_dev = DevicesConfig.model_validate(yaml.safe_load(f) or {})
-                    config.people = parsed_dev.people
-                    config.buildings = parsed_dev.buildings
-                    config.rooms = parsed_dev.rooms
-                    config.devices = parsed_dev.devices
+                parsed_dev = DevicesConfig.model_validate(self._load_staged_yaml("devices.yaml"))
+                config.people = parsed_dev.people
+                config.buildings = parsed_dev.buildings
+                config.rooms = parsed_dev.rooms
+                config.devices = parsed_dev.devices
             if "schedules.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "schedules.yaml"), "r") as f:
-                    parsed_sch = SchedulesConfig.model_validate(yaml.safe_load(f) or {})
-                    config.schedules = parsed_sch.firewall.schedules if parsed_sch.firewall else []
+                parsed_sch = SchedulesConfig.model_validate(self._load_staged_yaml("schedules.yaml"))
+                config.schedules = parsed_sch.firewall.schedules if parsed_sch.firewall else []
             if "firewall.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "firewall.yaml"), "r") as f:
-                    parsed_fw = FirewallConfig.model_validate(yaml.safe_load(f) or {})
-                    if parsed_fw.firewall:
-                        config.firewall.port_forwards = parsed_fw.firewall.port_forwards
-                        config.firewall.rules = parsed_fw.firewall.rules
+                parsed_fw = FirewallConfig.model_validate(self._load_staged_yaml("firewall.yaml"))
+                if parsed_fw.firewall:
+                    config.firewall.port_forwards = parsed_fw.firewall.port_forwards
+                    config.firewall.rules = parsed_fw.firewall.rules
             if "plugins.yaml" in staged_files:
-                with open(os.path.join(self.staged_dir, "plugins.yaml"), "r") as f:
-                    parsed_plg = PluginsConfig.model_validate(yaml.safe_load(f) or {})
-                    config.plugins = parsed_plg.plugins
+                parsed_plg = PluginsConfig.model_validate(self._load_staged_yaml("plugins.yaml"))
+                config.plugins = parsed_plg.plugins
                 
         return config
+
+    def _load_staged_yaml(self, filename: str) -> dict:
+        import yaml
+        try:
+            with open(os.path.join(self.staged_dir, filename), "r") as f:
+                raw_text = f.read()
+            if "\t" in raw_text:
+                raw_text = raw_text.replace("\t", "  ")
+            return yaml.safe_load(raw_text) or {}
+        except Exception:
+            return {}
 
     def save_system_config(self, data: SystemConfig) -> None:
         save_config_file(self.staged_dir, "system.yaml", data)

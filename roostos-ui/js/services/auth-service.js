@@ -66,7 +66,13 @@ class AuthService {
                 window.history.replaceState({}, document.title, "/");
                 if (window.init) window.init();
             } else {
-                alert("OAuth token exchange failed.");
+                let errorMsg = "OAuth token exchange failed.";
+                try {
+                    const errData = await res.json();
+                    if (errData && errData.detail) errorMsg += ` (${errData.detail})`;
+                } catch (_) {}
+                console.error("Token exchange failed:", res.status, errorMsg);
+                alert(errorMsg);
                 window.location.href = "/oauth/authorize?client_id=roostos_admin_ui&redirect_uri=" + encodeURIComponent(window.location.origin + "/");
             }
         } catch (e) {

@@ -157,4 +157,10 @@ ARCH=amd64 bash scripts/build-all-debs.sh
 
 # Option 3: Via Makefile
 make deb ARCH=amd64
+
+# Option 4: Cross-compiling for ARM64 on x86_64 (automatic via Docker)
+make deb ARCH=arm64
 ```
+
+> **Note on Cross-Building**: When the requested target architecture does not match the host machine architecture (for instance, building `arm64` on an `x86_64` workstation), `scripts/build-all-debs.sh` automatically compiles the packages inside an emulated Docker container (`roostos-deb-builder:<arch>`). This guarantees that the bundled Python interpreter and all native C/Rust wheel extensions (such as `pydantic-core` and `cryptography`) match the target processor architecture and prevents `Exec format error` at runtime.
+

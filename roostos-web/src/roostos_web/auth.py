@@ -41,13 +41,16 @@ def validate_authorization_record(code: str, redirect_uri: str) -> Optional[dict
     with _auth_codes_lock:
         if code not in _auth_codes:
             return None
-        record = _auth_codes.pop(code)  # Single-use (consume instantly)
+        record = _auth_codes[code]
 
-    if record["expires_at"] < datetime.datetime.now(datetime.timezone.utc):
-        return None
-    if record["redirect_uri"] != redirect_uri:
-        return None
-    return record
+        if record["expires_at"] < datetime.datetime.now(datetime.timezone.utc):
+            _auth_codes.pop(code, None)
+            return None
+        if record["redirect_uri"].rstrip("/") != redirect_uri.rstrip("/"):
+            return None
+
+        _auth_codes.pop(code, None)  # Single-use (consume once validated)
+        return record
 
 
 def validate_authorization_code(code: str, redirect_uri: str) -> Optional[str]:

@@ -14,7 +14,9 @@ HOST_REGEX = re.compile(r"^[a-zA-Z0-9.-]+$")
 # Permitted services for log viewing
 PERMITTED_SERVICES = {
     "roostd": "roostd.service",
-    "roostos-web": "roostos-web.service",
+    "roostos-engine": "roostos-engine.service",
+    "roostos-node": "roostos-node.service",
+    "roostos-web": "roostos-node.service",
     "systemd-networkd": "systemd-networkd.service",
     "kea": "kea-dhcp4-server.service",
     "iwd": "iwd.service"

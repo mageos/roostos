@@ -292,45 +292,128 @@ window.loadDashboard = async function() {
         const connectedEl = document.getElementById("metric-connected");
         if (connectedEl) connectedEl.textContent = (devData.active_arp || []).length;
 
-        window.deviceComponent.render();
-        window.dhcpComponent.render();
+        // Feed devices to roost-device-list
+        const devElem = document.getElementById("device-list-elem");
+        if (devElem && devElem.setDevices) {
+            devElem.setDevices(allDevices);
+        } else if (window.deviceComponent && window.deviceComponent.render) {
+            window.deviceComponent.render();
+        }
+
+        // Feed leases to roost-dhcp-management
+        const dhcpElem = document.getElementById("dhcp-mgmt-elem");
+        if (dhcpElem && dhcpElem.setData) {
+            dhcpElem.setData(devData.reservations || [], activeLeases, devData.dhcp_config || {});
+        } else if (window.dhcpComponent && window.dhcpComponent.render) {
+            window.dhcpComponent.render();
+        }
 
         // Fetch Networks (bridges, interfaces, VLANs, Wi-Fi APs)
         await window.networkService.fetchConfig();
-        window.networkComponent.render();
+        const netElem = document.getElementById("net-view-elem");
+        if (netElem && netElem.render) {
+            netElem.render();
+        } else if (window.networkComponent && window.networkComponent.render) {
+            window.networkComponent.render();
+        }
 
         // Fetch Schedules & Firewall Rules
         const schedData = await window.securityService.fetchSchedules();
-        window.parentalComponent.render(schedData.schedules || []);
+        const parentalTbody = document.getElementById("parental-tbody");
+        if (parentalTbody && schedData.schedules) {
+            if (schedData.schedules.length === 0) {
+                parentalTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No active schedules configured.</td></tr>';
+            } else {
+                parentalTbody.innerHTML = schedData.schedules.map(s => `
+                    <tr>
+                        <td><strong>${s.name || s.id}</strong></td>
+                        <td><code>${s.target || "-"}</code></td>
+                        <td>${(s.days || []).join(", ") || "All"}</td>
+                        <td>${s.start_time || "00:00"} - ${s.end_time || "23:59"}</td>
+                        <td>${s.daily_limit_minutes ? s.daily_limit_minutes + " mins" : "Unlimited"}</td>
+                        <td><span class="badge ${s.enabled !== false ? 'badge-success' : 'badge-secondary'}">${s.enabled !== false ? 'Active' : 'Disabled'}</span></td>
+                    </tr>
+                `).join("");
+            }
+        }
+        if (window.parentalComponent && window.parentalComponent.render) {
+            window.parentalComponent.render(schedData.schedules || []);
+        }
 
-        // Fetch Firewall Input Rules and render alongside port forwards
+        // Fetch Firewall Rules
         try {
             const fwRules = await window.securityService.fetchFirewallRules();
-            window.firewallComponent.renderWithRules(schedData.port_forwards || [], fwRules);
-        } catch (e) {
-            window.firewallComponent.render(schedData.port_forwards || []);
-        }
+            const fwElem = document.getElementById("firewall-rules-elem");
+            if (fwElem && fwElem.setRules) {
+                fwElem.setRules(fwRules, schedData.port_forwards || []);
+            } else if (window.firewallComponent && window.firewallComponent.renderWithRules) {
+                window.firewallComponent.renderWithRules(schedData.port_forwards || [], fwRules);
+            }
+        } catch (_) {}
 
         // Fetch DNS Configurations
         const dnsData = await window.securityService.fetchDnsConfig();
-        window.dnsComponent.render(dnsData);
+        const dnsUpstreams = document.getElementById("dns-upstreams");
+        if (dnsUpstreams && dnsData.upstream_servers) {
+            dnsUpstreams.textContent = dnsData.upstream_servers.join(", ");
+        }
+        if (window.dnsComponent && window.dnsComponent.render) {
+            window.dnsComponent.render(dnsData);
+        }
 
-        // Fetch operator logins
+        // Fetch operator logins & household members
         const users = await window.securityService.fetchUsers();
-        window.peopleComponent.renderUsersList(users);
+        const userElem = document.getElementById("user-list-elem");
+        if (userElem && userElem.setUsers) {
+            userElem.setUsers(users || []);
+        }
+        try {
+            const peopleList = await window.systemService.fetchPeople();
+            const peopleElem = document.getElementById("people-list-elem");
+            if (peopleElem && peopleElem.setPeople) {
+                peopleElem.setPeople(peopleList || []);
+            }
+        } catch (_) {}
+        if (window.peopleComponent && window.peopleComponent.renderUsersList) {
+            window.peopleComponent.renderUsersList(users);
+        }
 
         // Fetch Buildings & Rooms
         const buildings = await window.systemService.fetchBuildings();
         window.allBuildingsList = buildings;
         const rooms = await window.systemService.fetchRooms();
-        window.locationsComponent.render(buildings, rooms);
+        const bldTbody = document.getElementById("buildings-tbody");
+        if (bldTbody && buildings) {
+            bldTbody.innerHTML = buildings.length === 0 
+                ? '<tr><td colspan="3" class="empty-state">No buildings configured.</td></tr>'
+                : buildings.map(b => `<tr><td><code>${b.id}</code></td><td><strong>${b.name}</strong></td><td>${b.description || "-"}</td></tr>`).join("");
+        }
+        const rmTbody = document.getElementById("rooms-tbody");
+        if (rmTbody && rooms) {
+            rmTbody.innerHTML = rooms.length === 0
+                ? '<tr><td colspan="3" class="empty-state">No rooms configured.</td></tr>'
+                : rooms.map(r => `<tr><td><code>${r.id}</code></td><td><strong>${r.name}</strong></td><td>${r.building || "-"}</td></tr>`).join("");
+        }
+        if (window.locationsComponent && window.locationsComponent.render) {
+            window.locationsComponent.render(buildings, rooms);
+        }
 
         // Fetch sidecar Plugins
         const plugins = await window.systemService.fetchPlugins();
-        if (window.pluginsComponent) window.pluginsComponent.render(plugins);
+        const plgTbody = document.getElementById("plugins-tbody");
+        if (plgTbody && plugins) {
+            plgTbody.innerHTML = plugins.length === 0
+                ? '<tr><td colspan="4" class="empty-state">No sidecar plugins currently active.</td></tr>'
+                : plugins.map(p => `<tr><td><strong>${p.name || p.id}</strong></td><td>${p.version || "-"}</td><td><span class="badge ${p.enabled ? 'badge-success' : 'badge-secondary'}">${p.enabled ? 'Running' : 'Stopped'}</span></td><td>${p.endpoint || "-"}</td></tr>`).join("");
+        }
+        if (window.pluginsComponent && window.pluginsComponent.render) {
+            window.pluginsComponent.render(plugins);
+        }
 
         // Refresh canvas graphs
-        window.statusComponent.drawCharts();
+        if (window.statusComponent && window.statusComponent.drawCharts) {
+            window.statusComponent.drawCharts();
+        }
 
     } catch (e) {
         console.error("Dashboard orchestration refresh error: ", e);
@@ -372,33 +455,215 @@ function init() {
     // 1. Mount Component templates into empty index.html view-container
     const viewContainer = document.querySelector(".view-container");
     if (viewContainer) {
-        window.statusComponent.mount(viewContainer);
-        window.networkComponent.mount(viewContainer);
-        window.dhcpComponent.mount(viewContainer);
-        window.vpnComponent.mount(viewContainer);
+        if (window.statusComponent && window.statusComponent.mount) {
+            window.statusComponent.mount(viewContainer);
+        }
+
+        // Networks
+        const networksPane = document.createElement("div");
+        networksPane.id = "networks-view";
+        networksPane.className = "view-pane";
+        networksPane.innerHTML = "<roost-network-view id=\"net-view-elem\"></roost-network-view>";
+        viewContainer.appendChild(networksPane);
+
+        // DHCP
+        const dhcpPane = document.createElement("div");
+        dhcpPane.id = "dhcp-view";
+        dhcpPane.className = "view-pane";
+        dhcpPane.innerHTML = "<roost-dhcp-management id=\"dhcp-mgmt-elem\"></roost-dhcp-management>";
+        viewContainer.appendChild(dhcpPane);
+
+        // VPN
+        const vpnPane = document.createElement("div");
+        vpnPane.id = "vpn-view";
+        vpnPane.className = "view-pane";
+        vpnPane.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3>VPN Connections & Tunnels</h3>
+                    <span class="badge badge-info">WireGuard / OpenVPN</span>
+                </div>
+                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
+                    Secure encrypted site-to-site and client tunnels configured on this node.
+                </p>
+                <div id="vpn-list-container" class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Tunnel</th><th>Type</th><th>Endpoint</th><th>Local IP</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="vpn-tbody">
+                            <tr><td colspan="5" class="empty-state">No active VPN tunnels configured.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        viewContainer.appendChild(vpnPane);
+
+        // Edge Gateway
         const edgePane = document.createElement("div");
         edgePane.id = "edge-view";
         edgePane.className = "view-pane";
-        edgePane.innerHTML = "<roost-edge-gateway></roost-edge-gateway>";
+        edgePane.innerHTML = "<roost-edge-gateway id=\"edge-gateway-elem\"></roost-edge-gateway>";
         viewContainer.appendChild(edgePane);
-        window.deviceComponent.mount(viewContainer);
-        window.firewallComponent.mount(viewContainer);
-        window.parentalComponent.mount(viewContainer);
-        window.dnsComponent.mount(viewContainer);
-        window.peopleComponent.mount(viewContainer);
-        window.locationsComponent.mount(viewContainer);
-        window.systemComponent.mount(viewContainer);
+
+        // Devices
+        const devicesPane = document.createElement("div");
+        devicesPane.id = "devices-view";
+        devicesPane.className = "view-pane";
+        devicesPane.innerHTML = "<roost-device-list id=\"device-list-elem\"></roost-device-list>";
+        viewContainer.appendChild(devicesPane);
+
+        // Firewall
+        const firewallPane = document.createElement("div");
+        firewallPane.id = "firewall-view";
+        firewallPane.className = "view-pane";
+        firewallPane.innerHTML = "<roost-firewall-rules id=\"firewall-rules-elem\"></roost-firewall-rules>";
+        viewContainer.appendChild(firewallPane);
+
+        // Parental Controls
+        const parentalPane = document.createElement("div");
+        parentalPane.id = "parental-view";
+        parentalPane.className = "view-pane";
+        parentalPane.innerHTML = `
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header table-action-bar">
+                    <div>
+                        <h3>Parental Controls & Bedtime Schedules</h3>
+                        <p class="text-secondary" style="font-size:12px;">Enforce time-based access windows, curfews, and daily allowances</p>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Schedule Name</th><th>Target</th><th>Days Active</th><th>Time Window</th><th>Daily Allowance</th><th>Status</th></tr>
+                        </thead>
+                        <tbody id="parental-tbody">
+                            <tr><td colspan="6" class="empty-state">No active bedtime or access schedules configured.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        viewContainer.appendChild(parentalPane);
+
+        // DNS
+        const dnsPane = document.createElement("div");
+        dnsPane.id = "dns-view";
+        dnsPane.className = "view-pane";
+        dnsPane.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3>DNS Resolver Settings</h3>
+                    <span class="badge badge-info">Local DNS</span>
+                </div>
+                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
+                    Local caching DNS resolver and upstream DNS-over-HTTPS / TLS forwarding configuration.
+                </p>
+                <div class="grid-3-col" style="gap: 16px; margin-top: 12px;">
+                    <div class="stat-item"><span class="stat-label">Local DNS Listen IP:</span><span class="stat-value" id="dns-local-ip">127.0.0.1</span></div>
+                    <div class="stat-item"><span class="stat-label">Upstream Servers:</span><span class="stat-value" id="dns-upstreams">1.1.1.1, 8.8.8.8</span></div>
+                    <div class="stat-item"><span class="stat-label">DNS Filter Status:</span><span class="stat-value badge badge-success" id="dns-blocking-status">Active</span></div>
+                </div>
+            </div>
+        `;
+        viewContainer.appendChild(dnsPane);
+
+        // People & Users
+        const peoplePane = document.createElement("div");
+        peoplePane.id = "people-view";
+        peoplePane.className = "view-pane";
+        peoplePane.innerHTML = `
+            <roost-people-list id="people-list-elem"></roost-people-list>
+            <div style="margin-top: 24px;">
+                <roost-user-list id="user-list-elem"></roost-user-list>
+            </div>
+        `;
+        viewContainer.appendChild(peoplePane);
+
+        // Locations
+        const locationsPane = document.createElement("div");
+        locationsPane.id = "locations-view";
+        locationsPane.className = "view-pane";
+        locationsPane.innerHTML = `
+            <div class="card" style="margin-bottom: 20px;">
+                <div class="card-header table-action-bar">
+                    <div>
+                        <h3>Buildings & Campus Areas</h3>
+                        <p class="text-secondary" style="font-size:12px;">Physical structures grouped by access policies</p>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>ID</th><th>Building Name</th><th>Description</th></tr></thead>
+                        <tbody id="buildings-tbody">
+                            <tr><td colspan="3" class="empty-state">No buildings configured.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header table-action-bar">
+                    <div>
+                        <h3>Rooms & Zones</h3>
+                        <p class="text-secondary" style="font-size:12px;">Rooms and network ports mapped to physical locations</p>
+                    </div>
+                </div>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>ID</th><th>Room Name</th><th>Building</th></tr></thead>
+                        <tbody id="rooms-tbody">
+                            <tr><td colspan="3" class="empty-state">No rooms configured.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        viewContainer.appendChild(locationsPane);
+
+        // System
+        if (window.systemComponent && window.systemComponent.mount) {
+            window.systemComponent.mount(viewContainer);
+        }
+
+        // App Catalog
         const catalogPane = document.createElement("div");
         catalogPane.id = "catalog-view";
         catalogPane.className = "view-pane";
         catalogPane.innerHTML = "<roost-app-catalog></roost-app-catalog>";
         viewContainer.appendChild(catalogPane);
+
+        // Cluster Fleet Management
         const clusterPane = document.createElement("div");
         clusterPane.id = "cluster-view";
         clusterPane.className = "view-pane";
-        clusterPane.innerHTML = "<roost-cluster-management></roost-cluster-management>";
+        clusterPane.innerHTML = "<roost-cluster-management id=\"cluster-mgmt-elem\"></roost-cluster-management>";
         viewContainer.appendChild(clusterPane);
-        if (window.pluginsComponent) window.pluginsComponent.mount(viewContainer);
+
+        // Plugins
+        const pluginsPane = document.createElement("div");
+        pluginsPane.id = "plugins-view";
+        pluginsPane.className = "view-pane";
+        pluginsPane.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3>Installed Sidecar Plugins</h3>
+                    <span class="badge badge-info">Extensibility</span>
+                </div>
+                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
+                    Manage installed dockerized plugins and ecosystem microservices.
+                </p>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <thead><tr><th>Plugin</th><th>Version</th><th>Status</th><th>Endpoint</th></tr></thead>
+                        <tbody id="plugins-tbody">
+                            <tr><td colspan="4" class="empty-state">No sidecar plugins currently active.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        viewContainer.appendChild(pluginsPane);
     }
 
     // 2. Setup theme settings

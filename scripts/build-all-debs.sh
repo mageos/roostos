@@ -11,11 +11,70 @@ BUILD_DIR="$SRC_DIR/build-deb-tmp"
 DIST_DIR="$SRC_DIR/dist/debs"
 
 if [[ -n "$1" ]]; then
-    ARCHITECTURES="$1"
+    ARCHITECTURES="$*"
 elif [[ -n "$ARCH" ]]; then
     ARCHITECTURES="$ARCH"
 else
     ARCHITECTURES="${ARCHITECTURES:-"amd64"}"
+fi
+ARCHITECTURES="${ARCHITECTURES//,/ }"
+
+# Detect host architecture
+HOST_ARCH="$(dpkg --print-architecture 2>/dev/null || true)"
+if [[ -z "$HOST_ARCH" ]]; then
+    case "$(uname -m)" in
+        x86_64) HOST_ARCH="amd64" ;;
+        aarch64|arm64) HOST_ARCH="arm64" ;;
+        armv7l|armhf) HOST_ARCH="armhf" ;;
+        *) HOST_ARCH="$(uname -m)" ;;
+    esac
+fi
+
+# Automatically dispatch foreign architectures to Docker if cross-building
+if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
+    NATIVE_ARCHS=()
+    DOCKER_ARCHS=()
+    for arch in $ARCHITECTURES; do
+        if [[ "$arch" == "$HOST_ARCH" ]]; then
+            NATIVE_ARCHS+=("$arch")
+        else
+            DOCKER_ARCHS+=("$arch")
+        fi
+    done
+
+    for arch in "${DOCKER_ARCHS[@]}"; do
+        if ! command -v docker >/dev/null 2>&1; then
+            echo "Error: Target architecture '$arch' does not match host architecture '$HOST_ARCH', and Docker is not available for cross-compiling." >&2
+            exit 1
+        fi
+        docker_platform="linux/$arch"
+        if [[ "$arch" == "armhf" ]]; then
+            docker_platform="linux/arm/v7"
+        fi
+        echo "============================================="
+        echo "Cross-building Debian packages for $arch via Docker ($docker_platform)"
+        echo "============================================="
+        BUILDER_IMAGE="roostos-deb-builder:$arch"
+        if ! docker image inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then
+            echo "Building builder container image ($BUILDER_IMAGE)..."
+            docker build --platform "$docker_platform" -t "$BUILDER_IMAGE" -f "$SRC_DIR/packaging/debian/Dockerfile.builder" "$SRC_DIR/packaging/debian"
+        fi
+        HOST_UID=$(id -u)
+        HOST_GID=$(id -g)
+        docker run --rm \
+            --platform "$docker_platform" \
+            -v "$SRC_DIR:/workspace" \
+            -v "roostos-uv-cache-$arch:/root/.cache/uv" \
+            -w /workspace \
+            -e ROOSTOS_DOCKER_BUILD=1 \
+            "$BUILDER_IMAGE" \
+            bash -c "bash scripts/build-all-debs.sh '$arch' && chown -R $HOST_UID:$HOST_GID dist build-deb-tmp 2>/dev/null || true"
+    done
+
+    if [[ ${#NATIVE_ARCHS[@]} -eq 0 ]]; then
+        exit 0
+    fi
+    ARCHITECTURES="${NATIVE_ARCHS[*]}"
 fi
 
 echo "============================================="
@@ -60,9 +119,17 @@ EOF
 }
 
 # 1. roostos-runtime (Bundled Python 3.13 Runtime & Locked Virtual Environment)
-REAL_PYTHON="$(readlink -f "$SRC_DIR/.venv/bin/python3" 2>/dev/null || which python3)"
+uv python install 3.13
+STANDALONE_PYTHON="$(uv python list --only-installed 2>/dev/null | grep -E '^cpython-3\.13' | awk '{print $2}' | head -n 1)"
+if [[ -n "$STANDALONE_PYTHON" && -x "$STANDALONE_PYTHON" ]]; then
+    REAL_PYTHON="$(readlink -f "$STANDALONE_PYTHON")"
+elif [[ -x "$SRC_DIR/.venv/bin/python3" ]]; then
+    REAL_PYTHON="$(readlink -f "$SRC_DIR/.venv/bin/python3")"
+else
+    REAL_PYTHON="$(which python3)"
+fi
 PYTHON_PREFIX="$(dirname "$(dirname "$REAL_PYTHON")")"
-uv export --no-dev > "$BUILD_DIR/requirements-runtime.txt"
+uv export --no-dev --no-emit-workspace > "$BUILD_DIR/requirements-runtime.txt"
 
 for arch in $ARCHITECTURES; do
     STAGE_RUNTIME="$BUILD_DIR/roostos-runtime"
@@ -75,12 +142,17 @@ for arch in $ARCHITECTURES; do
 
     echo "Installing locked dependencies into roostos-runtime..."
     uv pip install --break-system-packages --python "$RUNTIME_TARGET/bin/python3" -r "$BUILD_DIR/requirements-runtime.txt"
-    uv pip install --break-system-packages --python "$RUNTIME_TARGET/bin/python3" \
+    uv pip install --break-system-packages --no-deps --python "$RUNTIME_TARGET/bin/python3" \
         "$SRC_DIR/roostos-sdk" \
         "$SRC_DIR/roostos-engine" \
         "$SRC_DIR/roostos-cli" \
         "$SRC_DIR/roostos-web" \
-        "$SRC_DIR/roostos-timeguardd"
+        "$SRC_DIR/roostos-timeguardd" \
+        "$SRC_DIR/roostos-dns-technitium" \
+        "$SRC_DIR/roostos-identity-samba"
+
+    # Remove any stray development editable links
+    find "$RUNTIME_TARGET" -name "*_editable_impl*.pth" -delete 2>/dev/null || true
 
     sed -i "s|#!.*python.*|#!/usr/lib/roostos/runtime/bin/python3|" "$RUNTIME_TARGET/bin/"* 2>/dev/null || true
     build_pkg "roostos-runtime" "$arch" "Standalone Python 3.13 runtime and locked virtual environment for RoostOS" "libc6 (>= 2.31)"
@@ -113,6 +185,8 @@ cat << 'EOF' > "$STAGE_NODE/usr/bin/roostos-node"
 exec /usr/lib/roostos/runtime/bin/python3 -m roostos_web.main "$@"
 EOF
 chmod 755 "$STAGE_NODE/usr/bin/roostos-node"
+ln -s roostos-node "$STAGE_NODE/usr/bin/roostos-web"
+
 cat << 'EOF' > "$STAGE_NODE/etc/systemd/system/roostos-node.service"
 [Unit]
 Description=RoostOS Local Node Agent and REST API
@@ -126,7 +200,27 @@ RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
+Alias=roostos-web.service
 EOF
+ln -s roostos-node.service "$STAGE_NODE/etc/systemd/system/roostos-web.service"
+
+mkdir -p "$STAGE_NODE/DEBIAN"
+cat << 'EOF' > "$STAGE_NODE/DEBIAN/postinst"
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload || true
+        systemctl enable roostos-node.service || true
+        if [ -d /run/systemd/system ]; then
+            systemctl restart roostos-node.service || true
+        fi
+    fi
+fi
+exit 0
+EOF
+chmod 755 "$STAGE_NODE/DEBIAN/postinst"
+
 build_pkg "roostos-node" "all" "RoostOS local node agent and REST API service" "roostos-runtime, roostos-cli" "Provides: roostos-web\nReplaces: roostos-web"
 
 # Compatibility transitional package: roostos-web -> roostos-node
@@ -171,6 +265,23 @@ EOF
 chmod 755 "$STAGE_ENGINE/usr/bin/roostos-engine"
 ln -s roostos-engine "$STAGE_ENGINE/usr/bin/roostd"
 cp "$SRC_DIR/packaging/common/systemd/roostos-engine.service" "$STAGE_ENGINE/etc/systemd/system/roostos-engine.service" 2>/dev/null || true
+mkdir -p "$STAGE_ENGINE/DEBIAN"
+cat << 'EOF' > "$STAGE_ENGINE/DEBIAN/postinst"
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload || true
+        systemctl enable roostos-engine.service || true
+        if [ -d /run/systemd/system ]; then
+            systemctl restart roostos-engine.service || true
+        fi
+    fi
+fi
+exit 0
+EOF
+chmod 755 "$STAGE_ENGINE/DEBIAN/postinst"
+
 build_pkg "roostos-engine" "all" "Central domain object controller, cluster sync, and configuration storage service" "roostos-runtime, mosquitto"
 
 # 7. roostos-workstation (Consolidated Client Workstation Stack)

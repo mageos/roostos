@@ -43,13 +43,16 @@ class PAMAuthProvider:
 
         is_roostos_group_member = False
         try:
-            roostos_group = grp.getgrnam("roostos")
-            target_gid = roostos_group.gr_gid
             user_pw = pwd.getpwnam(username)
             user_gid = user_pw.pw_gid
-            gids = os.getgrouplist(username, user_gid)
-            if target_gid in gids:
-                is_roostos_group_member = True
+            gids = set(os.getgrouplist(username, user_gid))
+            for group_name in ("roostos", "sudo", "wheel"):
+                try:
+                    if grp.getgrnam(group_name).gr_gid in gids:
+                        is_roostos_group_member = True
+                        break
+                except KeyError:
+                    pass
         except (KeyError, Exception):
             pass
 
