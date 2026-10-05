@@ -1,5 +1,9 @@
+import json
+import os
+import shutil
+import subprocess
 import sys
-from typing import List
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, Body, Response
 from pydantic import BaseModel
 
@@ -15,20 +19,144 @@ from roostos_web.di import Injected
 
 router = APIRouter(tags=["network"])
 
+
+def _get_live_interface_stats() -> Dict[str, Dict[str, Any]]:
+    stats: Dict[str, Dict[str, Any]] = {}
+    net_dir = "/sys/class/net"
+    if not os.path.exists(net_dir):
+        return stats
+
+    ip_map: Dict[str, str] = {}
+    if shutil.which("ip"):
+        try:
+            res = subprocess.run(["ip", "-j", "addr", "show"], capture_output=True, text=True, timeout=1)
+            if res.returncode == 0:
+                for item in json.loads(res.stdout):
+                    ifname = item.get("ifname", "")
+                    for addr in item.get("addr_info", []):
+                        if addr.get("family") == "inet":
+                            ip_map[ifname] = f"{addr.get('local')}/{addr.get('prefixlen')}"
+                            break
+        except Exception:
+            pass
+
+    try:
+        entries = os.listdir(net_dir)
+    except Exception:
+        return stats
+
+    for name in entries:
+        if name == "lo" or name.startswith(("veth", "docker", "virbr", "tap", "tun", "wg")):
+            continue
+        dev_path = os.path.join(net_dir, name)
+
+        mac: Optional[str] = None
+        addr_file = os.path.join(dev_path, "address")
+        if os.path.exists(addr_file):
+            try:
+                with open(addr_file, "r") as f:
+                    mac = f.read().strip().lower()
+            except Exception:
+                pass
+
+        status = "unknown"
+        oper_file = os.path.join(dev_path, "operstate")
+        if os.path.exists(oper_file):
+            try:
+                with open(oper_file, "r") as f:
+                    status = f.read().strip()
+            except Exception:
+                pass
+
+        mtu = 1500
+        mtu_file = os.path.join(dev_path, "mtu")
+        if os.path.exists(mtu_file):
+            try:
+                with open(mtu_file, "r") as f:
+                    mtu = int(f.read().strip())
+            except Exception:
+                pass
+
+        speed = "Unknown"
+        speed_file = os.path.join(dev_path, "speed")
+        if os.path.exists(speed_file):
+            try:
+                with open(speed_file, "r") as f:
+                    sp = f.read().strip()
+                    if sp.isdigit() and int(sp) > 0:
+                        speed = f"{sp} Mbps"
+            except Exception:
+                pass
+
+        duplex = "Unknown"
+        duplex_file = os.path.join(dev_path, "duplex")
+        if os.path.exists(duplex_file):
+            try:
+                with open(duplex_file, "r") as f:
+                    dp = f.read().strip()
+                    if dp:
+                        duplex = dp.capitalize()
+            except Exception:
+                pass
+
+        stats[name] = {
+            "mac": mac,
+            "status": status,
+            "mtu": mtu,
+            "speed": speed,
+            "duplex": duplex,
+            "ip": ip_map.get(name, ""),
+        }
+    return stats
+
+
 class DNSConfigSchema(BaseModel):
     forwarders: List[str]
     ad_blocking_enabled: bool
+
 
 @router.get("/api/network")
 async def get_network_config(
     current_user: UserSession = Depends(get_current_parent),
     network_service: NetworkService = Injected(NetworkService)
-):
-    """Returns unified network, wifi, and VPN configurations."""
+) -> Dict[str, Any]:
+    """Returns unified network, wifi, and VPN configurations enriched with live interface status."""
     config = network_service.get_network_config()
     vpns = network_service.get_vpns()
+    net_data = config.network.model_dump(exclude_none=True, by_alias=True) if config.network else {}
+
+    live_stats = _get_live_interface_stats()
+    if live_stats:
+        interfaces = net_data.setdefault("interfaces", [])
+        seen_names = set()
+        for iface in interfaces:
+            name = iface.get("name")
+            seen_names.add(name)
+            if name in live_stats:
+                st = live_stats[name]
+                iface["mac"] = st.get("mac") or iface.get("mac")
+                iface["status"] = st.get("status") or iface.get("status", "unknown")
+                iface["mtu"] = st.get("mtu") or iface.get("mtu", 1500)
+                iface["speed"] = st.get("speed") or iface.get("speed", "Unknown")
+                iface["duplex"] = st.get("duplex") or iface.get("duplex", "Unknown")
+                if not iface.get("ip") and st.get("ip"):
+                    iface["ip"] = st["ip"]
+
+        for name, st in live_stats.items():
+            if name not in seen_names and not name.startswith("br"):
+                interfaces.append({
+                    "name": name,
+                    "role": "unassigned",
+                    "status": st.get("status", "unknown"),
+                    "mac": st.get("mac"),
+                    "mtu": st.get("mtu", 1500),
+                    "speed": st.get("speed", "Unknown"),
+                    "duplex": st.get("duplex", "Unknown"),
+                    "ip": st.get("ip", ""),
+                })
+
     return {
-        "network": config.network.model_dump(exclude_none=True, by_alias=True) if config.network else {},
+        "network": net_data,
         "wifi": config.wifi.model_dump(exclude_none=True, by_alias=True) if config.wifi else {},
         "vpns": [v.model_dump(by_alias=True) for v in vpns]
     }

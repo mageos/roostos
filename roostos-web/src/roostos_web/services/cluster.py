@@ -123,7 +123,7 @@ class ClusterService:
             return await self.dbus.get_detected_hardware()
         except Exception:
             from roostos_engine.hardware_inspector import HardwareInspector
-            detected = HardwareInspector.inspect_network_interfaces(mock=True)
+            detected = HardwareInspector.inspect_network_interfaces(mock=False)
             return [d.model_dump() for d in detected]
 
     async def join_cluster(self, join_data: Dict[str, Any]) -> Dict[str, Any]:

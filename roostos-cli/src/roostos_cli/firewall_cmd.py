@@ -3,7 +3,7 @@
 import os
 import sys
 import subprocess
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import click
 import yaml
 from pydantic import BaseModel, Field
@@ -18,6 +18,43 @@ class PortForward(BaseModel):
     enabled: bool = True
 
 
+class InputRule(BaseModel):
+    name: str
+    interface: str = "*"
+    protocol: str = "tcp"
+    port: int
+    source: Optional[str] = None
+    action: str = "accept"
+    enabled: bool = True
+
+
+def _load_firewall_dict(config_dir: str) -> Tuple[str, Dict[str, Any]]:
+    fw_path = os.path.join(config_dir, "firewall.yaml")
+    os.makedirs(config_dir, exist_ok=True)
+    data: Dict[str, Any] = {"firewall": {"port_forwards": [], "rules": []}}
+    if os.path.exists(fw_path):
+        try:
+            with open(fw_path, "r") as f:
+                loaded = yaml.safe_load(f)
+                if loaded and isinstance(loaded, dict):
+                    data = loaded
+        except Exception as e:
+            click.secho(f"Error reading firewall.yaml: {e}", fg="red", err=True)
+            sys.exit(1)
+    if "firewall" not in data or not isinstance(data["firewall"], dict):
+        data["firewall"] = {}
+    return fw_path, data
+
+
+def _save_firewall_dict(fw_path: str, data: Dict[str, Any]) -> None:
+    try:
+        with open(fw_path, "w") as f:
+            yaml.dump(data, f, default_flow_style=False)
+    except Exception as e:
+        click.secho(f"Error saving firewall configuration: {e}", fg="red", err=True)
+        sys.exit(1)
+
+
 @click.group(name="fw")
 def fw_group() -> None:
     """Inspect and manage firewall rules, port forwarding, and device blocking."""
@@ -28,7 +65,6 @@ def fw_group() -> None:
 @click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
 def fw_status_cmd(config_dir: str) -> None:
     """Displays firewall service status, active sets, and port forward rules."""
-    # 1. Query nftables service
     active_str = "inactive"
     try:
         res = subprocess.run(["systemctl", "is-active", "nftables"], capture_output=True, text=True, timeout=2)
@@ -40,7 +76,6 @@ def fw_status_cmd(config_dir: str) -> None:
     click.echo("nftables Service:  ", nl=False)
     click.secho(active_str.upper(), fg=color, bold=True)
 
-    # 2. Check blocked clients set
     blocked_items: List[str] = []
     try:
         res = subprocess.run(["nft", "list", "set", "inet", "filter", "blocked_clients"], capture_output=True, text=True, timeout=2)
@@ -55,7 +90,6 @@ def fw_status_cmd(config_dir: str) -> None:
 
     click.echo(f"Blocked Clients:   {len(blocked_items)} ({', '.join(blocked_items) if blocked_items else 'None'})")
 
-    # 3. Read port forwards from firewall.yaml (fallback to schedules.yaml)
     fw_path = os.path.join(config_dir, "firewall.yaml")
     sch_path = os.path.join(config_dir, "schedules.yaml")
     target_path = fw_path if os.path.exists(fw_path) else sch_path
@@ -100,7 +134,6 @@ def block_cmd(target: str) -> None:
     target_clean = target.lower().strip()
     click.echo(f"Blocking {target_clean}...")
     try:
-        # Attempt to add to active nftables blocked set
         cmd = ["nft", "add", "element", "inet", "filter", "blocked_clients", f"{{ {target_clean} }}"]
         subprocess.run(cmd, check=True, capture_output=True)
         click.secho(f"✓ Blocked {target_clean} in active firewall set.", fg="green")
@@ -131,19 +164,7 @@ def unblock_cmd(target: str) -> None:
 @click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
 def forward_cmd(wan_port: int, lan_ip: str, lan_port: int, proto: str, name: Optional[str], config_dir: str) -> None:
     """Configures a port forward from WAN to a local LAN device."""
-    fw_path = os.path.join(config_dir, "firewall.yaml")
-    os.makedirs(config_dir, exist_ok=True)
-    data: Dict[str, Any] = {"firewall": {"port_forwards": [], "rules": []}}
-    if os.path.exists(fw_path):
-        try:
-            with open(fw_path, "r") as f:
-                loaded = yaml.safe_load(f)
-                if loaded:
-                    data = loaded
-        except Exception as e:
-            click.secho(f"Error reading firewall.yaml: {e}", fg="red", err=True)
-            sys.exit(1)
-
+    fw_path, data = _load_firewall_dict(config_dir)
     fw = data.setdefault("firewall", {})
     pfs = fw.setdefault("port_forwards", [])
     rule_name = name or f"Forward-{wan_port}-{lan_port}"
@@ -158,11 +179,106 @@ def forward_cmd(wan_port: int, lan_ip: str, lan_port: int, proto: str, name: Opt
         "lan_port": lan_port,
         "enabled": True,
     })
+    _save_firewall_dict(fw_path, data)
+    click.secho(f"✓ Port forward rule saved: WAN:{wan_port} -> {lan_ip}:{lan_port} ({proto})", fg="green", bold=True)
 
-    try:
-        with open(fw_path, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
-        click.secho(f"✓ Port forward rule saved: WAN:{wan_port} -> {lan_ip}:{lan_port} ({proto})", fg="green", bold=True)
-    except Exception as e:
-        click.secho(f"Error saving rule: {e}", fg="red", err=True)
+
+@fw_group.group(name="rules")
+def rules_group() -> None:
+    """Inspect and manage firewall input rules."""
+    pass
+
+
+@rules_group.command(name="list")
+@click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
+def rules_list_cmd(config_dir: str) -> None:
+    """Lists configured firewall input rules."""
+    _, data = _load_firewall_dict(config_dir)
+    raw_rules = data.get("firewall", {}).get("rules", []) or data.get("rules", [])
+    rules: List[InputRule] = []
+    for r in raw_rules:
+        try:
+            rules.append(InputRule(**r))
+        except Exception:
+            pass
+
+    if not rules:
+        click.echo("No firewall input rules configured.")
+        return
+
+    click.secho(f"{'NAME':<20} {'PORT':<8} {'PROTO':<10} {'IFACE':<10} {'SOURCE':<18} {'ACTION':<8} {'ENABLED'}", bold=True)
+    click.echo("-" * 85)
+    for r in rules:
+        action_color = "green" if r.action == "accept" else "red"
+        status_color = "green" if r.enabled else "yellow"
+        click.echo(f"{r.name:<20} {r.port:<8} {r.protocol.upper():<10} {r.interface:<10} {r.source or '*':<18} ", nl=False)
+        click.secho(f"{r.action.upper():<8} ", fg=action_color, nl=False)
+        click.secho(str(r.enabled), fg=status_color)
+
+
+@rules_group.command(name="add")
+@click.argument("name")
+@click.argument("port", type=int)
+@click.option("--proto", type=click.Choice(["tcp", "udp", "tcp/udp"]), default="tcp", help="Protocol")
+@click.option("--iface", default="*", help="Network interface (e.g. eth0, *, lan)")
+@click.option("--source", default=None, help="Source IP or CIDR filter (e.g. 192.168.1.0/24)")
+@click.option("--action", type=click.Choice(["accept", "drop"]), default="accept", help="Rule action")
+@click.option("--disabled", is_flag=True, default=False, help="Add rule in disabled state")
+@click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
+def rules_add_cmd(
+    name: str,
+    port: int,
+    proto: str,
+    iface: str,
+    source: Optional[str],
+    action: str,
+    disabled: bool,
+    config_dir: str,
+) -> None:
+    """Adds or updates a firewall input rule."""
+    fw_path, data = _load_firewall_dict(config_dir)
+    fw = data.setdefault("firewall", {})
+    rules = fw.setdefault("rules", [])
+
+    new_rule = {
+        "name": name,
+        "interface": iface,
+        "protocol": proto,
+        "port": port,
+        "source": source,
+        "action": action,
+        "enabled": not disabled,
+    }
+
+    replaced = False
+    for i, r in enumerate(rules):
+        if r.get("name") == name:
+            rules[i] = new_rule
+            replaced = True
+            break
+    if not replaced:
+        rules.append(new_rule)
+
+    _save_firewall_dict(fw_path, data)
+    action_verb = "Updated" if replaced else "Added"
+    click.secho(f"✓ {action_verb} firewall rule '{name}' on port {port}/{proto} ({action}).", fg="green", bold=True)
+
+
+@rules_group.command(name="remove")
+@click.argument("name")
+@click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
+def rules_remove_cmd(name: str, config_dir: str) -> None:
+    """Removes a firewall input rule by name."""
+    fw_path, data = _load_firewall_dict(config_dir)
+    fw = data.setdefault("firewall", {})
+    rules = fw.setdefault("rules", [])
+
+    orig_len = len(rules)
+    fw["rules"] = [r for r in rules if r.get("name") != name]
+
+    if len(fw["rules"]) == orig_len:
+        click.secho(f"Firewall rule '{name}' not found.", fg="yellow", err=True)
         sys.exit(1)
+
+    _save_firewall_dict(fw_path, data)
+    click.secho(f"✓ Removed firewall rule '{name}'.", fg="green")

@@ -128,3 +128,61 @@ def test_cli_devices_and_people(tmp_path: Path) -> None:
     res_people = runner.invoke(cli, ["people", "list", "--config-dir", str(tmp_path)])
     assert res_people.exit_code == 0
     assert "Charlie" in res_people.output
+
+
+def test_cli_fw_rules(tmp_path: Path) -> None:
+    runner = CliRunner()
+
+    # 1. List when empty
+    res_empty = runner.invoke(cli, ["fw", "rules", "list", "--config-dir", str(tmp_path)])
+    assert res_empty.exit_code == 0
+    assert "No firewall input rules configured" in res_empty.output
+
+    # 2. Add SSH rule
+    res_add1 = runner.invoke(cli, [
+        "fw", "rules", "add", "SSH", "22",
+        "--proto", "tcp",
+        "--iface", "eth0",
+        "--action", "accept",
+        "--config-dir", str(tmp_path),
+    ])
+    assert res_add1.exit_code == 0
+    assert "Added firewall rule 'SSH' on port 22/tcp (accept)" in res_add1.output
+
+    # 3. Add DNS rule
+    res_add2 = runner.invoke(cli, [
+        "fw", "rules", "add", "DNS", "53",
+        "--proto", "tcp/udp",
+        "--iface", "*",
+        "--source", "192.168.1.0/24",
+        "--action", "accept",
+        "--config-dir", str(tmp_path),
+    ])
+    assert res_add2.exit_code == 0
+    assert "Added firewall rule 'DNS'" in res_add2.output
+
+    # 4. List rules
+    res_list = runner.invoke(cli, ["fw", "rules", "list", "--config-dir", str(tmp_path)])
+    assert res_list.exit_code == 0
+    assert "SSH" in res_list.output
+    assert "22" in res_list.output
+    assert "DNS" in res_list.output
+    assert "53" in res_list.output
+    assert "192.168.1.0/24" in res_list.output
+
+    # 5. Remove SSH rule
+    res_rm = runner.invoke(cli, ["fw", "rules", "remove", "SSH", "--config-dir", str(tmp_path)])
+    assert res_rm.exit_code == 0
+    assert "Removed firewall rule 'SSH'" in res_rm.output
+
+    # Verify removal in list
+    res_list2 = runner.invoke(cli, ["fw", "rules", "list", "--config-dir", str(tmp_path)])
+    assert res_list2.exit_code == 0
+    assert "SSH" not in res_list2.output
+    assert "DNS" in res_list2.output
+
+    # 6. Remove nonexistent rule fails
+    res_rm_fake = runner.invoke(cli, ["fw", "rules", "remove", "NonExistent", "--config-dir", str(tmp_path)])
+    assert res_rm_fake.exit_code != 0
+    assert "not found" in res_rm_fake.output
+

@@ -54,6 +54,52 @@ export class NetworkViewComponent extends HTMLElement {
         this.innerHTML = renderNetworkViewTemplate();
         this.bindSubtabs();
         this.bindChildEvents();
+        this.populateChildData();
+    }
+
+    setData(networkSettings, wifiSettings) {
+        if (networkSettings) window.networkSettings = networkSettings;
+        if (wifiSettings) window.wifiSettings = wifiSettings;
+        this.populateChildData();
+    }
+
+    populateChildData() {
+        const net = window.networkSettings || {};
+        const interfacesComp = this.querySelector("#net-interfaces-comp");
+        if (interfacesComp && interfacesComp.setData) {
+            const ifaces = net.interfaces || [];
+            const wanIface = ifaces.find(i => i.role === "wan" || i.network === "wan") || {};
+            const wan = {
+                interface: wanIface.name || "",
+                proto: wanIface.protocol || (wanIface.dhcp ? "dhcp" : "static"),
+                ip: wanIface.ip || "",
+                gateway: wanIface.gateway || "",
+                dns: wanIface.dns || [],
+                mtu: wanIface.mtu || 1500,
+            };
+            interfacesComp.setData(ifaces, wan);
+        }
+
+        const bridgesComp = this.querySelector("#net-bridges-comp");
+        if (bridgesComp && bridgesComp.setData) {
+            bridgesComp.setData(net.bridges || [], net.vlans || []);
+        }
+
+        const zonesComp = this.querySelector("#net-zones-comp");
+        if (zonesComp && zonesComp.setZones) {
+            zonesComp.setZones(net.zones || []);
+        }
+
+        const wifiComp = this.querySelector("#net-wifi-comp");
+        if (wifiComp && wifiComp.setAccessPoints) {
+            const wifi = window.wifiSettings || {};
+            wifiComp.setAccessPoints(wifi.access_points || []);
+        }
+
+        const qosComp = this.querySelector("#net-qos-comp");
+        if (qosComp && qosComp.setQos) {
+            qosComp.setQos(net.qos || {});
+        }
     }
 
     bindSubtabs() {

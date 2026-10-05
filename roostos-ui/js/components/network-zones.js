@@ -83,16 +83,11 @@ const renderInlineZoneFormTemplate = (z = {}, isEdit = false) => html`
 export class NetworkZonesComponent extends HTMLElement {
     constructor() {
         super();
-        this.zones = [
-            { id: "lan", name: "Household LAN", interfaces: ["br0"], isolate: false, allow_zones: ["wan", "iot", "guest"], masquerade: false },
-            { id: "wan", name: "Internet WAN", interfaces: ["eth0"], isolate: false, allow_zones: [], masquerade: true },
-            { id: "iot", name: "Smart Home IoT Zone", interfaces: ["vlan-iot"], isolate: true, allow_zones: ["wan"], masquerade: false },
-            { id: "guest", name: "Guest Wi-Fi Zone", interfaces: ["vlan-guest"], isolate: true, allow_zones: ["wan"], masquerade: false }
-        ];
+        this.zones = [];
     }
 
     setZones(zoneList) {
-        if (zoneList && zoneList.length > 0) this.zones = zoneList;
+        this.zones = Array.isArray(zoneList) ? zoneList : [];
         this.render();
     }
 
@@ -101,7 +96,9 @@ export class NetworkZonesComponent extends HTMLElement {
     }
 
     render() {
-        const rowsHtml = this.zones.map(z => renderZoneRowTemplate(z)).join("");
+        const rowsHtml = this.zones.length > 0
+            ? this.zones.map(z => renderZoneRowTemplate(z)).join("")
+            : '<tr><td colspan="7" class="empty-state" style="text-align:center; padding: 16px; color: var(--text-secondary);">No network zones configured.</td></tr>';
         this.innerHTML = renderNetworkZonesTemplate(this.zones.length, rowsHtml);
 
         this.querySelectorAll("#top-add-zone-btn, #bottom-add-zone-btn").forEach(btn => {

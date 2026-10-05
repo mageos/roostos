@@ -67,33 +67,33 @@ const renderIfaceRowTemplate = (iface) => {
     `;
 };
 
-const renderWanViewTemplate = (wan) => html`
+const renderWanViewTemplate = (wan = {}) => html`
     <div class="grid-2-col" style="padding: 8px 0;">
         <div class="stat-item">
             <span class="stat-label">WAN Interface:</span>
-            <span class="stat-value"><code>${wan.interface || "eth0"}</code></span>
+            <span class="stat-value"><code>${wan.interface || "Not Configured"}</code></span>
         </div>
         <div class="stat-item">
             <span class="stat-label">Connection Protocol:</span>
-            <span class="stat-value"><span class="badge badge-info">${(wan.proto || "dhcp").toUpperCase()}</span></span>
+            <span class="stat-value"><span class="badge badge-info">${(wan.proto || "none").toUpperCase()}</span></span>
         </div>
         <div class="stat-item">
             <span class="stat-label">Assigned IP / Gateway:</span>
-            <span class="stat-value"><code>${wan.ip || "192.168.100.45/24"}</code></span>
+            <span class="stat-value"><code>${wan.ip || (wan.gateway ? `Gateway: ${wan.gateway}` : "-")}</code></span>
         </div>
         <div class="stat-item">
             <span class="stat-label">Upstream DNS Servers:</span>
-            <span class="stat-value"><code>${(wan.dns || ["1.1.1.1", "8.8.8.8"]).join(", ")}</code></span>
+            <span class="stat-value"><code>${(wan.dns && wan.dns.length > 0 ? wan.dns : ["-"]).join(", ")}</code></span>
         </div>
     </div>
 `;
 
-const renderWanEditFormTemplate = (wan) => html`
+const renderWanEditFormTemplate = (wan = {}) => html`
     <form id="wan-edit-form" style="padding: 12px 0;">
         <div class="grid-2-col">
             <div class="form-group">
                 <label>WAN Physical Interface</label>
-                <input type="text" id="wan-input-interface" value="${wan.interface || "eth0"}">
+                <input type="text" id="wan-input-interface" value="${wan.interface || ""}" placeholder="e.g. eth0">
             </div>
             <div class="form-group">
                 <label>Connection Protocol</label>
@@ -130,12 +130,8 @@ const renderWanEditFormTemplate = (wan) => html`
 export class NetworkInterfacesComponent extends HTMLElement {
     constructor() {
         super();
-        this.interfaces = [
-            { name: "eth0", status: "up", mac: "52:54:00:12:34:56", ip: "192.168.100.45/24", mtu: 1500, speed: "1000 Mbps", duplex: "Full", rx_rate: 1048576, tx_rate: 262144 },
-            { name: "eth1", status: "up", mac: "52:54:00:78:9a:bc", ip: "192.168.1.1/24", mtu: 1500, speed: "1000 Mbps", duplex: "Full", rx_rate: 524288, tx_rate: 1048576 },
-            { name: "wlan0", status: "up", mac: "52:54:00:de:f0:12", ip: "", mtu: 1500, speed: "Wi-Fi 6", duplex: "Full", rx_rate: 131072, tx_rate: 65536 }
-        ];
-        this.wan = { interface: "eth0", proto: "dhcp", ip: "192.168.100.45/24", gateway: "192.168.100.1", dns: ["1.1.1.1", "8.8.8.8"], mtu: 1500 };
+        this.interfaces = [];
+        this.wan = {};
         this.isEditingWan = false;
     }
 
@@ -150,7 +146,9 @@ export class NetworkInterfacesComponent extends HTMLElement {
     }
 
     render() {
-        const ifaceRowsHtml = this.interfaces.map(i => renderIfaceRowTemplate(i)).join("");
+        const ifaceRowsHtml = this.interfaces.length > 0
+            ? this.interfaces.map(i => renderIfaceRowTemplate(i)).join("")
+            : '<tr><td colspan="7" class="empty-state" style="text-align:center; padding: 24px; color: var(--text-secondary);">No network interfaces detected.</td></tr>';
         const wanConfigHtml = this.isEditingWan ? renderWanEditFormTemplate(this.wan) : renderWanViewTemplate(this.wan);
 
         this.innerHTML = renderInterfacesTemplate(this.interfaces.length, ifaceRowsHtml, wanConfigHtml);
