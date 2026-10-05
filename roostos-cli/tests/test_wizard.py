@@ -29,7 +29,8 @@ def test_wizard_setup_gateway():
 
         assert res.success is True
         assert res.role == NodeRole.GATEWAY
-        assert "roostos-gateway" in res.installed_packages
+        assert "kea-dhcp4-server" in res.installed_packages
+        assert "nftables" in res.installed_packages
 
         # Verify network.yaml written
         net_path = os.path.join(tmpdir, "network.yaml")
@@ -52,7 +53,7 @@ def test_wizard_setup_controller():
 
         assert res.success is True
         assert res.role == NodeRole.CONTROLLER
-        assert "roostos-engine" in res.installed_packages
+        assert "mosquitto" in res.installed_packages
 
         # Verify nodes.yaml written
         nodes_path = os.path.join(tmpdir, "nodes.yaml")
@@ -70,12 +71,13 @@ def test_wizard_setup_workstation():
             controller_host="192.168.1.50",
             controller_port=1883,
             family_user_mapping={"alice": "Alice Smith"},
+            enable_domain_login=True,
         )
         res = wizard.run_setup(role=NodeRole.WORKSTATION, workstation_params=params)
 
         assert res.success is True
         assert res.role == NodeRole.WORKSTATION
-        assert "roostos-workstation" in res.installed_packages
+        assert "sssd" in res.installed_packages
 
 
 def test_wizard_setup_standalone():

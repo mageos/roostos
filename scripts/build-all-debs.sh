@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RoostOS Master Multi-Package Build Script
+# RoostOS Unified Debian Package Build Script
 set -e
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -44,7 +44,7 @@ if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
 
     for arch in "${DOCKER_ARCHS[@]}"; do
         if ! command -v docker >/dev/null 2>&1; then
-            echo "Error: Target architecture '$arch' does not match host architecture '$HOST_ARCH', and Docker is not available for cross-compiling." >&2
+            echo "Error: Architecture '$arch' does not match host '$HOST_ARCH', and Docker is unavailable." >&2
             exit 1
         fi
         docker_platform="linux/$arch"
@@ -52,11 +52,10 @@ if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
             docker_platform="linux/arm/v7"
         fi
         echo "============================================="
-        echo "Cross-building Debian packages for $arch via Docker ($docker_platform)"
+        echo "Cross-building Unified RoostOS Debian package for $arch via Docker ($docker_platform)"
         echo "============================================="
         BUILDER_IMAGE="roostos-deb-builder:$arch"
         if ! docker image inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then
-            echo "Building builder container image ($BUILDER_IMAGE)..."
             docker build --platform "$docker_platform" -t "$BUILDER_IMAGE" -f "$SRC_DIR/packaging/debian/Dockerfile.builder" "$SRC_DIR/packaging/debian"
         fi
         HOST_UID=$(id -u)
@@ -78,7 +77,7 @@ if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
 fi
 
 echo "============================================="
-echo "Building RoostOS Modular Debian Packages"
+echo "Building Unified RoostOS Debian Package"
 echo "Version: $PACKAGE_VERSION"
 echo "Target Architectures: $ARCHITECTURES"
 echo "Output Directory: $DIST_DIR"
@@ -87,38 +86,7 @@ echo "============================================="
 rm -rf "$BUILD_DIR"
 mkdir -p "$DIST_DIR" "$BUILD_DIR"
 
-build_pkg() {
-    local pkg_name="$1"
-    local pkg_arch="$2"
-    local pkg_desc="$3"
-    local pkg_deps="$4"
-    local stage_path="$BUILD_DIR/$pkg_name"
-    local extra_headers="$5"
-
-    echo "--- Building Package: $pkg_name ($pkg_arch) ---"
-    mkdir -p "$stage_path/DEBIAN"
-
-    cat <<EOF > "$stage_path/DEBIAN/control"
-Package: $pkg_name
-Version: $PACKAGE_VERSION
-Section: admin
-Priority: optional
-Architecture: $pkg_arch
-Depends: $pkg_deps
-Maintainer: RoostOS Core Team <info@roostos.org>
-Description: $pkg_desc
-EOF
-
-    if [[ -n "$extra_headers" ]]; then
-        echo -e "$extra_headers" >> "$stage_path/DEBIAN/control"
-    fi
-
-    deb_filename="${pkg_name}_${PACKAGE_VERSION}_${pkg_arch}.deb"
-    dpkg-deb --root-owner-group --build "$stage_path" "$DIST_DIR/$deb_filename"
-    echo "✓ Built: $DIST_DIR/$deb_filename"
-}
-
-# 1. roostos-runtime (Bundled Python 3.13 Runtime & Locked Virtual Environment)
+# 1. Prepare standalone Python 3.13 and locked requirements
 uv python install 3.13
 STANDALONE_PYTHON="$(uv python list --only-installed 2>/dev/null | grep -E '^cpython-3\.13' | awk '{print $2}' | head -n 1)"
 if [[ -n "$STANDALONE_PYTHON" && -x "$STANDALONE_PYTHON" ]]; then
@@ -132,15 +100,17 @@ PYTHON_PREFIX="$(dirname "$(dirname "$REAL_PYTHON")")"
 uv export --no-dev --no-emit-workspace > "$BUILD_DIR/requirements-runtime.txt"
 
 for arch in $ARCHITECTURES; do
-    STAGE_RUNTIME="$BUILD_DIR/roostos-runtime"
-    RUNTIME_TARGET="$STAGE_RUNTIME/usr/lib/roostos/runtime"
-    rm -rf "$STAGE_RUNTIME"
-    mkdir -p "$RUNTIME_TARGET"
-    
-    echo "Copying standalone Python runtime into roostos-runtime ($arch)..."
+    STAGE_DIR="$BUILD_DIR/roostos-$arch"
+    RUNTIME_TARGET="$STAGE_DIR/usr/lib/roostos/runtime"
+    rm -rf "$STAGE_DIR"
+    mkdir -p "$RUNTIME_TARGET" "$STAGE_DIR/usr/bin" "$STAGE_DIR/usr/local/bin" \
+             "$STAGE_DIR/usr/share/roostos/web" "$STAGE_DIR/etc/systemd/system" \
+             "$STAGE_DIR/etc/dbus-1/system.d" "$STAGE_DIR/DEBIAN"
+
+    echo "--- Staging Runtime & Packages for $arch ---"
     cp -a "$PYTHON_PREFIX/"* "$RUNTIME_TARGET/"
 
-    echo "Installing locked dependencies into roostos-runtime..."
+    echo "Installing locked virtualenv dependencies..."
     uv pip install --break-system-packages --python "$RUNTIME_TARGET/bin/python3" -r "$BUILD_DIR/requirements-runtime.txt"
     uv pip install --break-system-packages --no-deps --python "$RUNTIME_TARGET/bin/python3" \
         "$SRC_DIR/roostos-sdk" \
@@ -151,43 +121,56 @@ for arch in $ARCHITECTURES; do
         "$SRC_DIR/roostos-dns-technitium" \
         "$SRC_DIR/roostos-identity-samba"
 
-    # Remove any stray development editable links
+    # Clean development editable references and standardize python shebangs
     find "$RUNTIME_TARGET" -name "*_editable_impl*.pth" -delete 2>/dev/null || true
-
     sed -i "s|#!.*python.*|#!/usr/lib/roostos/runtime/bin/python3|" "$RUNTIME_TARGET/bin/"* 2>/dev/null || true
-    build_pkg "roostos-runtime" "$arch" "Standalone Python 3.13 runtime and locked virtual environment for RoostOS" "libc6 (>= 2.31)"
-done
 
-# 2. roostos-cli (Root Base CLI and Setup Wizard)
-STAGE_CLI="$BUILD_DIR/roostos-cli"
-mkdir -p "$STAGE_CLI/usr/bin"
-cat << 'EOF' > "$STAGE_CLI/usr/bin/roostos"
+    # 2. Binary and entrypoint wrappers
+    cat << 'EOF' > "$STAGE_DIR/usr/bin/roostos"
 #!/usr/bin/env sh
 exec /usr/lib/roostos/runtime/bin/python3 -m roostos_cli.main "$@"
 EOF
-chmod 755 "$STAGE_CLI/usr/bin/roostos"
-build_pkg "roostos-cli" "all" "RoostOS root CLI and universal hardware-aware setup wizard" "roostos-runtime" "Provides: roostos\nReplaces: roostos"
+    chmod 755 "$STAGE_DIR/usr/bin/roostos"
 
-# 3. roostos-sdk
-STAGE_SDK="$BUILD_DIR/roostos-sdk"
-mkdir -p "$STAGE_SDK/DEBIAN"
-build_pkg "roostos-sdk" "all" "Python SDK for RoostOS services and plugins" "roostos-runtime"
-
-# 4. roostos-node (Base Node Agent & Local REST API)
-STAGE_NODE="$BUILD_DIR/roostos-node"
-mkdir -p "$STAGE_NODE/usr/bin"
-mkdir -p "$STAGE_NODE/usr/share/roostos/web"
-mkdir -p "$STAGE_NODE/etc/systemd/system"
-cp -r "$SRC_DIR/roostos-ui/"* "$STAGE_NODE/usr/share/roostos/web/" 2>/dev/null || true
-rm -rf "$STAGE_NODE/usr/share/roostos/web/node_modules"
-cat << 'EOF' > "$STAGE_NODE/usr/bin/roostos-node"
+    cat << 'EOF' > "$STAGE_DIR/usr/bin/roostos-node"
 #!/usr/bin/env sh
 exec /usr/lib/roostos/runtime/bin/python3 -m roostos_web.main "$@"
 EOF
-chmod 755 "$STAGE_NODE/usr/bin/roostos-node"
-ln -s roostos-node "$STAGE_NODE/usr/bin/roostos-web"
+    chmod 755 "$STAGE_DIR/usr/bin/roostos-node"
+    ln -s roostos-node "$STAGE_DIR/usr/bin/roostos-web"
 
-cat << 'EOF' > "$STAGE_NODE/etc/systemd/system/roostos-node.service"
+    cat << 'EOF' > "$STAGE_DIR/usr/bin/roostos-engine"
+#!/usr/bin/env sh
+exec /usr/lib/roostos/runtime/bin/python3 -m roostos_engine.daemon "$@"
+EOF
+    chmod 755 "$STAGE_DIR/usr/bin/roostos-engine"
+    ln -s roostos-engine "$STAGE_DIR/usr/bin/roostd"
+
+    cat << 'EOF' > "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
+#!/usr/bin/env sh
+exec /usr/lib/roostos/runtime/bin/python3 -m roostos_timeguardd.main "$@"
+EOF
+    chmod 755 "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
+
+    # Helper scripts
+    cp "$SRC_DIR/roostos-engine/src/roostos_engine/templates/roost-dhcp-hook.sh" "$STAGE_DIR/usr/local/bin/roost-dhcp-hook" 2>/dev/null || true
+    cp "$SRC_DIR/scripts/roostos-workstation-join.sh" "$STAGE_DIR/usr/local/bin/roostos-workstation-join" 2>/dev/null || true
+    cp "$SRC_DIR/scripts/roostos-workstation-enroll.sh" "$STAGE_DIR/usr/local/bin/roostos-workstation-enroll" 2>/dev/null || true
+    cp "$SRC_DIR/scripts/roostos-edge-setup.sh" "$STAGE_DIR/usr/local/bin/roostos-edge-setup" 2>/dev/null || true
+    chmod 755 "$STAGE_DIR/usr/local/bin/"* 2>/dev/null || true
+
+    # 3. Web UI Assets
+    cp -r "$SRC_DIR/roostos-ui/"* "$STAGE_DIR/usr/share/roostos/web/" 2>/dev/null || true
+    rm -rf "$STAGE_DIR/usr/share/roostos/web/node_modules" \
+           "$STAGE_DIR/usr/share/roostos/web/"*.test.js \
+           "$STAGE_DIR/usr/share/roostos/web/package.json" \
+           "$STAGE_DIR/usr/share/roostos/web/package-lock.json" 2>/dev/null || true
+
+    # 4. DBus configuration
+    cp "$SRC_DIR/packaging/common/dbus/org.roostos.conf" "$STAGE_DIR/etc/dbus-1/system.d/" 2>/dev/null || true
+
+    # 5. Systemd services
+    cat << 'EOF' > "$STAGE_DIR/etc/systemd/system/roostos-node.service"
 [Unit]
 Description=RoostOS Local Node Agent and REST API
 After=network.target
@@ -202,131 +185,41 @@ RestartSec=5
 WantedBy=multi-user.target
 Alias=roostos-web.service
 EOF
-ln -s roostos-node.service "$STAGE_NODE/etc/systemd/system/roostos-web.service"
+    ln -s roostos-node.service "$STAGE_DIR/etc/systemd/system/roostos-web.service"
+    cp "$SRC_DIR/packaging/common/systemd/roostos-engine.service" "$STAGE_DIR/etc/systemd/system/" 2>/dev/null || true
+    cp "$SRC_DIR/packaging/common/systemd/roostos-timeguardd.service" "$STAGE_DIR/etc/systemd/system/" 2>/dev/null || true
 
-mkdir -p "$STAGE_NODE/DEBIAN"
-cat << 'EOF' > "$STAGE_NODE/DEBIAN/postinst"
-#!/bin/sh
-set -e
-if [ "$1" = "configure" ]; then
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl daemon-reload || true
-        systemctl enable roostos-node.service || true
-        if [ -d /run/systemd/system ]; then
-            systemctl restart roostos-node.service || true
-        fi
-    fi
-fi
-exit 0
+    # 6. Debian control and maintainer scripts
+    cat << EOF > "$STAGE_DIR/DEBIAN/control"
+Package: roostos
+Version: $PACKAGE_VERSION
+Section: admin
+Priority: optional
+Architecture: $arch
+Depends: libc6 (>= 2.31)
+Recommends: nftables, wireguard
+Suggests: kea-dhcp4-server, mosquitto
+Provides: roostos-runtime, roostos-cli, roostos-node, roostos-web, roostos-gateway, roostos-core, roostos-engine, roostos-workstation, roostos-timeguardd, roostos-edge-node, roostos-router, roostos-gateway-node, roostos-controller-node
+Replaces: roostos-runtime, roostos-cli, roostos-node, roostos-web, roostos-gateway, roostos-core, roostos-engine, roostos-workstation, roostos-timeguardd, roostos-edge-node, roostos-router, roostos-gateway-node, roostos-controller-node
+Conflicts: roostos-core (<< 0.1.0)
+Maintainer: RoostOS Core Team <info@roostos.org>
+Description: RoostOS Unified Family Router & Local Infrastructure Management System
+ RoostOS provides unified routing, firewall management, parental screen-time controls,
+ local DNS/DHCP administration, and cluster synchronization.
 EOF
-chmod 755 "$STAGE_NODE/DEBIAN/postinst"
 
-build_pkg "roostos-node" "all" "RoostOS local node agent and REST API service" "roostos-runtime, roostos-cli" "Provides: roostos-web\nReplaces: roostos-web"
+    cp "$SRC_DIR/packaging/debian/postinst" "$STAGE_DIR/DEBIAN/postinst"
+    cp "$SRC_DIR/packaging/debian/prerm" "$STAGE_DIR/DEBIAN/prerm"
+    cp "$SRC_DIR/packaging/debian/postrm" "$STAGE_DIR/DEBIAN/postrm"
+    chmod 755 "$STAGE_DIR/DEBIAN/postinst" "$STAGE_DIR/DEBIAN/prerm" "$STAGE_DIR/DEBIAN/postrm"
 
-# Compatibility transitional package: roostos-web -> roostos-node
-STAGE_WEB="$BUILD_DIR/roostos-web"
-mkdir -p "$STAGE_WEB/DEBIAN"
-build_pkg "roostos-web" "all" "Transitional package for roostos-node" "roostos-node"
-
-# 5. roostos-gateway (Edge Router Stack - formerly roostos-core)
-STAGE_GW="$BUILD_DIR/roostos-gateway"
-mkdir -p "$STAGE_GW/usr/local/bin"
-mkdir -p "$STAGE_GW/etc/dbus-1/system.d"
-mkdir -p "$STAGE_GW/DEBIAN"
-cp "$SRC_DIR/debian/org.roostos.conf" "$STAGE_GW/etc/dbus-1/system.d/" 2>/dev/null || true
-cp "$SRC_DIR/roostos-engine/src/roostos_engine/templates/roost-dhcp-hook.sh" "$STAGE_GW/usr/local/bin/roost-dhcp-hook" 2>/dev/null || true
-chmod 755 "$STAGE_GW/usr/local/bin/roost-dhcp-hook" 2>/dev/null || true
-if [ -f "$SRC_DIR/packaging/debian/postinst" ]; then
-    cp "$SRC_DIR/packaging/debian/postinst" "$STAGE_GW/DEBIAN/postinst"
-    cp "$SRC_DIR/packaging/debian/prerm" "$STAGE_GW/DEBIAN/prerm"
-    cp "$SRC_DIR/packaging/debian/postrm" "$STAGE_GW/DEBIAN/postrm"
-    chmod 755 "$STAGE_GW/DEBIAN/postinst" "$STAGE_GW/DEBIAN/prerm" "$STAGE_GW/DEBIAN/postrm"
-fi
-for arch in $ARCHITECTURES; do
-    build_pkg "roostos-gateway" "$arch" "RoostOS edge gateway routing stack with nftables firewall, Kea DHCP, and networkd" "roostos-node, nftables, kea-dhcp4-server, wireguard, systemd" "Provides: roostos-core\nReplaces: roostos-core"
+    deb_filename="roostos_${PACKAGE_VERSION}_${arch}.deb"
+    echo "--- Packing: $deb_filename ---"
+    dpkg-deb --root-owner-group --build "$STAGE_DIR" "$DIST_DIR/$deb_filename"
+    echo "✓ Built: $DIST_DIR/$deb_filename"
 done
-
-# Compatibility transitional package: roostos-core -> roostos-gateway
-STAGE_CORE="$BUILD_DIR/roostos-core"
-mkdir -p "$STAGE_CORE/DEBIAN"
-for arch in $ARCHITECTURES; do
-    build_pkg "roostos-core" "$arch" "Transitional package for roostos-gateway" "roostos-gateway"
-done
-
-# 6. roostos-engine (Central Controller Stack)
-STAGE_ENGINE="$BUILD_DIR/roostos-engine"
-mkdir -p "$STAGE_ENGINE/usr/bin"
-mkdir -p "$STAGE_ENGINE/etc/roostos"
-mkdir -p "$STAGE_ENGINE/etc/systemd/system"
-cat << 'EOF' > "$STAGE_ENGINE/usr/bin/roostos-engine"
-#!/usr/bin/env sh
-exec /usr/lib/roostos/runtime/bin/python3 -m roostos_engine.daemon "$@"
-EOF
-chmod 755 "$STAGE_ENGINE/usr/bin/roostos-engine"
-ln -s roostos-engine "$STAGE_ENGINE/usr/bin/roostd"
-cp "$SRC_DIR/packaging/common/systemd/roostos-engine.service" "$STAGE_ENGINE/etc/systemd/system/roostos-engine.service" 2>/dev/null || true
-mkdir -p "$STAGE_ENGINE/DEBIAN"
-cat << 'EOF' > "$STAGE_ENGINE/DEBIAN/postinst"
-#!/bin/sh
-set -e
-if [ "$1" = "configure" ]; then
-    if command -v systemctl >/dev/null 2>&1; then
-        systemctl daemon-reload || true
-        systemctl enable roostos-engine.service || true
-        if [ -d /run/systemd/system ]; then
-            systemctl restart roostos-engine.service || true
-        fi
-    fi
-fi
-exit 0
-EOF
-chmod 755 "$STAGE_ENGINE/DEBIAN/postinst"
-
-build_pkg "roostos-engine" "all" "Central domain object controller, cluster sync, and configuration storage service" "roostos-runtime, mosquitto"
-
-# 7. roostos-workstation (Consolidated Client Workstation Stack)
-STAGE_WS="$BUILD_DIR/roostos-workstation"
-mkdir -p "$STAGE_WS/usr/local/bin"
-mkdir -p "$STAGE_WS/etc/systemd/system"
-cat << 'EOF' > "$STAGE_WS/usr/local/bin/roostos-timeguardd"
-#!/usr/bin/env sh
-exec /usr/lib/roostos/runtime/bin/python3 -m roostos_timeguardd.main "$@"
-EOF
-chmod 755 "$STAGE_WS/usr/local/bin/roostos-timeguardd"
-cp "$SRC_DIR/scripts/roostos-workstation-join.sh" "$STAGE_WS/usr/local/bin/roostos-workstation-join" 2>/dev/null || true
-chmod 755 "$STAGE_WS/usr/local/bin/roostos-workstation-join" 2>/dev/null || true
-cp "$SRC_DIR/scripts/roostos-workstation-enroll.sh" "$STAGE_WS/usr/local/bin/roostos-workstation-enroll" 2>/dev/null || true
-chmod 755 "$STAGE_WS/usr/local/bin/roostos-workstation-enroll" 2>/dev/null || true
-cp "$SRC_DIR/packaging/common/systemd/roostos-timeguardd.service" "$STAGE_WS/etc/systemd/system/" 2>/dev/null || true
-build_pkg "roostos-workstation" "all" "Screen time, parental controls, and domain enrollment for RoostOS client workstations" "roostos-runtime, systemd, dbus" "Provides: roostos-timeguardd\nReplaces: roostos-timeguardd"
-
-# Compatibility transitional package: roostos-timeguardd -> roostos-workstation
-STAGE_TG="$BUILD_DIR/roostos-timeguardd"
-mkdir -p "$STAGE_TG/DEBIAN"
-build_pkg "roostos-timeguardd" "all" "Transitional package for roostos-workstation" "roostos-workstation"
-
-# 8. Meta-Packages
-STAGE_ROUTER="$BUILD_DIR/roostos-router"
-build_pkg "roostos-router" "all" "All-in-one standalone RoostOS router distribution" "roostos-gateway, roostos-engine"
-
-STAGE_GW_NODE="$BUILD_DIR/roostos-gateway-node"
-build_pkg "roostos-gateway-node" "all" "Dedicated RoostOS edge gateway router node meta-package" "roostos-cli, roostos-gateway"
-
-STAGE_CTRL_NODE="$BUILD_DIR/roostos-controller-node"
-build_pkg "roostos-controller-node" "all" "Dedicated RoostOS central controller node meta-package" "roostos-cli, roostos-engine"
-
-STAGE_EDGE_NODE="$BUILD_DIR/roostos-edge-node"
-mkdir -p "$STAGE_EDGE_NODE/usr/local/bin"
-cp "$SRC_DIR/scripts/roostos-edge-setup.sh" "$STAGE_EDGE_NODE/usr/local/bin/roostos-edge-setup" 2>/dev/null || true
-chmod 755 "$STAGE_EDGE_NODE/usr/local/bin/roostos-edge-setup" 2>/dev/null || true
-build_pkg "roostos-edge-node" "all" "Dedicated RoostOS VPS Edge Gateway & Ingress proxy node meta-package" "roostos-cli, roostos-node, wireguard, nftables"
-
-# Compatibility root meta-package: roostos -> roostos-cli
-STAGE_ROOT_META="$BUILD_DIR/roostos"
-mkdir -p "$STAGE_ROOT_META/DEBIAN"
-build_pkg "roostos" "all" "RoostOS root CLI metapackage" "roostos-cli"
 
 echo "============================================="
-echo "All RoostOS Modular Debian Packages Built Successfully!"
-echo "Package Artifacts in: $DIST_DIR"
+echo "RoostOS Unified Debian Package Built Successfully!"
+echo "Artifacts located in: $DIST_DIR"
 echo "============================================="

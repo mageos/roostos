@@ -101,21 +101,14 @@ EOF
 
         # Enable services
         if command -v systemctl >/dev/null 2>&1; then
-            echo "Enabling systemd networks and services..."
+            echo "Enabling RoostOS node service..."
             systemctl daemon-reload || true
-            systemctl enable systemd-networkd || true
-            if systemctl list-unit-files | grep -q systemd-resolved; then
-                systemctl enable systemd-resolved || true
-            fi
-            systemctl enable nftables || true
-            if systemctl list-unit-files | grep -q roostos-engine.service; then
-                systemctl enable roostos-engine.service || true
-            fi
-            if systemctl list-unit-files | grep -q roostos-node.service; then
-                systemctl enable roostos-node.service || true
+            systemctl enable roostos-node.service || true
+            if [ -d /run/systemd/system ]; then
+                systemctl restart roostos-node.service || true
             fi
         fi
- 
+
         # Add AppArmor exceptions for Kea DHCPv4 socket lockfile if AppArmor is active
         if [ -d /etc/apparmor.d/local ]; then
             echo "Adding AppArmor policy overrides for Kea DHCP..."
@@ -125,25 +118,6 @@ EOF
                 sed -i '/roost-dhcp-hook/d' /etc/apparmor.d/local/usr.sbin.kea-dhcp4
                 echo "/run/kea/kea-dhcp4-ctrl.sock* rwk," >> /etc/apparmor.d/local/usr.sbin.kea-dhcp4
                 echo "/usr/local/bin/roost-dhcp-hook ux," >> /etc/apparmor.d/local/usr.sbin.kea-dhcp4
-            fi
-        fi
-
-        # Start service if systemd is running (not in a chroot/build environment)
-        if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
-            if systemctl is-active --quiet apparmor; then
-                systemctl reload apparmor || true
-            fi
-            pkill -HUP dbus-daemon || true
-            systemctl start nftables || true
-            systemctl restart systemd-networkd || true
-            if systemctl list-unit-files | grep -q systemd-resolved; then
-                systemctl restart systemd-resolved || true
-            fi
-            if systemctl list-unit-files | grep -q roostos-engine.service; then
-                systemctl restart roostos-engine.service || true
-            fi
-            if systemctl list-unit-files | grep -q roostos-node.service; then
-                systemctl restart roostos-node.service || true
             fi
         fi
         ;;

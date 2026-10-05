@@ -2,6 +2,7 @@
 
 import os
 import sys
+import json
 import yaml
 from typing import List, Optional, Dict, Any
 
@@ -52,12 +53,7 @@ class SetupWizard:
             return self._setup_standalone(gateway_params, controller_params, env)
         elif target_role == NodeRole.EDGE_GATEWAY:
             return self._setup_edge_gateway(edge_params, env)
-        else:
-            return SetupResult(
-                success=True,
-                role=target_role,
-                message=f"Configured node with role: {target_role.value}"
-            )
+        return SetupResult(success=True, role=target_role, message=f"Configured node with role: {target_role.value}")
 
     def _setup_gateway(
         self,
@@ -74,13 +70,9 @@ class SetupWizard:
                 lan_interfaces=lan,
             )
 
-        packages = ["roostos-node", "roostos-gateway", "nftables", "kea-dhcp4-server", "wireguard"]
+        packages = ["nftables", "kea-dhcp4-server", "wireguard"]
         self._install_packages(packages)
 
-        os.makedirs(self.config_dir, exist_ok=True)
-        created_files: List[str] = []
-
-        # Write network.yaml
         net_cfg = {
             "network": {
                 "interfaces": [{"name": params.wan_interface, "role": "wan", "dhcp": params.wan_proto == "dhcp"}]
@@ -91,11 +83,6 @@ class SetupWizard:
                 }]
             }
         }
-        net_path = os.path.join(self.config_dir, "network.yaml")
-        self._write_yaml(net_path, net_cfg)
-        created_files.append(net_path)
-
-        # Write system.yaml
         sys_cfg = {
             "system": {
                 "hostname": "roost-gateway",
@@ -103,9 +90,14 @@ class SetupWizard:
                 "cluster": {"roles": ["gateway_router"]}
             }
         }
-        sys_path = os.path.join(self.config_dir, "system.yaml")
-        self._write_yaml(sys_path, sys_cfg)
-        created_files.append(sys_path)
+        created_files = [
+            self._save_yaml("network.yaml", net_cfg),
+            self._save_yaml("system.yaml", sys_cfg),
+        ]
+
+        self._enable_service("roostos-node.service")
+        self._enable_service("kea-dhcp4-server.service")
+        self._enable_service("nftables.service")
 
         return SetupResult(
             success=True,
@@ -126,11 +118,8 @@ class SetupWizard:
             gw_ip = env.discovered_gateways[0].ip if env.discovered_gateways else None
             params = ControllerConfigParams(adopted_gateway_ip=gw_ip)
 
-        packages = ["roostos-node", "roostos-engine", "mosquitto"]
+        packages = ["mosquitto"]
         self._install_packages(packages)
-
-        os.makedirs(self.config_dir, exist_ok=True)
-        created_files: List[str] = []
 
         sys_cfg = {
             "system": {
@@ -138,10 +127,6 @@ class SetupWizard:
                 "cluster": {"is_controller": True, "roles": ["controller", "compute_node"]}
             }
         }
-        sys_path = os.path.join(self.config_dir, "system.yaml")
-        self._write_yaml(sys_path, sys_cfg)
-        created_files.append(sys_path)
-
         nodes = [{
             "id": "controller-01", "name": "RoostOS Central Controller",
             "roles": ["controller", "compute_node"], "management_ip": "127.0.0.1"
@@ -152,9 +137,14 @@ class SetupWizard:
                 "roles": ["gateway_router"], "management_ip": params.adopted_gateway_ip
             })
 
-        nodes_path = os.path.join(self.config_dir, "nodes.yaml")
-        self._write_yaml(nodes_path, {"nodes": nodes})
-        created_files.append(nodes_path)
+        created_files = [
+            self._save_yaml("system.yaml", sys_cfg),
+            self._save_yaml("nodes.yaml", {"nodes": nodes}),
+        ]
+
+        self._enable_service("mosquitto.service")
+        self._enable_service("roostos-engine.service")
+        self._enable_service("roostos-node.service")
 
         return SetupResult(
             success=True,
@@ -175,35 +165,30 @@ class SetupWizard:
             ctrl_ip = env.discovered_controllers[0].ip if env.discovered_controllers else "roostos.local"
             params = WorkstationConfigParams(controller_host=ctrl_ip)
 
-        packages = ["roostos-workstation"]
+        packages: List[str] = []
         if params.enable_domain_login:
             packages.extend(["sssd", "realmd", "adcli", "oddjob-mkhomedir"])
         self._install_packages(packages)
 
         tg_dir = os.path.join(self.config_dir, "timeguardd") if self.config_dir != "/etc/roostos" else "/etc/roostos-timeguardd"
         os.makedirs(tg_dir, exist_ok=True)
-        created_files: List[str] = []
-
         tg_config = {
             "mqtt_host": params.controller_host,
             "mqtt_port": params.controller_port,
             "join_token": params.join_token or "",
-            "users": {
-                user: {"daily_limit_seconds": 7200}
-                for user in params.family_user_mapping
-            } or {"default": {"daily_limit_seconds": 7200}}
+            "users": {u: {"daily_limit_seconds": 7200} for u in params.family_user_mapping} or {"default": {"daily_limit_seconds": 7200}}
         }
         tg_path = os.path.join(tg_dir, "config.json")
-        import json
         with open(tg_path, "w") as f:
             json.dump(tg_config, f, indent=2)
-        created_files.append(tg_path)
+
+        self._enable_service("roostos-timeguardd.service")
 
         return SetupResult(
             success=True,
             role=NodeRole.WORKSTATION,
             installed_packages=packages,
-            created_configs=created_files,
+            created_configs=[tg_path],
             message=f"Workstation enrolled with RoostOS TimeGuard. Connected to {params.controller_host}"
         )
 
@@ -217,8 +202,6 @@ class SetupWizard:
         gw_res = self._setup_gateway(gw_params, env)
         ctrl_res = self._setup_controller(ctrl_params, env)
 
-        # Merge system.yaml to preserve gateway_router role, DNS forwarders, and controller settings
-        sys_path = os.path.join(self.config_dir, "system.yaml")
         dns_servers = gw_params.dns_servers if gw_params else ["1.1.1.1", "8.8.8.8"]
         domain = ctrl_params.domain if ctrl_params else "roostos.local"
         standalone_sys_cfg = {
@@ -227,7 +210,10 @@ class SetupWizard:
                 "cluster": {"is_controller": True, "roles": ["gateway_router", "controller", "compute_node"]}
             }
         }
-        self._write_yaml(sys_path, standalone_sys_cfg)
+        self._save_yaml("system.yaml", standalone_sys_cfg)
+
+        self._enable_service("mosquitto.service")
+        self._enable_service("roostos-engine.service")
 
         combined_packages = list(dict.fromkeys(gw_res.installed_packages + ctrl_res.installed_packages))
         combined_configs = list(dict.fromkeys(gw_res.created_configs + ctrl_res.created_configs))
@@ -248,31 +234,22 @@ class SetupWizard:
     ) -> SetupResult:
         """Configures system as an Ingress Edge Gateway on a cloud VPS."""
         wan = params.wan_interface if params else "eth0"
-        packages = ["roostos-node", "wireguard", "nftables"]
+        packages = ["wireguard", "nftables"]
         self._install_packages(packages)
 
-        os.makedirs(self.config_dir, exist_ok=True)
-        created_files: List[str] = []
-
-        sys_cfg = {
-            "system": {
-                "hostname": "roost-edge",
-                "cluster": {"roles": ["edge_gateway"]},
-            }
-        }
-        sys_path = os.path.join(self.config_dir, "system.yaml")
-        self._write_yaml(sys_path, sys_cfg)
-        created_files.append(sys_path)
-
+        sys_cfg = {"system": {"hostname": "roost-edge", "cluster": {"roles": ["edge_gateway"]}}}
         net_cfg = {
             "network": {
                 "interfaces": [{"name": wan, "role": "wan", "dhcp": True}],
                 "gateways": [{"id": "default", "name": "VPS Gateway", "interface": wan}],
             }
         }
-        net_path = os.path.join(self.config_dir, "network.yaml")
-        self._write_yaml(net_path, net_cfg)
-        created_files.append(net_path)
+        created_files = [
+            self._save_yaml("system.yaml", sys_cfg),
+            self._save_yaml("network.yaml", net_cfg),
+        ]
+
+        self._enable_service("roostos-node.service")
 
         return SetupResult(
             success=True,
@@ -285,15 +262,39 @@ class SetupWizard:
 
     def _install_packages(self, packages: List[str]) -> None:
         """Installs packages via apt-get unless mock_install is True."""
+        if not packages or self.mock_install or os.environ.get("ROOSTOS_MOCK_INSTALL") == "1" or os.getuid() != 0:
+            return
+        import subprocess
+        try:
+            needed: List[str] = []
+            for pkg in packages:
+                res = subprocess.run(["dpkg", "-s", pkg], capture_output=True, text=True)
+                if res.returncode != 0:
+                    needed.append(pkg)
+            if not needed:
+                return
+            print(f"Installing required system packages: {', '.join(needed)}...")
+            subprocess.run(["apt-get", "update", "-qq"], check=False)
+            subprocess.run(["apt-get", "install", "-y", "--no-install-recommends"] + needed, check=True)
+        except Exception as e:
+            print(f"Warning: Package installation via apt failed: {e}", file=sys.stderr)
+
+    def _enable_service(self, service_name: str) -> None:
+        """Enables and starts a systemd service."""
         if self.mock_install or os.environ.get("ROOSTOS_MOCK_INSTALL") == "1" or os.getuid() != 0:
             return
         import subprocess
         try:
-            subprocess.run(["apt-get", "install", "-y"] + packages, check=True, capture_output=True)
+            subprocess.run(["systemctl", "daemon-reload"], check=False, capture_output=True)
+            subprocess.run(["systemctl", "enable", service_name], check=False, capture_output=True)
+            if os.path.isdir("/run/systemd/system"):
+                subprocess.run(["systemctl", "restart", service_name], check=False, capture_output=True)
         except Exception as e:
-            print(f"Warning: Package installation via apt failed: {e}", file=sys.stderr)
+            print(f"Warning: Failed to enable {service_name}: {e}", file=sys.stderr)
 
-    @staticmethod
-    def _write_yaml(path: str, data: Dict[str, Any]) -> None:
+    def _save_yaml(self, filename: str, data: Dict[str, Any]) -> str:
+        os.makedirs(self.config_dir, exist_ok=True)
+        path = os.path.join(self.config_dir, filename)
         with open(path, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
+        return path

@@ -19,6 +19,12 @@ from roostos_cli.wizard import SetupWizard
 from roostos_cli.edge import edge_group
 from roostos_cli.app_cmd import app_group
 from roostos_cli.update_cmd import update_group
+from roostos_cli.doctor import doctor_cmd
+from roostos_cli.service_cmd import service_group, logs_cmd
+from roostos_cli.network_cmd import net_group, dhcp_group
+from roostos_cli.firewall_cmd import fw_group
+from roostos_cli.cluster_cmd import cluster_group
+from roostos_cli.device_cmd import devices_group, people_group
 
 
 @click.group()
@@ -31,6 +37,16 @@ def cli() -> None:
 cli.add_command(edge_group)
 cli.add_command(app_group)
 cli.add_command(update_group)
+cli.add_command(doctor_cmd)
+cli.add_command(doctor_cmd, name="diag")
+cli.add_command(service_group)
+cli.add_command(logs_cmd)
+cli.add_command(net_group)
+cli.add_command(dhcp_group)
+cli.add_command(fw_group)
+cli.add_command(cluster_group)
+cli.add_command(devices_group)
+cli.add_command(people_group)
 
 
 @cli.command(name="status")
