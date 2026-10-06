@@ -44,6 +44,13 @@ class SetupWizard:
             env.discovered_controllers = NetworkDiscoverer.discover_controllers()
 
         target_role = role or env.recommended_role
+        if not self.mock_install and os.environ.get("ROOSTOS_MOCK_INSTALL") != "1" and os.getuid() != 0:
+            return SetupResult(
+                success=False,
+                role=target_role,
+                message="Root privileges are required to run RoostOS setup. Please run with sudo or as root.",
+            )
+
         handlers = {
             NodeRole.GATEWAY: lambda: self._setup_gateway(gateway_params, env),
             NodeRole.CONTROLLER: lambda: self._setup_controller(controller_params, env),

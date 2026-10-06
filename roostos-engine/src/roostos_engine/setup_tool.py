@@ -138,14 +138,9 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     click.secho("===================================================", fg="cyan", bold=True)
     
     if os.getuid() != 0 and config_dir == "/etc/roostos":
-        if not non_interactive:
-            cont = yes_no_dialog(
-                title="Warning: Not Running as Root",
-                text="You are not running as root. Writing configurations to /etc/roostos will likely fail.\n\nDo you want to continue anyway?"
-            ).run()
-            if not cont:
-                click.echo("Setup cancelled.")
-                sys.exit(0)
+        click.secho("✗ Root privileges are required to run the RoostOS setup tool.", fg="red", bold=True, err=True)
+        click.secho("Please run with sudo or as root: sudo roostos-setup", fg="yellow", err=True)
+        sys.exit(1)
 
     # 0. Optional / Automatic Controller Discovery (mDNS)
     if discover or os.environ.get("ROOSTOS_DISCOVER_CONTROLLERS") == "1":

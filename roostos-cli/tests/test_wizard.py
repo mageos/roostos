@@ -168,9 +168,23 @@ def test_wizard_apply_dns_resolv(monkeypatch, tmp_path):
     assert "nameserver 8.8.8.8" in content
 
 
+def test_wizard_fails_without_root(monkeypatch, tmp_path):
+    wizard = SetupWizard(config_dir=str(tmp_path), mock_install=False)
+    monkeypatch.setenv("ROOSTOS_MOCK_INSTALL", "0")
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+
+    params = GatewayConfigParams(wan_interface="eth0", lan_interfaces=["eth1"])
+    res = wizard.run_setup(role=NodeRole.GATEWAY, gateway_params=params)
+
+    assert res.success is False
+    assert "Root privileges are required" in res.message
+    assert not (tmp_path / "network.yaml").exists()
+
+
 def test_wizard_gateway_fails_without_kea(monkeypatch, tmp_path):
     wizard = SetupWizard(config_dir=str(tmp_path), mock_install=False)
     monkeypatch.setenv("ROOSTOS_MOCK_INSTALL", "0")
+    monkeypatch.setattr(os, "getuid", lambda: 0)
     monkeypatch.setattr(wizard, "_install_packages", lambda pkgs: None)
     monkeypatch.setattr(wizard, "_is_package_installed", lambda pkg: False)
 

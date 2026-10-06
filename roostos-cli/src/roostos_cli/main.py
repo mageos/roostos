@@ -123,6 +123,11 @@ def setup_cmd(
     mock: bool,
 ) -> None:
     """Launches the RoostOS Setup Wizard."""
+    if not mock and os.environ.get("ROOSTOS_MOCK_INSTALL") != "1" and os.getuid() != 0:
+        click.secho("✗ Root privileges are required to run the RoostOS setup wizard.", fg="red", bold=True, err=True)
+        click.secho("Please run with sudo or as root: sudo roostos setup", fg="yellow", err=True)
+        sys.exit(1)
+
     click.clear()
     click.secho("==================================================", fg="cyan", bold=True)
     click.secho("          RoostOS Universal Setup Wizard          ", fg="cyan", bold=True)
