@@ -100,6 +100,7 @@ def discover_cmd() -> None:
 @click.option("--wan", help="WAN interface for Gateway role")
 @click.option("--lan", help="LAN interfaces (comma-separated) for Gateway role")
 @click.option("--subnet", default="192.168.1.0/24", help="LAN subnet for Gateway role")
+@click.option("--dns-subsystem", type=click.Choice(["local", "technitium"], case_sensitive=False), default="local", help="DNS subsystem to use (local or technitium)")
 @click.option("--allow-wan-ssh", is_flag=True, help="Allow SSH on WAN interface")
 @click.option("--allow-wan-web", is_flag=True, help="Allow RoostOS Web on WAN interface")
 @click.option("--controller", help="Controller host/IP for Workstation role")
@@ -112,6 +113,7 @@ def setup_cmd(
     wan: Optional[str],
     lan: Optional[str],
     subnet: str,
+    dns_subsystem: str,
     allow_wan_ssh: bool,
     allow_wan_web: bool,
     controller: Optional[str],
@@ -165,8 +167,12 @@ def setup_cmd(
 
         if not non_interactive:
             click.echo("\n--- Network Interface Configuration ---")
-            if eth_ifaces:
-                click.echo(f"Detected physical adapters: {', '.join(eth_ifaces)}")
+            click.echo("Detected physical network adapters:")
+            for iface in env.interfaces:
+                if iface.name != "lo":
+                    mac_str = iface.mac_address or "Unknown"
+                    ip_str = iface.ip_address or "None"
+                    click.echo(f"  • {iface.name} (MAC: {mac_str}, IP: {ip_str}, State: {iface.operstate.upper()})")
             wan_if = click.prompt("WAN interface (connects to upstream modem/Internet)", default=wan or default_wan)
             default_lan_str = ",".join([i for i in default_lan if i != wan_if]) or "eth1"
             lan_input = click.prompt("LAN interface(s) (comma-separated for bridge br0)", default=lan or default_lan_str)
@@ -179,6 +185,12 @@ def setup_cmd(
             dhcp_start = click.prompt("DHCP pool start", default=f"{base}.100")
             dhcp_end = click.prompt("DHCP pool end", default=f"{base}.250")
 
+            click.echo("\n--- DNS Subsystem ---")
+            click.echo("  [1] Local Resolver (Lightweight native DNS forwarding)")
+            click.echo("  [2] Technitium DNS (Advanced DNS server with built-in ad/malware blocking)")
+            dns_choice = click.prompt("Selection", type=click.IntRange(1, 2), default=1 if dns_subsystem == "local" else 2)
+            dns_sub = "local" if dns_choice == 1 else "technitium"
+
             click.echo("\n--- WAN Firewall Access ---")
             allow_ssh = click.confirm("Allow SSH remote management on WAN?", default=False)
             allow_web = click.confirm("Allow RoostOS Web Console on WAN?", default=False)
@@ -189,6 +201,7 @@ def setup_cmd(
             lan_ip = f"{prefix}.1"
             dhcp_start = f"{prefix}.100"
             dhcp_end = f"{prefix}.250"
+            dns_sub = dns_subsystem
             allow_ssh = allow_wan_ssh
             allow_web = allow_wan_web
 
@@ -199,6 +212,7 @@ def setup_cmd(
             lan_ip=lan_ip,
             dhcp_start=dhcp_start,
             dhcp_end=dhcp_end,
+            dns_subsystem=dns_sub,
             allow_wan_ssh=allow_ssh,
             allow_wan_web=allow_web,
         )

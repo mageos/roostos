@@ -20,6 +20,7 @@ class InterfaceInfo(BaseModel):
     """Network adapter hardware descriptor."""
     name: str
     mac_address: Optional[str] = None
+    ip_address: Optional[str] = None
     operstate: str = "unknown"
     speed_mbps: Optional[int] = None
     is_wireless: bool = False
@@ -64,6 +65,7 @@ class GatewayConfigParams(BaseModel):
     dhcp_start: str = "192.168.1.100"
     dhcp_end: str = "192.168.1.250"
     dns_servers: List[str] = Field(default_factory=lambda: ["1.1.1.1", "8.8.8.8"])
+    dns_subsystem: str = "local"  # "local", "technitium"
     allow_wan_ssh: bool = False
     allow_wan_web: bool = False
 

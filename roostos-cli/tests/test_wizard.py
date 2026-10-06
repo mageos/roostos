@@ -167,3 +167,40 @@ def test_wizard_apply_dns_resolv(monkeypatch, tmp_path):
     assert "nameserver 1.1.1.1" in content
     assert "nameserver 8.8.8.8" in content
 
+
+def test_wizard_gateway_fails_without_kea(monkeypatch, tmp_path):
+    wizard = SetupWizard(config_dir=str(tmp_path), mock_install=False)
+    monkeypatch.setenv("ROOSTOS_MOCK_INSTALL", "0")
+    monkeypatch.setattr(wizard, "_install_packages", lambda pkgs: None)
+    monkeypatch.setattr(wizard, "_is_package_installed", lambda pkg: False)
+
+    params = GatewayConfigParams(wan_interface="eth0", lan_interfaces=["eth1"])
+    res = wizard.run_setup(role=NodeRole.GATEWAY, gateway_params=params)
+
+    assert res.success is False
+    assert "Kea DHCP server" in res.message
+    assert not (tmp_path / "network.yaml").exists()
+
+
+def test_wizard_gateway_technitium_dns(tmp_path):
+    wizard = SetupWizard(config_dir=str(tmp_path), mock_install=True)
+    params = GatewayConfigParams(
+        wan_interface="eth0",
+        lan_interfaces=["eth1"],
+        dns_subsystem="technitium",
+    )
+    res = wizard.run_setup(role=NodeRole.GATEWAY, gateway_params=params)
+
+    assert res.success is True
+    sys_path = tmp_path / "system.yaml"
+    with open(sys_path) as f:
+        sys_data = yaml.safe_load(f)
+    assert sys_data["system"]["dns"]["ad_blocking_enabled"] is True
+
+    plg_path = tmp_path / "plugins.yaml"
+    assert plg_path.exists()
+    with open(plg_path) as f:
+        plg_data = yaml.safe_load(f)
+    plugins = plg_data.get("plugins", [])
+    assert any(p["id"] == "technitium-dns" for p in plugins)
+

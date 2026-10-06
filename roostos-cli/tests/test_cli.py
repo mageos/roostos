@@ -34,3 +34,20 @@ def test_cli_setup_non_interactive(tmp_path):
     assert result.exit_code == 0
     assert "Gateway Router successfully configured" in result.output
     assert (tmp_path / "network.yaml").exists()
+
+
+def test_cli_setup_with_technitium(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "setup",
+        "--role", "gateway",
+        "--wan", "eth0",
+        "--lan", "eth1",
+        "--dns-subsystem", "technitium",
+        "--config-dir", str(tmp_path),
+        "--mock",
+        "--non-interactive",
+    ])
+    assert result.exit_code == 0
+    assert "Gateway Router successfully configured" in result.output
+    assert (tmp_path / "plugins.yaml").exists()
