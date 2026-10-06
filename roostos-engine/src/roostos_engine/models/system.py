@@ -25,6 +25,7 @@ class SystemUpdatesConfig(BaseModel):
 class SystemDNSConfig(BaseModel):
     forwarders: List[str] = Field(default_factory=list)
     ad_blocking_enabled: bool = False
+    subsystem: str = "local"
 
 class ClusterSettingsConfig(BaseModel):
     node_id: Optional[str] = "node-01"

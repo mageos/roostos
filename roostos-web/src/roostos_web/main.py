@@ -13,7 +13,7 @@ from roostos_sdk.client import RoostClient
 from roostos_web.routers import (
     auth, system, devices, network, schedules, plugins, diagnostics,
     config, certificates, cluster, health, events, identity, setup, edge, catalog,
-    telemetry, alerts, updates
+    telemetry, alerts, updates, dns
 )
 from roostos_web.services.events import event_publisher
 
@@ -52,6 +52,7 @@ app.include_router(alerts.router)
 app.include_router(updates.router)
 app.include_router(auth.router)
 app.include_router(system.router)
+app.include_router(dns.router)
 app.include_router(identity.router)
 app.include_router(cluster.router)
 app.include_router(health.router)

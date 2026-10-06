@@ -385,14 +385,13 @@ window.loadDashboard = async function() {
         } catch (_) {}
 
         // Fetch DNS Configurations
-        const dnsData = await window.securityService.fetchDnsConfig();
-        const dnsUpstreams = document.getElementById("dns-upstreams");
-        if (dnsUpstreams && dnsData.upstream_servers) {
-            dnsUpstreams.textContent = dnsData.upstream_servers.join(", ");
-        }
-        if (window.dnsComponent && window.dnsComponent.render) {
-            window.dnsComponent.render(dnsData);
-        }
+        try {
+            const dnsData = await window.securityService.fetchDnsConfig();
+            const dnsElem = document.getElementById("dns-settings-elem");
+            if (dnsElem && dnsElem.setData) {
+                dnsElem.setData(dnsData);
+            }
+        } catch (_) {}
 
         // Fetch operator logins & household members
         const users = await window.securityService.fetchUsers();
@@ -585,20 +584,7 @@ function init() {
         dnsPane.id = "dns-view";
         dnsPane.className = "view-pane";
         dnsPane.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>DNS Resolver Settings</h3>
-                    <span class="badge badge-info">Local DNS</span>
-                </div>
-                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
-                    Local caching DNS resolver and upstream DNS-over-HTTPS / TLS forwarding configuration.
-                </p>
-                <div class="grid-3-col" style="gap: 16px; margin-top: 12px;">
-                    <div class="stat-item"><span class="stat-label">Local DNS Listen IP:</span><span class="stat-value" id="dns-local-ip">127.0.0.1</span></div>
-                    <div class="stat-item"><span class="stat-label">Upstream Servers:</span><span class="stat-value" id="dns-upstreams">1.1.1.1, 8.8.8.8</span></div>
-                    <div class="stat-item"><span class="stat-label">DNS Filter Status:</span><span class="stat-value badge badge-success" id="dns-blocking-status">Active</span></div>
-                </div>
-            </div>
+            <roost-dns-settings id="dns-settings-elem"></roost-dns-settings>
         `;
         viewContainer.appendChild(dnsPane);
 

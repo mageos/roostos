@@ -19,14 +19,24 @@ from roostos_cli.models import (
 )
 from roostos_cli.inspector import EnvironmentInspector
 from roostos_cli.discovery import NetworkDiscoverer
+from roostos_engine.pkg_manager import (
+    BasePackageManager,
+    detect_package_manager,
+)
 
 
 class SetupWizard:
     """Coordinates hardware introspection, role selection, package installation, and config provisioning."""
 
-    def __init__(self, config_dir: str = "/etc/roostos", mock_install: bool = False):
+    def __init__(
+        self,
+        config_dir: str = "/etc/roostos",
+        mock_install: bool = False,
+        pkg_manager: Optional[BasePackageManager] = None,
+    ):
         self.config_dir = config_dir
         self.mock_install = mock_install
+        self.pkg_manager = pkg_manager or detect_package_manager(mock=mock_install)
 
     def run_setup(
         self,
@@ -70,10 +80,16 @@ class SetupWizard:
             lan = eth_ifaces[1:] if len(eth_ifaces) > 1 else ["eth1"]
             params = GatewayConfigParams(wan_interface=wan, lan_interfaces=lan)
 
+        is_tech = getattr(params, "dns_subsystem", "local") == "technitium"
         packages = ["nftables", "kea-dhcp4-server", "wireguard"]
+        if is_tech:
+            packages.append("docker.io")
         self._install_packages(packages)
+
         if not self._is_package_installed("kea-dhcp4-server"):
             return SetupResult(success=False, role=NodeRole.GATEWAY, message="Kea DHCP server (kea-dhcp4-server) is required for router mode but is not installed.")
+        if is_tech and not self._is_package_installed("docker.io"):
+            return SetupResult(success=False, role=NodeRole.GATEWAY, message="Docker (docker.io) is required for Technitium DNS server but is not installed.")
 
         net_cfg = {
             "network": {
@@ -82,7 +98,6 @@ class SetupWizard:
                 "bridges": [{"name": "br0", "ip": f"{params.lan_ip}/24", "dhcp_enabled": params.dhcp_enabled, "dhcp_pool_start": params.dhcp_start, "dhcp_pool_end": params.dhcp_end}],
             }
         }
-        is_tech = getattr(params, "dns_subsystem", "local") == "technitium"
         sys_cfg = {"system": {"hostname": "roost-gateway", "dns": {"forwarders": params.dns_servers, "ad_blocking_enabled": is_tech}, "cluster": {"roles": ["gateway_router"]}}}
         fw_rules = []
         if getattr(params, "allow_wan_ssh", False):
@@ -90,7 +105,25 @@ class SetupWizard:
         if getattr(params, "allow_wan_web", False):
             fw_rules.append({"name": "Allow RoostOS Web (WAN)", "interface": params.wan_interface, "protocol": "tcp", "port": 8000, "action": "accept", "enabled": True})
         fw_cfg = {"firewall": {"rules": fw_rules, "port_forwards": []}}
-        plg_cfg = {"plugins": [{"id": "technitium-dns", "name": "Technitium DNS Server", "enabled": True, "known_services": ["dnsServer", "dnsFilter"], "containers": [{"name": "dns-server", "image": "technitium/dns-server:latest"}]}]} if is_tech else {"plugins": []}
+        plg_cfg = {
+            "plugins": [{
+                "id": "technitium-dns",
+                "name": "Technitium DNS Server",
+                "enabled": True,
+                "target_role": "gateway_router",
+                "known_services": ["dnsServer", "dnsFilter"],
+                "containers": [{
+                    "name": "dns-server",
+                    "image": "technitium/dns-server:latest",
+                    "ports": [
+                        {"host_port": 53, "container_port": 53, "protocol": "udp"},
+                        {"host_port": 53, "container_port": 53, "protocol": "tcp"},
+                        {"host_port": 5380, "container_port": 5380, "protocol": "tcp"},
+                    ],
+                    "volumes": [{"host_path": "/var/lib/roostos/plugins/technitium-dns/config", "container_path": "/etc/dns", "mode": "rw"}],
+                }],
+            }]
+        } if is_tech else {"plugins": []}
 
         created_files = [self._save_yaml(fn, dat) for fn, dat in [("network.yaml", net_cfg), ("system.yaml", sys_cfg), ("firewall.yaml", fw_cfg), ("plugins.yaml", plg_cfg)]]
 
@@ -103,7 +136,10 @@ class SetupWizard:
                 subprocess.run(c, check=False, capture_output=True)
         self._apply_dns_resolv(params.dns_servers)
 
-        for svc in ("systemd-networkd.service", "roostos-engine.service", "roostos-node.service", "kea-dhcp4-server.service", "nftables.service"):
+        services = ["systemd-networkd.service", "roostos-engine.service", "roostos-node.service", "kea-dhcp4-server.service", "nftables.service"]
+        if is_tech:
+            services.append("docker.service")
+        for svc in services:
             self._enable_service(svc)
 
         return SetupResult(
@@ -222,28 +258,14 @@ class SetupWizard:
                 pass
 
     def _is_package_installed(self, pkg: str) -> bool:
-        """Checks if a debian package or binary is installed on the system."""
-        if self.mock_install or os.environ.get("ROOSTOS_MOCK_INSTALL") == "1":
-            return True
-        if pkg == "kea-dhcp4-server" and (shutil.which("kea-dhcp4") or any(os.path.exists(f"/usr/{b}/kea-dhcp4") for b in ("sbin", "bin"))):
-            return True
-        try:
-            return subprocess.run(["dpkg", "-s", pkg], capture_output=True).returncode == 0
-        except Exception:
-            return False
+        """Checks if a package or binary is installed on the system."""
+        return self.pkg_manager.is_installed(pkg)
 
     def _install_packages(self, packages: List[str]) -> None:
-        """Installs packages via apt-get unless mock_install is True."""
+        """Installs packages via detected package manager."""
         if not packages or self.mock_install or os.environ.get("ROOSTOS_MOCK_INSTALL") == "1" or os.getuid() != 0:
             return
-        try:
-            needed = [p for p in packages if not self._is_package_installed(p)]
-            if needed:
-                print(f"Installing required system packages: {', '.join(needed)}...")
-                subprocess.run(["apt-get", "update", "-qq"], check=False)
-                subprocess.run(["apt-get", "install", "-y", "--no-install-recommends"] + needed, check=True)
-        except Exception as e:
-            print(f"Warning: Package installation via apt failed: {e}", file=sys.stderr)
+        self.pkg_manager.install_packages(packages)
 
     def _enable_service(self, service_name: str) -> None:
         """Enables and starts a systemd service."""

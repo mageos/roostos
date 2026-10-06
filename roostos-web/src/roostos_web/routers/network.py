@@ -110,11 +110,6 @@ def _get_live_interface_stats() -> Dict[str, Dict[str, Any]]:
     return stats
 
 
-class DNSConfigSchema(BaseModel):
-    forwarders: List[str]
-    ad_blocking_enabled: bool
-
-
 @router.get("/api/network")
 async def get_network_config(
     current_user: UserSession = Depends(get_current_parent),
@@ -237,55 +232,3 @@ async def create_guest_network(
     await dbus.get_config()
 
     return {"status": "success", "message": f"Guest Wi-Fi network '{data.ssid}' created successfully."}
-
-
-@router.get("/api/dns/config")
-async def get_dns_config(
-    current_user: UserSession = Depends(get_current_parent),
-    repo: ConfigRepository = Injected(ConfigRepository)
-):
-    """Retrieves basic DNS configs (forwarders, ad blocking status) from config."""
-    config = repo.get_config()
-    dns_settings = config.system.dns or SystemDNSConfig()
-    return {
-        "forwarders": dns_settings.forwarders,
-        "ad_blocking_enabled": dns_settings.ad_blocking_enabled
-    }
-
-@router.post("/api/dns/config")
-async def update_dns_config(
-    dns_data: DNSConfigSchema,
-    current_user: UserSession = Depends(get_current_admin),
-    repo: ConfigRepository = Injected(ConfigRepository),
-    dbus: RoostClient = Injected(RoostClient)
-):
-    """Updates basic DNS configurations and sets them over D-Bus proxy if active."""
-    config = repo.get_config()
-    
-    dns_settings = SystemDNSConfig(
-        forwarders=dns_data.forwarders,
-        ad_blocking_enabled=dns_data.ad_blocking_enabled
-    )
-    
-    config.system.dns = dns_settings
-    
-    system_config_obj = SystemConfig(
-        system=config.system,
-        users=config.users
-    )
-    repo.save_system_config(system_config_obj)
-    await dbus.get_config()
-    
-    try:
-        if dbus._bus:
-            introspection = await dbus._bus.introspect("org.roostos.DNSResolver", "/org/roostos/DNSResolver")
-            proxy_object = dbus._bus.get_proxy_object("org.roostos.DNSResolver", "/org/roostos/DNSResolver", introspection)
-            dns_interface = proxy_object.get_interface("org.roostos.DNSResolver")
-            if dns_interface:
-                await dns_interface.call_set_global_forwarders(dns_data.forwarders)
-                await dns_interface.call_set_ad_blocking_enabled(dns_data.ad_blocking_enabled)
-                print("Successfully propagated DNS settings over D-Bus to DNSResolver service.")
-    except Exception as e:
-        print(f"Warning: Failed to propagate DNS configuration over D-Bus (DNSResolver might be offline): {e}", file=sys.stderr)
-        
-    return {"status": "success", "message": "DNS configurations updated successfully."}
