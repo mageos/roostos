@@ -246,11 +246,130 @@ window.changeTheme = function(theme) {
     }
 };
 
-// 4. API Operations & Global Data Coordinating Pipeline
-window.loadDashboard = async function() {
+// 3. Auto-Refresh & Active Editing Protection
+window.autoRefreshEnabled = typeof localStorage !== "undefined" && localStorage.getItem("roostos_auto_refresh") !== "false";
+window.lastInputActivity = 0;
+
+if (typeof document !== "undefined") {
+    ['input', 'change', 'keydown', 'paste'].forEach(evt => {
+        document.addEventListener(evt, () => {
+            window.lastInputActivity = Date.now();
+        }, true);
+    });
+}
+
+window.getActiveViewId = function() {
+    const activePane = document.querySelector(".view-pane.active");
+    if (!activePane || !activePane.id) return "status";
+    return activePane.id.replace("-view", "");
+};
+
+window.isUserEditing = function() {
+    // 1. Recent keyboard/input activity in the last 15 seconds
+    if (window.lastInputActivity && (Date.now() - window.lastInputActivity < 15000)) {
+        return true;
+    }
+
+    // 2. Focused element is an interactive input or inside an inline editing row
+    const active = document.activeElement;
+    if (active && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'SELECT' ||
+        active.tagName === 'TEXTAREA' ||
+        active.isContentEditable ||
+        active.closest('.inline-edit-row, .inline-add-row, .editing-row, .inline-form, #inline-edit-row, [data-editing="true"]')
+    )) {
+        return true;
+    }
+
+    // 3. Open inline rows or forms anywhere in the active view or document
+    const openForms = document.querySelector(
+        '.inline-edit-row, .inline-add-row, .editing-row, .inline-form, #inline-edit-row, [data-editing="true"]'
+    );
+    if (openForms) {
+        return true;
+    }
+
+    // 4. Open modals or dialogs
+    const openModal = document.querySelector('.modal[style*="block"], .modal:not([style*="none"]), dialog[open], #setup-wizard-modal');
+    if (openModal && typeof window.getComputedStyle === "function" && window.getComputedStyle(openModal).display !== 'none') {
+        return true;
+    }
+
+    // 5. Dirty input detection in the active view (uncommitted changes)
+    const activePane = document.querySelector('.view-pane.active');
+    if (activePane && activePane.id !== 'status-view') {
+        const inputs = activePane.querySelectorAll('input, select, textarea');
+        for (const input of inputs) {
+            if (input.type === 'checkbox' || input.type === 'radio') {
+                if (input.checked !== input.defaultChecked) return true;
+            } else {
+                if (input.value !== input.defaultValue) return true;
+            }
+        }
+    }
+
+    return false;
+};
+
+window.toggleAutoRefresh = function() {
+    window.autoRefreshEnabled = !window.autoRefreshEnabled;
+    if (typeof localStorage !== "undefined") {
+        localStorage.setItem("roostos_auto_refresh", window.autoRefreshEnabled ? "true" : "false");
+    }
+    window.updateAutoRefreshUI();
+};
+
+window.updateAutoRefreshUI = function() {
+    const iconEl = document.getElementById("auto-refresh-icon");
+    const labelEl = document.getElementById("auto-refresh-label");
+    const btnEl = document.getElementById("header-refresh-toggle-btn");
+    if (!iconEl || !labelEl) return;
+
+    if (window.autoRefreshEnabled) {
+        iconEl.textContent = "⏸";
+        labelEl.textContent = "Live";
+        if (btnEl) {
+            btnEl.title = "Auto-refresh active (10s). Click to pause.";
+            btnEl.style.color = "var(--text-secondary)";
+        }
+    } else {
+        iconEl.textContent = "▶";
+        labelEl.textContent = "Paused";
+        if (btnEl) {
+            btnEl.title = "Auto-refresh paused. Click to resume.";
+            btnEl.style.color = "var(--accent-red)";
+        }
+    }
+};
+
+window.manualRefresh = async function() {
+    const icon = document.getElementById("manual-refresh-icon");
+    if (icon) icon.classList.add("spinning");
     try {
-        // Fetch User profile details first
-        await loadUserProfile();
+        await window.loadDashboard({ force: true });
+    } finally {
+        if (icon) {
+            setTimeout(() => icon.classList.remove("spinning"), 600);
+        }
+    }
+};
+
+// 4. API Operations & Global Data Coordinating Pipeline
+window.loadDashboard = async function(options = {}) {
+    const isPeriodic = !!options.periodic;
+    const isForce = !!options.force;
+
+    if (isPeriodic) {
+        if (!window.autoRefreshEnabled) return;
+        if (window.isUserEditing()) return;
+    }
+
+    try {
+        // Fetch User profile details first (skip on periodic ticks)
+        if (!isPeriodic || isForce) {
+            await loadUserProfile();
+        }
 
         // Fetch System details
         const sysData = await window.systemService.fetchSystemSettings();
@@ -272,13 +391,40 @@ window.loadDashboard = async function() {
             metricsHistory.shift();
         }
 
-        // Render dashboard system updates
-        window.statusComponent.render(sysData);
-        window.systemComponent.render(sysData);
-
         const versionEl = document.getElementById("footer-version");
         if (versionEl && sysData.version) {
             versionEl.textContent = sysData.version;
+        }
+
+        if (window.updateAlertsBadge) window.updateAlertsBadge();
+
+        const activeViewId = window.getActiveViewId();
+
+        // If periodic update and user is NOT on status view, STOP HERE!
+        // We have updated metrics telemetry in the background without touching the active view.
+        if (isPeriodic && activeViewId !== 'status') {
+            return;
+        }
+
+        // Render dashboard system updates (status view components)
+        if (activeViewId === 'status' || isForce) {
+            if (window.statusComponent && window.statusComponent.render) {
+                window.statusComponent.render(sysData);
+            }
+            if (window.systemComponent && window.systemComponent.render) {
+                window.systemComponent.render(sysData);
+            }
+            if (window.statusComponent && window.statusComponent.drawCharts) {
+                window.statusComponent.drawCharts();
+            }
+        }
+
+        // If periodic and on status view, we only need to refresh connected devices count
+        if (isPeriodic && activeViewId === 'status') {
+            const devData = await window.deviceService.fetchDevices();
+            const connectedEl = document.getElementById("metric-connected");
+            if (connectedEl) connectedEl.textContent = (devData.active_arp || []).length;
+            return;
         }
 
         // Fetch Devices & DHCP status
@@ -697,31 +843,30 @@ function init() {
     
     // Start periodic status refresh (every 10 seconds fallback)
     setInterval(() => {
-        const active = document.activeElement;
-        const isFocused = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
-        const hasOpenForms = document.querySelector('table tbody input, table tbody select, .editing-row, .inline-form, #inline-edit-row');
-        if (isFocused || hasOpenForms) {
-            return;
-        }
-        window.loadDashboard();
-        if (window.updateAlertsBadge) window.updateAlertsBadge();
+        window.loadDashboard({ periodic: true });
     }, 10000);
 
     // Initialize real-time Server-Sent Events (SSE) telemetry
     window.initEventStream();
     if (window.updateAlertsBadge) window.updateAlertsBadge();
+    window.updateAutoRefreshUI();
 }
 
 window.initEventStream = function() {
     if (typeof EventSource === "undefined") return;
     try {
         const evtSource = new EventSource("/api/v1/events/stream");
-        evtSource.addEventListener("device_connected", () => window.loadDashboard());
-        evtSource.addEventListener("unknown_device", () => window.loadDashboard());
-        evtSource.addEventListener("upnp_request", () => window.loadDashboard());
-        evtSource.addEventListener("devices_updated", () => window.loadDashboard());
-        evtSource.addEventListener("schedules_updated", () => window.loadDashboard());
-        evtSource.addEventListener("bypass_expired", () => window.loadDashboard());
+        const onEvent = () => {
+            if (!window.autoRefreshEnabled) return;
+            if (window.isUserEditing()) return;
+            window.loadDashboard({ periodic: true });
+        };
+        evtSource.addEventListener("device_connected", onEvent);
+        evtSource.addEventListener("unknown_device", onEvent);
+        evtSource.addEventListener("upnp_request", onEvent);
+        evtSource.addEventListener("devices_updated", onEvent);
+        evtSource.addEventListener("schedules_updated", onEvent);
+        evtSource.addEventListener("bypass_expired", onEvent);
         evtSource.addEventListener("alert", () => {
             if (window.updateAlertsBadge) window.updateAlertsBadge();
         });

@@ -88,6 +88,16 @@
                     <span class="breadcrumb-title" id="view-title">Status Dashboard</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 16px;">
+                    <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 20px; padding: 2px 8px;">
+                        <button id="header-refresh-toggle-btn" onclick="window.toggleAutoRefresh()" title="Toggle auto-refresh (10s)" style="background: transparent; border: none; cursor: pointer; color: var(--text-secondary); display: flex; align-items: center; gap: 4px; font-size: 12px; font-family: inherit; padding: 2px 4px;">
+                            <span id="auto-refresh-icon">⏸</span>
+                            <span id="auto-refresh-label">Live</span>
+                        </button>
+                        <span style="color: var(--card-border); font-size: 10px;">|</span>
+                        <button id="header-manual-refresh-btn" onclick="window.manualRefresh()" title="Refresh now" style="background: transparent; border: none; cursor: pointer; color: var(--text-secondary); display: flex; align-items: center; font-size: 13px; font-family: inherit; padding: 2px 4px;">
+                            <span id="manual-refresh-icon">↻</span>
+                        </button>
+                    </div>
                     <button id="header-alerts-btn" class="alerts-badge-btn" onclick="window.toggleAlertsDrawer()" title="Cluster Alerts & Telemetry" style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 20px; padding: 4px 10px; cursor: pointer; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
                         <span id="alerts-indicator-icon">🔔</span>
                         <span id="alerts-count-badge" class="badge" style="font-size: 11px; padding: 1px 6px; border-radius: 10px; display: none;">0</span>
