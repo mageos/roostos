@@ -22,10 +22,17 @@ def test_firewall_ruleset_compilation(temp_config_dir):
     assert 'ether saddr @admin_blocked oifname "eth0" log prefix "FIREWALL:BLOCKED:Admin_Block " drop' in rules
     assert 'ether saddr @blocked_clients log prefix "FIREWALL:BLOCKED:Blocked_Client " drop' in rules
 
-    # 2. Assert DNS Hijacking and DoT blocking exist
-    assert "tcp dport 53 redirect to :53" in rules
-    assert "udp dport 53 redirect to :53" in rules
-    assert "tcp dport 853 drop" in rules
+    # 2. Assert DNS fallback DNAT when local DNS inactive (no blackholing)
+    assert 'ip daddr 192.168.1.1 tcp dport 53 dnat to 1.1.1.1:53' in rules
+    assert 'ip daddr 192.168.1.1 udp dport 53 dnat to 1.1.1.1:53' in rules
+    assert 'tcp dport 853 drop' not in rules
+
+    # Assert DNS Hijacking and DoT blocking when local DNS / ad-blocking enabled
+    config.system.dns.ad_blocking_enabled = True
+    rules_hijack = manager.compile_ruleset()
+    assert "tcp dport 53 redirect to :53" in rules_hijack
+    assert "udp dport 53 redirect to :53" in rules_hijack
+    assert "tcp dport 853 drop" in rules_hijack
 
     # 3. Assert WAN interface masquerading exists (eth0 from conftest network)
     assert "oifname \"eth0\" masquerade" in rules

@@ -24,6 +24,28 @@ class FirewallManager:
                     return interface.name
         return "eth0"
 
+    def _is_local_dns_active(self) -> bool:
+        """Determines if a local DNS resolver/plugin is active or filtering enabled."""
+        if hasattr(self.config, "plugins") and any(
+            getattr(p, "enabled", True) and "dnsServer" in getattr(p, "known_services", [])
+            for p in self.config.plugins
+        ):
+            return True
+        if getattr(getattr(self.config.system, "dns", None), "ad_blocking_enabled", False):
+            return True
+        if os.environ.get("ROOSTOS_MOCK", "0") != "1" and os.environ.get("ROOSTOS_ETC_DIR") is None:
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.05)
+                res = s.connect_ex(("127.0.0.1", 53))
+                s.close()
+                if res == 0:
+                    return True
+            except Exception:
+                pass
+        return False
+
     def compile_ruleset(self) -> str:
         """Generates standard /etc/nftables.conf ruleset contents."""
         wan_if = self._get_wan_interface()
@@ -53,13 +75,9 @@ class FirewallManager:
         block_vpns = False
         block_quic = False
         doh_ips = [
-            "1.1.1.1", "1.0.0.1", "162.159.36.1", "162.159.46.1",  # Cloudflare
-            "8.8.8.8", "8.8.4.4",                                  # Google
-            "9.9.9.9", "149.112.112.112",                          # Quad9
-            "208.67.222.222", "208.67.220.220",                    # OpenDNS
-            "45.90.28.0/24", "45.90.30.0/24",                      # NextDNS
-            "194.242.2.2", "194.242.2.3", "194.242.2.4",          # Mullvad
-            "76.76.2.0/24", "76.76.10.0/24"                        # Control D
+            "1.1.1.1", "1.0.0.1", "162.159.36.1", "162.159.46.1", "8.8.8.8", "8.8.4.4",
+            "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220", "45.90.28.0/24",
+            "45.90.30.0/24", "194.242.2.2", "194.242.2.3", "194.242.2.4", "76.76.2.0/24", "76.76.10.0/24"
         ]
         vpn_ips = []
         if hasattr(self.config, "firewall") and self.config.firewall:
@@ -254,20 +272,29 @@ class FirewallManager:
             "        type nat hook prerouting priority dstnat; policy accept;",
         ])
 
-        # 1. DNS Hijacking: redirect port 53 (TCP/UDP) from LAN interfaces to local router address
-        # Calculate bridge local addresses to redirect to
-        if hasattr(self.config, "network") and self.config.network:
-            for bridge in self.config.network.bridges:
-                lines.append(f"        iifname \"{bridge.name}\" tcp dport 53 redirect to :53")
-                lines.append(f"        iifname \"{bridge.name}\" udp dport 53 redirect to :53")
-
-            for vlan in self.config.network.vlans:
-                lines.append(f"        iifname \"{vlan.name}\" tcp dport 53 redirect to :53")
-                lines.append(f"        iifname \"{vlan.name}\" udp dport 53 redirect to :53")
-
-        # 2. Block DoT (Port 853) to enforce local DNS filtering profiles
-        for iif in all_local_ifs:
-            lines.append(f"        iifname \"{iif}\" tcp dport 853 drop")
+        # 1. DNS Handling: Local DNS redirect or DNAT to upstream forwarder
+        if self._is_local_dns_active():
+            if hasattr(self.config, "network") and self.config.network:
+                for bridge in self.config.network.bridges:
+                    lines.append(f'        iifname "{bridge.name}" tcp dport 53 redirect to :53')
+                    lines.append(f'        iifname "{bridge.name}" udp dport 53 redirect to :53')
+                for vlan in self.config.network.vlans:
+                    lines.append(f'        iifname "{vlan.name}" tcp dport 53 redirect to :53')
+                    lines.append(f'        iifname "{vlan.name}" udp dport 53 redirect to :53')
+            for iif in all_local_ifs:
+                lines.append(f'        iifname "{iif}" tcp dport 853 drop')
+        else:
+            forwarders = getattr(getattr(self.config.system, "dns", None), "forwarders", [])
+            primary_dns = forwarders[0] if forwarders else "1.1.1.1"
+            if hasattr(self.config, "network") and self.config.network:
+                for bridge in self.config.network.bridges:
+                    b_ip = bridge.ip.split("/")[0]
+                    lines.append(f'        iifname "{bridge.name}" ip daddr {b_ip} tcp dport 53 dnat to {primary_dns}:53')
+                    lines.append(f'        iifname "{bridge.name}" ip daddr {b_ip} udp dport 53 dnat to {primary_dns}:53')
+                for vlan in self.config.network.vlans:
+                    v_ip = vlan.ip.split("/")[0]
+                    lines.append(f'        iifname "{vlan.name}" ip daddr {v_ip} tcp dport 53 dnat to {primary_dns}:53')
+                    lines.append(f'        iifname "{vlan.name}" ip daddr {v_ip} udp dport 53 dnat to {primary_dns}:53')
 
         # 3. Policy-Based Routing: stamp packets from target devices with gateway overrides
         for dev in self.config.devices:
@@ -341,34 +368,26 @@ class FirewallManager:
     # ==========================================
 
     def get_block_mac_cmd(self, mac: str, set_name: str = "blocked_clients") -> List[str]:
-        """Returns command args to block a client MAC in the active nftables set."""
         return ["nft", "add", "element", "inet", "filter", set_name, f"{{ {mac.lower()} }}"]
 
     def get_unblock_mac_cmd(self, mac: str, set_name: str = "blocked_clients") -> List[str]:
-        """Returns command args to unblock a client MAC in the active nftables set."""
         return ["nft", "delete", "element", "inet", "filter", set_name, f"{{ {mac.lower()} }}"]
 
     def get_quarantine_mac_cmd(self, mac: str) -> List[str]:
-        """Returns command args to quarantine an unknown client MAC."""
         return ["nft", "add", "element", "inet", "filter", "quarantined", f"{{ {mac.lower()} }}"]
 
     def get_unquarantine_mac_cmd(self, mac: str) -> List[str]:
-        """Returns command args to unquarantine a client MAC."""
         return ["nft", "delete", "element", "inet", "filter", "quarantined", f"{{ {mac.lower()} }}"]
 
     def get_add_doh_ip_cmd(self, ip_cidr: str) -> List[str]:
-        """Returns command args to dynamically add a DoH IP/CIDR to the active nftables set."""
         return ["nft", "add", "element", "inet", "filter", "doh_server_ips", f"{{ {ip_cidr} }}"]
 
     def get_delete_doh_ip_cmd(self, ip_cidr: str) -> List[str]:
-        """Returns command args to delete a DoH IP/CIDR from the active nftables set."""
         return ["nft", "delete", "element", "inet", "filter", "doh_server_ips", f"{{ {ip_cidr} }}"]
 
     def get_add_vpn_ip_cmd(self, ip_cidr: str) -> List[str]:
-        """Returns command args to dynamically add a VPN IP/CIDR to the active nftables set."""
         return ["nft", "add", "element", "inet", "filter", "vpn_server_ips", f"{{ {ip_cidr} }}"]
 
     def get_delete_vpn_ip_cmd(self, ip_cidr: str) -> List[str]:
-        """Returns command args to delete a VPN IP/CIDR from the active nftables set."""
         return ["nft", "delete", "element", "inet", "filter", "vpn_server_ips", f"{{ {ip_cidr} }}"]
 

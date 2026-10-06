@@ -64,6 +64,8 @@ class GatewayConfigParams(BaseModel):
     dhcp_start: str = "192.168.1.100"
     dhcp_end: str = "192.168.1.250"
     dns_servers: List[str] = Field(default_factory=lambda: ["1.1.1.1", "8.8.8.8"])
+    allow_wan_ssh: bool = False
+    allow_wan_web: bool = False
 
 
 class ControllerConfigParams(BaseModel):

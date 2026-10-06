@@ -123,7 +123,33 @@ def list_leases_cmd(db_path: str) -> None:
             click.secho(f"Warning: Could not read state database: {e}", fg="yellow")
 
     if not leases:
-        click.echo("No active DHCP leases recorded in state database.")
+        csv_path = "/var/lib/kea/kea-leases4.csv"
+        if os.path.exists(csv_path):
+            try:
+                import csv
+                import time
+                now = time.time()
+                with open(csv_path, "r", newline="") as f:
+                    for row in csv.DictReader(f):
+                        if row.get("state", "0") == "0":
+                            expire = float(row.get("expire", 0) or 0)
+                            if expire == 0 or expire > now:
+                                valid_sec = int(row.get("valid_lifetime", 3600) or 3600)
+                                last_seen_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(expire - valid_sec if expire else now))
+                                leases.append(
+                                    LeaseRecord(
+                                        mac=(row.get("hwaddr") or "").lower(),
+                                        ip=row.get("address", ""),
+                                        hostname=row.get("hostname") or "Unknown",
+                                        quarantined=False,
+                                        last_seen=last_seen_str,
+                                    )
+                                )
+            except Exception:
+                pass
+
+    if not leases:
+        click.echo("No active DHCP leases recorded.")
         return
 
     click.secho(f"{'IP ADDRESS':<16} {'MAC ADDRESS':<20} {'STATUS':<12} {'LAST SEEN':<22} {'HOSTNAME'}", bold=True)
@@ -182,7 +208,19 @@ def reserve_ip_cmd(mac: str, ip: str, name: Optional[str], config_dir: str) -> N
         with open(dev_path, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
         click.secho(f"✓ Static reservation saved: {clean_mac} -> {ip}", fg="green", bold=True)
-        click.echo("Restarting DHCP daemon to apply changes...")
+        click.echo("Applying DHCP configuration...")
+
+        try:
+            from roostos_engine.repository import YAMLConfigRepository
+            from roostos_engine.dhcp_manager import DHCPManager
+            repo = YAMLConfigRepository(config_dir)
+            cfg = repo.get_config()
+            kea_path = "/etc/kea/kea-dhcp4.conf"
+            mgr = DHCPManager(cfg, kea_path)
+            mgr.write_config()
+        except Exception:
+            pass
+
         subprocess.run(["systemctl", "restart", "kea-dhcp4-server"], check=False, capture_output=True)
     except Exception as e:
         click.secho(f"Error saving reservation: {e}", fg="red", err=True)

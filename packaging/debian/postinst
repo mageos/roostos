@@ -110,10 +110,13 @@ EOF
 
         # Enable services
         if command -v systemctl >/dev/null 2>&1; then
-            echo "Enabling RoostOS node service..."
+            echo "Enabling RoostOS engine and node services..."
             systemctl daemon-reload || true
+            systemctl enable roostos-engine.service || true
             systemctl enable roostos-node.service || true
+            systemctl enable systemd-networkd.service || true
             if [ -d /run/systemd/system ]; then
+                systemctl restart roostos-engine.service || true
                 systemctl restart roostos-node.service || true
             fi
         fi

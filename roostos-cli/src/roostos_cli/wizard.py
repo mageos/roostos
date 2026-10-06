@@ -43,16 +43,15 @@ class SetupWizard:
 
         target_role = role or env.recommended_role
 
-        if target_role == NodeRole.GATEWAY:
-            return self._setup_gateway(gateway_params, env)
-        elif target_role == NodeRole.CONTROLLER:
-            return self._setup_controller(controller_params, env)
-        elif target_role == NodeRole.WORKSTATION:
-            return self._setup_workstation(workstation_params, env)
-        elif target_role == NodeRole.STANDALONE:
-            return self._setup_standalone(gateway_params, controller_params, env)
-        elif target_role == NodeRole.EDGE_GATEWAY:
-            return self._setup_edge_gateway(edge_params, env)
+        handlers = {
+            NodeRole.GATEWAY: lambda: self._setup_gateway(gateway_params, env),
+            NodeRole.CONTROLLER: lambda: self._setup_controller(controller_params, env),
+            NodeRole.WORKSTATION: lambda: self._setup_workstation(workstation_params, env),
+            NodeRole.STANDALONE: lambda: self._setup_standalone(gateway_params, controller_params, env),
+            NodeRole.EDGE_GATEWAY: lambda: self._setup_edge_gateway(edge_params, env),
+        }
+        if target_role in handlers:
+            return handlers[target_role]()
         return SetupResult(success=True, role=target_role, message=f"Configured node with role: {target_role.value}")
 
     def _setup_gateway(
@@ -65,10 +64,7 @@ class SetupWizard:
             eth_ifaces = [i.name for i in env.interfaces if not i.is_wireless and i.name != "lo"]
             wan = eth_ifaces[0] if eth_ifaces else "eth0"
             lan = eth_ifaces[1:] if len(eth_ifaces) > 1 else ["eth1"]
-            params = GatewayConfigParams(
-                wan_interface=wan,
-                lan_interfaces=lan,
-            )
+            params = GatewayConfigParams(wan_interface=wan, lan_interfaces=lan)
 
         packages = ["nftables", "kea-dhcp4-server", "wireguard"]
         self._install_packages(packages)
@@ -84,20 +80,29 @@ class SetupWizard:
             }
         }
         sys_cfg = {
-            "system": {
-                "hostname": "roost-gateway",
-                "dns": {"forwarders": params.dns_servers},
-                "cluster": {"roles": ["gateway_router"]}
-            }
+            "system": {"hostname": "roost-gateway", "dns": {"forwarders": params.dns_servers}, "cluster": {"roles": ["gateway_router"]}}
         }
-        created_files = [
-            self._save_yaml("network.yaml", net_cfg),
-            self._save_yaml("system.yaml", sys_cfg),
-        ]
+        fw_rules = []
+        if getattr(params, "allow_wan_ssh", False):
+            fw_rules.append({"name": "Allow SSH (WAN)", "interface": params.wan_interface, "protocol": "tcp", "port": 22, "action": "accept", "enabled": True})
+        if getattr(params, "allow_wan_web", False):
+            fw_rules.append({"name": "Allow RoostOS Web (WAN)", "interface": params.wan_interface, "protocol": "tcp", "port": 8000, "action": "accept", "enabled": True})
+        fw_cfg = {"firewall": {"rules": fw_rules, "port_forwards": []}}
 
-        self._enable_service("roostos-node.service")
-        self._enable_service("kea-dhcp4-server.service")
-        self._enable_service("nftables.service")
+        created_files = [self._save_yaml("network.yaml", net_cfg), self._save_yaml("system.yaml", sys_cfg), self._save_yaml("firewall.yaml", fw_cfg)]
+
+        if not self.mock_install and os.environ.get("ROOSTOS_MOCK_INSTALL") != "1" and os.getuid() == 0:
+            import subprocess
+            cmds = [["ip", "link", "add", "name", "br0", "type", "bridge"]]
+            for iface in params.lan_interfaces:
+                cmds.extend([["ip", "link", "set", iface, "master", "br0"], ["ip", "link", "set", iface, "up"]])
+            cmds.extend([["ip", "addr", "add", f"{params.lan_ip}/24", "dev", "br0"], ["ip", "link", "set", "br0", "up"]])
+            for c in cmds:
+                subprocess.run(c, check=False, capture_output=True)
+        self._apply_dns_resolv(params.dns_servers)
+
+        for svc in ("systemd-networkd.service", "roostos-engine.service", "roostos-node.service", "kea-dhcp4-server.service", "nftables.service"):
+            self._enable_service(svc)
 
         return SetupResult(
             success=True,
@@ -137,14 +142,10 @@ class SetupWizard:
                 "roles": ["gateway_router"], "management_ip": params.adopted_gateway_ip
             })
 
-        created_files = [
-            self._save_yaml("system.yaml", sys_cfg),
-            self._save_yaml("nodes.yaml", {"nodes": nodes}),
-        ]
+        created_files = [self._save_yaml("system.yaml", sys_cfg), self._save_yaml("nodes.yaml", {"nodes": nodes})]
 
-        self._enable_service("mosquitto.service")
-        self._enable_service("roostos-engine.service")
-        self._enable_service("roostos-node.service")
+        for svc in ("mosquitto.service", "roostos-engine.service", "roostos-node.service"):
+            self._enable_service(svc)
 
         return SetupResult(
             success=True,
@@ -172,13 +173,11 @@ class SetupWizard:
 
         tg_dir = os.path.join(self.config_dir, "timeguardd") if self.config_dir != "/etc/roostos" else "/etc/roostos-timeguardd"
         os.makedirs(tg_dir, exist_ok=True)
+        tg_path = os.path.join(tg_dir, "config.json")
         tg_config = {
-            "mqtt_host": params.controller_host,
-            "mqtt_port": params.controller_port,
-            "join_token": params.join_token or "",
+            "mqtt_host": params.controller_host, "mqtt_port": params.controller_port, "join_token": params.join_token or "",
             "users": {u: {"daily_limit_seconds": 7200} for u in params.family_user_mapping} or {"default": {"daily_limit_seconds": 7200}}
         }
-        tg_path = os.path.join(tg_dir, "config.json")
         with open(tg_path, "w") as f:
             json.dump(tg_config, f, indent=2)
 
@@ -211,9 +210,10 @@ class SetupWizard:
             }
         }
         self._save_yaml("system.yaml", standalone_sys_cfg)
+        self._apply_dns_resolv(dns_servers)
 
-        self._enable_service("mosquitto.service")
-        self._enable_service("roostos-engine.service")
+        for svc in ("mosquitto.service", "roostos-engine.service"):
+            self._enable_service(svc)
 
         combined_packages = list(dict.fromkeys(gw_res.installed_packages + ctrl_res.installed_packages))
         combined_configs = list(dict.fromkeys(gw_res.created_configs + ctrl_res.created_configs))
@@ -238,17 +238,8 @@ class SetupWizard:
         self._install_packages(packages)
 
         sys_cfg = {"system": {"hostname": "roost-edge", "cluster": {"roles": ["edge_gateway"]}}}
-        net_cfg = {
-            "network": {
-                "interfaces": [{"name": wan, "role": "wan", "dhcp": True}],
-                "gateways": [{"id": "default", "name": "VPS Gateway", "interface": wan}],
-            }
-        }
-        created_files = [
-            self._save_yaml("system.yaml", sys_cfg),
-            self._save_yaml("network.yaml", net_cfg),
-        ]
-
+        net_cfg = {"network": {"interfaces": [{"name": wan, "role": "wan", "dhcp": True}], "gateways": [{"id": "default", "name": "VPS Gateway", "interface": wan}]}}
+        created_files = [self._save_yaml("system.yaml", sys_cfg), self._save_yaml("network.yaml", net_cfg)]
         self._enable_service("roostos-node.service")
 
         return SetupResult(
@@ -260,22 +251,30 @@ class SetupWizard:
             message="Edge Gateway configured. Generate bootstrap token with: roostos edge token",
         )
 
+    def _apply_dns_resolv(self, dns_servers: Optional[List[str]]) -> None:
+        """Applies initial DNS forwarders to /etc/resolv.conf during bootstrap."""
+        if not self.mock_install and os.environ.get("ROOSTOS_MOCK_INSTALL") != "1" and os.getuid() == 0:
+            try:
+                resolv = "/etc/resolv.conf"
+                if os.path.islink(resolv) and not os.path.exists(resolv):
+                    os.unlink(resolv)
+                servers = dns_servers or ["1.1.1.1", "8.8.8.8"]
+                with open(resolv, "w") as f:
+                    f.write("# Generated by RoostOS\n" + "".join(f"nameserver {d}\n" for d in servers))
+            except Exception:
+                pass
+
     def _install_packages(self, packages: List[str]) -> None:
         """Installs packages via apt-get unless mock_install is True."""
         if not packages or self.mock_install or os.environ.get("ROOSTOS_MOCK_INSTALL") == "1" or os.getuid() != 0:
             return
         import subprocess
         try:
-            needed: List[str] = []
-            for pkg in packages:
-                res = subprocess.run(["dpkg", "-s", pkg], capture_output=True, text=True)
-                if res.returncode != 0:
-                    needed.append(pkg)
-            if not needed:
-                return
-            print(f"Installing required system packages: {', '.join(needed)}...")
-            subprocess.run(["apt-get", "update", "-qq"], check=False)
-            subprocess.run(["apt-get", "install", "-y", "--no-install-recommends"] + needed, check=True)
+            needed = [p for p in packages if subprocess.run(["dpkg", "-s", p], capture_output=True).returncode != 0]
+            if needed:
+                print(f"Installing required system packages: {', '.join(needed)}...")
+                subprocess.run(["apt-get", "update", "-qq"], check=False)
+                subprocess.run(["apt-get", "install", "-y", "--no-install-recommends"] + needed, check=True)
         except Exception as e:
             print(f"Warning: Package installation via apt failed: {e}", file=sys.stderr)
 

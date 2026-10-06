@@ -100,6 +100,8 @@ def discover_cmd() -> None:
 @click.option("--wan", help="WAN interface for Gateway role")
 @click.option("--lan", help="LAN interfaces (comma-separated) for Gateway role")
 @click.option("--subnet", default="192.168.1.0/24", help="LAN subnet for Gateway role")
+@click.option("--allow-wan-ssh", is_flag=True, help="Allow SSH on WAN interface")
+@click.option("--allow-wan-web", is_flag=True, help="Allow RoostOS Web on WAN interface")
 @click.option("--controller", help="Controller host/IP for Workstation role")
 @click.option("--token", help="Join token for Workstation role")
 @click.option("--non-interactive", is_flag=True, help="Run without interactive prompts")
@@ -110,6 +112,8 @@ def setup_cmd(
     wan: Optional[str],
     lan: Optional[str],
     subnet: str,
+    allow_wan_ssh: bool,
+    allow_wan_web: bool,
     controller: Optional[str],
     token: Optional[str],
     non_interactive: bool,
@@ -156,16 +160,47 @@ def setup_cmd(
     gw_params = None
     if target_role in (NodeRole.GATEWAY, NodeRole.STANDALONE):
         eth_ifaces = [i.name for i in env.interfaces if not i.is_wireless and i.name != "lo"]
-        wan_if = wan or (eth_ifaces[0] if eth_ifaces else "eth0")
-        lan_ifs = [x.strip() for x in lan.split(",")] if lan else (eth_ifaces[1:] if len(eth_ifaces) > 1 else ["eth1"])
-        prefix = subnet.split("/")[0].rsplit(".", 1)[0] if "/" in subnet else "192.168.1"
+        default_wan = eth_ifaces[0] if eth_ifaces else "eth0"
+        default_lan = eth_ifaces[1:] if len(eth_ifaces) > 1 else [i for i in eth_ifaces if i != default_wan] or ["eth1"]
+
+        if not non_interactive:
+            click.echo("\n--- Network Interface Configuration ---")
+            if eth_ifaces:
+                click.echo(f"Detected physical adapters: {', '.join(eth_ifaces)}")
+            wan_if = click.prompt("WAN interface (connects to upstream modem/Internet)", default=wan or default_wan)
+            default_lan_str = ",".join([i for i in default_lan if i != wan_if]) or "eth1"
+            lan_input = click.prompt("LAN interface(s) (comma-separated for bridge br0)", default=lan or default_lan_str)
+            lan_ifs = [x.strip() for x in lan_input.split(",") if x.strip()]
+
+            click.echo("\n--- LAN Subnet & DHCP Pool ---")
+            prefix = subnet.split("/")[0].rsplit(".", 1)[0] if "/" in subnet else "192.168.1"
+            lan_ip = click.prompt("Router LAN IP", default=f"{prefix}.1")
+            base = lan_ip.rsplit(".", 1)[0]
+            dhcp_start = click.prompt("DHCP pool start", default=f"{base}.100")
+            dhcp_end = click.prompt("DHCP pool end", default=f"{base}.250")
+
+            click.echo("\n--- WAN Firewall Access ---")
+            allow_ssh = click.confirm("Allow SSH remote management on WAN?", default=False)
+            allow_web = click.confirm("Allow RoostOS Web Console on WAN?", default=False)
+        else:
+            wan_if = wan or default_wan
+            lan_ifs = [x.strip() for x in lan.split(",")] if lan else default_lan
+            prefix = subnet.split("/")[0].rsplit(".", 1)[0] if "/" in subnet else "192.168.1"
+            lan_ip = f"{prefix}.1"
+            dhcp_start = f"{prefix}.100"
+            dhcp_end = f"{prefix}.250"
+            allow_ssh = allow_wan_ssh
+            allow_web = allow_wan_web
+
         gw_params = GatewayConfigParams(
             wan_interface=wan_if,
             lan_interfaces=lan_ifs,
-            lan_network=subnet,
-            lan_ip=f"{prefix}.1",
-            dhcp_start=f"{prefix}.100",
-            dhcp_end=f"{prefix}.250",
+            lan_network=f"{lan_ip.rsplit('.', 1)[0]}.0/24",
+            lan_ip=lan_ip,
+            dhcp_start=dhcp_start,
+            dhcp_end=dhcp_end,
+            allow_wan_ssh=allow_ssh,
+            allow_wan_web=allow_web,
         )
 
     ctrl_params = None

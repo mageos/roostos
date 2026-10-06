@@ -86,7 +86,7 @@ class StateDB:
         try:
             with self._get_connection() as conn:
                 cursor = conn.execute("SELECT mac, ip, hostname, quarantined, last_seen FROM active_leases")
-                return [
+                db_leases = [
                     {
                         "mac": row["mac"],
                         "ip": row["ip"],
@@ -96,9 +96,41 @@ class StateDB:
                     }
                     for row in cursor.fetchall()
                 ]
+                if db_leases:
+                    return db_leases
         except Exception as e:
             print(f"Error fetching active leases from SQLite: {e}")
-            return []
+
+        return self._read_kea_leases_csv()
+
+    @staticmethod
+    def _read_kea_leases_csv(csv_path: str = "/var/lib/kea/kea-leases4.csv") -> List[Dict[str, Any]]:
+        leases: List[Dict[str, Any]] = []
+        if not os.path.exists(csv_path):
+            return leases
+        try:
+            import csv
+            import time
+            with open(csv_path, "r", newline="") as f:
+                reader = csv.DictReader(f)
+                now = time.time()
+                for row in reader:
+                    state = row.get("state", "0")
+                    expire = float(row.get("expire", 0) or 0)
+                    if state == "0" and (expire == 0 or expire > now):
+                        valid_sec = int(row.get("valid_lifetime", 3600) or 3600)
+                        last_seen_ts = expire - valid_sec if expire else now
+                        last_seen_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_seen_ts))
+                        leases.append({
+                            "mac": (row.get("hwaddr") or "").lower(),
+                            "ip": row.get("address", ""),
+                            "hostname": row.get("hostname") or "Unknown",
+                            "quarantined": False,
+                            "last_seen": last_seen_str
+                        })
+        except Exception as e:
+            print(f"Error reading kea leases csv: {e}")
+        return leases
 
     # ==========================================
     # UPnP Gateway Operations

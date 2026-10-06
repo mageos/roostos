@@ -143,3 +143,21 @@ def test_kea_config_generation_custom_scopes(temp_config_dir, tmp_path):
     # Verify bridge has custom pool
     br_subnet = next(s for s in subnets if s["interface"] == "br0")
     assert br_subnet["pools"] == [{"pool": "192.168.1.150 - 192.168.1.220"}]
+
+
+def test_kea_config_generation_with_dns_forwarders(temp_config_dir, tmp_path):
+    """Verifies that DHCPManager advertises upstream DNS forwarders when local DNS is inactive."""
+    config = load_config_directory(temp_config_dir)
+    config.system.dns.forwarders = ["1.1.1.1", "8.8.8.8"]
+    config.system.dns.ad_blocking_enabled = False
+
+    kea_file = tmp_path / "kea-dhcp4.conf"
+    manager = DHCPManager(config, str(kea_file))
+    kea_json = manager.compile_kea_config()
+
+    subnets = kea_json["Dhcp4"]["subnet4"]
+    lan_subnet = next(s for s in subnets if s["subnet"] == "192.168.1.0/24")
+    options = lan_subnet["option-data"]
+
+    assert any(o["name"] == "domain-name-servers" and o["data"] == "1.1.1.1, 8.8.8.8" for o in options)
+

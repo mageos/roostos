@@ -142,15 +142,15 @@ class RoostDaemonInterface(ServiceInterface, ConfigDBusMixin, ClusterDBusMixin):
             return True
 
         roles = [r.value if hasattr(r, "value") else str(r) for r in current_node.roles]
-        if subsystem_name in ("system_settings", "network_interfaces"):
+        if subsystem_name in ("system_settings", "network", "network_interfaces", "identity", "identity_services"):
             return True
-        if subsystem_name in ("firewall_services", "dhcp_services", "qos_services"):
+        if subsystem_name in ("firewall", "firewall_services", "dhcp", "dhcp_services", "qos", "qos_services"):
             return "gateway_router" in roles
-        if subsystem_name == "wifi_services":
+        if subsystem_name in ("wifi", "wifi_services"):
             return "access_point" in roles or "gateway_router" in roles
-        if subsystem_name == "plugins_sync":
+        if subsystem_name in ("plugins", "plugins_sync"):
             return "compute_node" in roles or "controller" in roles
-        if subsystem_name == "mdns_repeater":
+        if subsystem_name in ("mdns", "mdns_repeater"):
             return "gateway_router" in roles or "access_point" in roles
         return True
 

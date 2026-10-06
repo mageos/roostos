@@ -152,7 +152,12 @@ exec /usr/lib/roostos/runtime/bin/python3 -m roostos_timeguardd.main "$@"
 EOF
     chmod 755 "$STAGE_DIR/usr/local/bin/roostos-timeguardd"
 
-    # Helper scripts
+    # Helper scripts and local bin symlinks
+    ln -sf /usr/bin/roostos "$STAGE_DIR/usr/local/bin/roostos"
+    ln -sf /usr/bin/roostd "$STAGE_DIR/usr/local/bin/roostd"
+    ln -sf /usr/bin/roostos-engine "$STAGE_DIR/usr/local/bin/roostos-engine"
+    ln -sf /usr/bin/roostos-node "$STAGE_DIR/usr/local/bin/roostos-node"
+    ln -sf /usr/bin/roostos-web "$STAGE_DIR/usr/local/bin/roostos-web"
     cp "$SRC_DIR/roostos-engine/src/roostos_engine/templates/roost-dhcp-hook.sh" "$STAGE_DIR/usr/local/bin/roost-dhcp-hook" 2>/dev/null || true
     cp "$SRC_DIR/scripts/roostos-workstation-join.sh" "$STAGE_DIR/usr/local/bin/roostos-workstation-join" 2>/dev/null || true
     cp "$SRC_DIR/scripts/roostos-workstation-enroll.sh" "$STAGE_DIR/usr/local/bin/roostos-workstation-enroll" 2>/dev/null || true

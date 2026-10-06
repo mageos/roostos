@@ -20,6 +20,37 @@ class DHCPManager:
         except ValueError:
             return False
 
+    def _is_local_dns_active(self) -> bool:
+        """Determines if a local DNS resolver/plugin is active or filtering enabled."""
+        if hasattr(self.config, "plugins") and any(
+            getattr(p, "enabled", True) and "dnsServer" in getattr(p, "known_services", [])
+            for p in self.config.plugins
+        ):
+            return True
+        if getattr(getattr(self.config.system, "dns", None), "ad_blocking_enabled", False):
+            return True
+        if os.environ.get("ROOSTOS_MOCK", "0") != "1" and os.environ.get("ROOSTOS_ETC_DIR") is None:
+            try:
+                import socket
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(0.05)
+                res = s.connect_ex(("127.0.0.1", 53))
+                s.close()
+                if res == 0:
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def _resolve_dns_servers(self, local_ip: str) -> str:
+        """Resolves DNS servers to advertise to DHCP clients."""
+        if self._is_local_dns_active():
+            return local_ip
+        forwarders = getattr(getattr(self.config.system, "dns", None), "forwarders", [])
+        if forwarders:
+            return ", ".join(forwarders)
+        return local_ip
+
     def compile_kea_config(self) -> Dict[str, Any]:
         """Compiles unified RoostConfig structures into Kea DHCP4 JSON structure."""
         
@@ -80,7 +111,7 @@ class DHCPManager:
                     },
                     {
                         "name": "domain-name-servers",
-                        "data": bridge_ip # Direct redirect to host DNS hijacker
+                        "data": self._resolve_dns_servers(bridge_ip)
                     }
                 ],
                 "reservations": reservations
@@ -132,42 +163,52 @@ class DHCPManager:
                     },
                     {
                         "name": "domain-name-servers",
-                        "data": vlan_ip
+                        "data": self._resolve_dns_servers(vlan_ip)
                     }
                 ],
                 "reservations": reservations
             })
             subnet_id += 1
 
+        # Dynamically locate installed run-script hook library across architectures
+        candidate_hook_paths = [
+            "/usr/lib/aarch64-linux-gnu/kea/hooks/libdhcp_run_script.so",
+            "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_run_script.so",
+            "/usr/lib/arm-linux-gnueabihf/kea/hooks/libdhcp_run_script.so",
+            "/usr/lib/kea/hooks/libdhcp_run_script.so",
+            "/usr/local/lib/kea/hooks/libdhcp_run_script.so",
+        ]
+        hook_path = next((p for p in candidate_hook_paths if os.path.exists(p)), None)
+        hooks_libraries: List[Dict[str, Any]] = []
+        if hook_path and os.path.exists("/usr/local/bin/roost-dhcp-hook"):
+            hooks_libraries.append({
+                "library": hook_path,
+                "parameters": {
+                    "name": "/usr/local/bin/roost-dhcp-hook",
+                    "sync": False
+                }
+            })
+
         # Standard Kea run parameters
-        kea_config = {
-            "Dhcp4": {
-                "interfaces-config": {
-                    "interfaces": interfaces
-                },
-                "control-socket": {
-                    "socket-type": "unix",
-                    "socket-name": "/run/kea/kea-dhcp4-ctrl.sock"
-                },
-                "lease-database": {
-                    "type": "memfile",
-                    "persist": True,
-                    "name": "/var/lib/kea/kea-leases4.csv"
-                },
-                "hooks-libraries": [
-                    {
-                        # Standard library executing custom shell/executable hooks
-                        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_run_script.so",
-                        "parameters": {
-                            "name": "/usr/local/bin/roost-dhcp-hook",
-                            "sync": False
-                        }
-                    }
-                ],
-                "subnet4": subnets_config
-            }
+        dhcp4_dict: Dict[str, Any] = {
+            "interfaces-config": {
+                "interfaces": interfaces if interfaces else ["*"]
+            },
+            "control-socket": {
+                "socket-type": "unix",
+                "socket-name": "/run/kea/kea-dhcp4-ctrl.sock"
+            },
+            "lease-database": {
+                "type": "memfile",
+                "persist": True,
+                "name": "/var/lib/kea/kea-leases4.csv"
+            },
+            "subnet4": subnets_config
         }
-        return kea_config
+        if hooks_libraries:
+            dhcp4_dict["hooks-libraries"] = hooks_libraries
+
+        return {"Dhcp4": dhcp4_dict}
 
     def write_config(self) -> None:
         """Writes the compiled JSON Kea configuration cleanly to disk target path."""

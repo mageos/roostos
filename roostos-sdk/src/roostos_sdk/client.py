@@ -40,6 +40,16 @@ class RoostClient:
         res = await self._interface.call_get_config()
         return json.loads(res)
 
+    async def reload_config(self) -> bool:
+        """Triggers a reload of configuration and active subsystems."""
+        try:
+            if hasattr(self._interface, "call_reload_config"):
+                return await self._interface.call_reload_config()
+            await self._interface.call_get_config()
+            return True
+        except Exception:
+            return False
+
     async def extract_plugin_ui(self, image_name: str, ui_entrypoint: str, plugin_id: str) -> None:
         """Invokes D-Bus ExtractPluginUI to pull and extract static UI assets."""
         await self._interface.call_extract_plugin_ui(image_name, ui_entrypoint, plugin_id)

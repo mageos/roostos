@@ -301,11 +301,44 @@ window.loadDashboard = async function() {
         }
 
         // Feed leases to roost-dhcp-management
+        const staticReservations = (allDevices || [])
+            .filter(d => d.static_ip)
+            .map(d => ({
+                mac: d.mac,
+                ip: d.static_ip,
+                hostname: d.name || "",
+                description: d.description || d.notes || ""
+            }));
+
+        const primaryBridge = (window.networkSettings?.bridges || [])[0] || {};
+        const dhcpConfig = {
+            gateway: primaryBridge.ip ? primaryBridge.ip.split('/')[0] : "192.168.1.1",
+            pool_start: primaryBridge.dhcp_pool_start || "192.168.1.100",
+            pool_end: primaryBridge.dhcp_pool_end || "192.168.1.250",
+            lease_time: "86400s (24h)"
+        };
+
+        const dhcpElements = document.querySelectorAll("#dhcp-mgmt-elem, #net-dhcp-comp");
+        dhcpElements.forEach(el => {
+            if (el && el.setData) {
+                el.setData(staticReservations, activeLeases, dhcpConfig);
+            }
+        });
         const dhcpElem = document.getElementById("dhcp-mgmt-elem");
-        if (dhcpElem && dhcpElem.setData) {
-            dhcpElem.setData(devData.reservations || [], activeLeases, devData.dhcp_config || {});
-        } else if (window.dhcpComponent && window.dhcpComponent.render) {
-            window.dhcpComponent.render();
+        if (dhcpElem) {
+            dhcpElem.onSave = async (reservations) => {
+                if (window.deviceService && reservations) {
+                    for (const r of reservations) {
+                        await window.deviceService.saveDevice({
+                            mac: r.mac,
+                            name: r.hostname || `Device ${r.mac.slice(-5)}`,
+                            static_ip: r.ip,
+                            description: r.description || ""
+                        });
+                    }
+                    await window.deviceService.fetchDevices();
+                }
+            };
         }
 
         // Fetch Networks (bridges, interfaces, VLANs, Wi-Fi APs)

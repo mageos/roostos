@@ -13,6 +13,14 @@ class ConfigDBusMixin:
     """D-Bus methods for declarative configuration and domain entity CRUD."""
 
     @method()
+    def ReloadConfig(self) -> 'b':
+        try:
+            self.reload_config()
+            return True
+        except Exception:
+            return False
+
+    @method()
     def GetConfig(self) -> 's':
         self.reload_config()
         return json.dumps(self._config.model_dump(exclude_none=True))

@@ -131,15 +131,9 @@ const renderLeaseRowTemplate = (l) => html`
 export class DhcpManagementComponent extends HTMLElement {
     constructor() {
         super();
-        this.dhcpConfig = { gateway: "192.168.1.1", pool_start: "192.168.1.100", pool_end: "192.168.1.250", lease_time: "86400s (24h)" };
-        this.reservations = [
-            { mac: "52:54:00:11:22:33", ip: "192.168.1.10", hostname: "server-nas", description: "Home NAS Storage" },
-            { mac: "52:54:00:44:55:66", ip: "192.168.1.20", hostname: "living-room-apple-tv", description: "Apple TV" }
-        ];
-        this.leases = [
-            { ip: "192.168.1.105", mac: "a4:83:e7:99:88:77", hostname: "iphone-matt", expires: "18h 45m" },
-            { ip: "192.168.1.142", mac: "b2:c3:d4:ee:ff:01", hostname: "kindle-paperwhite", expires: "22h 10m" }
-        ];
+        this.dhcpConfig = { gateway: "", pool_start: "", pool_end: "", lease_time: "86400s (24h)" };
+        this.reservations = [];
+        this.leases = [];
     }
 
     setData(reservations, leases, config) {
