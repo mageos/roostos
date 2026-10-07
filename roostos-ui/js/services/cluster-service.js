@@ -91,6 +91,38 @@ class ClusterService {
         if (res.ok) return await res.json();
         throw new Error(`Failed to fetch heartbeat for node ${nodeId}`);
     }
+
+    async fetchManifest() {
+        const res = await window.authService.apiFetch("/api/cluster/sync/manifest");
+        if (res.ok) return await res.json();
+        throw new Error("Failed to fetch cluster state manifest");
+    }
+
+    async promoteNode(nodeId, newEpoch = null, force = false) {
+        const res = await window.authService.apiFetch("/api/cluster/promote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ node_id: nodeId, new_epoch: newEpoch, force: force })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Failed to promote node ${nodeId}`);
+        }
+        return await res.json();
+    }
+
+    async demoteNode(nodeId) {
+        const res = await window.authService.apiFetch("/api/cluster/demote", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ node_id: nodeId })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `Failed to demote node ${nodeId}`);
+        }
+        return await res.json();
+    }
 }
 
 if (typeof window !== "undefined") {

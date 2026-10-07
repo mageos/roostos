@@ -83,6 +83,7 @@ class NodeConfig(BaseModel):
     mac_address: Optional[str] = None
     location_id: Optional[str] = None  # Foreign key to RoomConfig.id
     interfaces: List[NodeInterface] = Field(default_factory=list)
+    failover_priority: int = 0
     capabilities: Optional[NodeCapabilities] = Field(default_factory=NodeCapabilities)
 
     @field_validator("roles")
@@ -105,6 +106,7 @@ class NodeJoinRequest(BaseModel):
     management_ip: Optional[str] = None
     mac_address: Optional[str] = None
     location_id: Optional[str] = None
+    failover_priority: int = 0
     capabilities: Optional[NodeCapabilities] = Field(default_factory=NodeCapabilities)
     interfaces: List[NodeInterface] = Field(default_factory=list)
 
@@ -126,6 +128,8 @@ class NodeHeartbeatRequest(BaseModel):
 class NodeHeartbeatResponse(BaseModel):
     status: str = "acknowledged"
     commands: List[str] = Field(default_factory=list)
+    epoch: Optional[int] = None
+    master_node_id: Optional[str] = None
 
 
 class NodeConfigSlice(BaseModel):
@@ -138,4 +142,31 @@ class NodeConfigSlice(BaseModel):
     bridges: List[Dict[str, Any]] = Field(default_factory=list)
     vlans: List[Dict[str, Any]] = Field(default_factory=list)
     wifi_access_points: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class ClusterStateManifest(BaseModel):
+    epoch: int = 1
+    master_node_id: str = "node-01"
+    controller_url: Optional[str] = None
+    generated_at: str = ""
+    hashes: Dict[str, str] = Field(default_factory=dict)
+
+
+class ClusterStateBundle(BaseModel):
+    epoch: int = 1
+    master_node_id: str = "node-01"
+    files: Dict[str, str] = Field(default_factory=dict)
+
+
+class ClusterPromotionRequest(BaseModel):
+    new_epoch: Optional[int] = None
+    force: bool = False
+
+
+class ClusterPromotionResponse(BaseModel):
+    status: str = "promoted"
+    node_id: str
+    epoch: int
+    role: str = "controller"
+    message: str = "Node successfully promoted to cluster controller."
 

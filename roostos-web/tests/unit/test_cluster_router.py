@@ -222,4 +222,30 @@ def test_cluster_sync_and_heartbeat_endpoints(cluster_test_setup, auth_headers):
     assert res.json()["status"] == "success"
     assert res.json()["command"] == "install_security_updates"
 
+    # 8. Get State Manifest & Bundle
+    res = client.get("/api/cluster/sync/manifest")
+    assert res.status_code == 200
+    manifest = res.json()
+    assert "epoch" in manifest
+    assert "hashes" in manifest
+
+    res = client.get("/api/cluster/sync/bundle")
+    assert res.status_code == 200
+    bundle = res.json()
+    assert "epoch" in bundle
+    assert "files" in bundle
+
+    # 9. Promote and Demote Node
+    res = client.post("/api/cluster/promote", json={"node_id": "node-02", "new_epoch": 2}, headers=auth_headers)
+    assert res.status_code == 200
+    promote_data = res.json()
+    assert promote_data["status"] == "promoted"
+    assert promote_data["node_id"] == "node-02"
+    assert promote_data["epoch"] == 2
+
+    res = client.post("/api/cluster/demote", json={"node_id": "node-02"}, headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["status"] == "demoted"
+
+
 

@@ -15,6 +15,10 @@ export const renderClusterOverviewTemplate = (status, tokenData, discovered) => 
                 <div class="metric-value"><span class="badge ${roleBadge}" style="font-size: 16px; padding: 4px 10px;">${role.toUpperCase()}</span></div>
             </div>
             <div class="metric-card">
+                <div class="metric-title">Cluster Epoch</div>
+                <div class="metric-value"><span class="badge badge-info" style="font-size: 16px; padding: 4px 10px;">EPOCH ${status.epoch || 1}</span></div>
+            </div>
+            <div class="metric-card">
                 <div class="metric-title">Enrolled Nodes</div>
                 <div class="metric-value">${status.registered_nodes_count || (status.nodes ? status.nodes.length : 1)}</div>
             </div>
@@ -99,8 +103,9 @@ export const renderClusterNodesTableTemplate = (count, rowsHtml) => html`
 `;
 
 export const renderNodeRowTemplate = (node, updateInfo, isLocalNode) => {
+    const isController = (node.roles || []).includes("controller");
     const rolesHtml = (node.roles || ["gateway_router"]).map(r => 
-        html`<span class="badge badge-secondary">${r}</span>`
+        html`<span class="badge ${r === 'controller' ? 'badge-success' : 'badge-secondary'}">${r}</span>`
     ).join(" ");
 
     let updatesBadge = html`<span class="badge badge-success">Up to date</span>`;
@@ -108,10 +113,14 @@ export const renderNodeRowTemplate = (node, updateInfo, isLocalNode) => {
         updatesBadge = html`<span class="badge badge-warning">${updateInfo.upgradable} updates${updateInfo.security_upgradable ? ` (${updateInfo.security_upgradable} sec)` : ""}</span>`;
     }
 
+    const priorityBadge = node.failover_priority > 0 
+        ? html`<span class="badge badge-info" title="Failover Priority">Pri: ${node.failover_priority}</span>` 
+        : "";
+
     return html`
         <tr id="node-row-${node.id}">
             <td><code>${node.id}</code> ${isLocalNode ? html`<span class="badge badge-outline">Local</span>` : ""}</td>
-            <td><strong>${node.name}</strong></td>
+            <td><strong>${node.name}</strong> ${priorityBadge}</td>
             <td>${rolesHtml}</td>
             <td><code>${node.management_ip || "-"}</code></td>
             <td><span class="badge badge-online"><span class="pulse-dot" style="margin-right: 4px;"></span>Online</span></td>
@@ -119,6 +128,9 @@ export const renderNodeRowTemplate = (node, updateInfo, isLocalNode) => {
             <td>
                 <div style="display: flex; gap: 6px;">
                     <button class="btn btn-secondary btn-sm edit-node-btn" data-id="${node.id}">Edit</button>
+                    ${!isController ? html`
+                        <button class="btn btn-warning btn-sm promote-node-btn" data-id="${node.id}" title="Promote to Master">Promote</button>
+                    ` : ""}
                     ${updateInfo && updateInfo.upgradable > 0 ? html`
                         <button class="btn btn-primary btn-sm update-node-btn" data-id="${node.id}">Update</button>
                     ` : ""}

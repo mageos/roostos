@@ -13,7 +13,9 @@ from roostos_engine.models.node import (
     NodeConfigSlice,
     NodeRole,
     NodeInterface,
+    ClusterStateManifest,
 )
+from roostos_engine.cluster_replicator import ClusterReplicator
 
 
 class ClusterSyncAgent:
@@ -26,12 +28,21 @@ class ClusterSyncAgent:
         sync_interval_seconds: int = 30,
         config_dir: str = "/etc/roostos",
         mock: bool = False,
+        failover_priority: int = 0,
+        auto_failover: bool = True,
+        failover_threshold: int = 3,
     ):
         self.node_id = node_id
         self.controller_url = controller_url.rstrip("/")
         self.sync_interval_seconds = sync_interval_seconds
         self.config_dir = config_dir
         self.mock = mock
+        self.failover_priority = failover_priority
+        self.auto_failover = auto_failover
+        self.failover_threshold = failover_threshold
+        self.consecutive_heartbeat_failures = 0
+        self.is_promoted_master = False
+        self.replicator = ClusterReplicator(config_dir=config_dir, mock=mock)
         self._running = False
         self._task: Optional[asyncio.Task] = None
         self._last_heartbeat_time: Optional[str] = None
@@ -57,18 +68,58 @@ class ClusterSyncAgent:
             self._task = None
 
     async def _sync_loop(self) -> None:
-        """Periodic loop that sends heartbeats and pulls node configuration."""
+        """Periodic loop that sends heartbeats, syncs state manifests, and monitors master health."""
         while self._running:
             try:
                 hb_res = await self.send_heartbeat()
+                self.consecutive_heartbeat_failures = 0
                 for cmd in hb_res.get("commands", []):
                     await self.execute_command(cmd)
+
                 slice_data = await self.fetch_config_slice()
                 if slice_data:
                     await self.apply_config_slice(slice_data)
+
+                # Anti-entropy state sync via hash manifest
+                manifest = await self.fetch_manifest()
+                if manifest and self.replicator.compare_manifest(manifest):
+                    await self.replicator.sync_from_controller(self.controller_url)
+
             except Exception as e:
-                print(f"ClusterSyncAgent error for node {self.node_id}: {e}", file=sys.stderr)
+                self.consecutive_heartbeat_failures += 1
+                print(f"ClusterSyncAgent failure ({self.consecutive_heartbeat_failures}) for {self.node_id}: {e}", file=sys.stderr)
+                if self.auto_failover and self.consecutive_heartbeat_failures >= self.failover_threshold:
+                    await self.evaluate_and_trigger_failover()
+
             await asyncio.sleep(self.sync_interval_seconds)
+
+    async def fetch_manifest(self) -> Optional[ClusterStateManifest]:
+        """Fetches the current cluster state manifest from the controller."""
+        if self.mock and not self.controller_url.startswith("http"):
+            return self.replicator.generate_manifest(epoch=1, master_node_id="master-01")
+
+        url = f"{self.controller_url}/api/cluster/sync/manifest"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                res = await client.get(url)
+                if res.status_code == 200:
+                    return ClusterStateManifest.model_validate(res.json())
+        except Exception:
+            pass
+        return None
+
+    async def evaluate_and_trigger_failover(self) -> bool:
+        """Evaluates whether this node has eligible failover priority to assume master role."""
+        if self.is_promoted_master or self.failover_priority <= 0:
+            return False
+        return await self.promote_to_master()
+
+    async def promote_to_master(self) -> bool:
+        """Promotes this node to cluster master and halts the subordinate sync agent."""
+        self.is_promoted_master = True
+        self._running = False
+        print(f"Node '{self.node_id}' successfully promoted to cluster master!")
+        return True
 
     async def execute_command(self, cmd: str) -> None:
         """Executes a remote command queued by the cluster controller."""
