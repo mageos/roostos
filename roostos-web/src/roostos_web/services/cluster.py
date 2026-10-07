@@ -7,6 +7,7 @@ from roostos_engine.models.node import NodeConfig, NodesConfigFile, NodeRole, No
 from roostos_engine.models.system import SystemConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_engine.cluster_manager import ClusterManager
+from roostos_engine.cluster_replicator import ClusterReplicator
 from roostos_sdk.client import RoostClient
 
 
@@ -23,6 +24,7 @@ class ClusterService:
         config_dir = repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos"
         mock_mode = os.environ.get("ROOSTOS_MOCK") == "1" or not os.path.exists("/var/run/dbus/system_bus_socket")
         self.cluster_manager = cluster_manager or ClusterManager(config_dir, mock=mock_mode)
+        self.replicator = ClusterReplicator(config_dir, mock=mock_mode)
         if mock_mode:
             self.cluster_manager.mock = True
 
@@ -175,5 +177,83 @@ class ClusterService:
             network_config=config.network,
             nodes=config.nodes
         )
+
+    async def get_state_manifest(self) -> Dict[str, Any]:
+        """Returns the cluster state manifest containing SHA-256 hashes of all configuration files."""
+        config = self.repo.get_config()
+        epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
+        node_id = config.system.cluster.node_id if config.system and config.system.cluster else "node-01"
+        controller_url = config.system.cluster.controller_url if config.system and config.system.cluster else ""
+        manifest = self.replicator.generate_manifest(epoch=epoch, master_node_id=node_id, controller_url=controller_url)
+        return manifest.model_dump()
+
+    async def get_state_bundle(self) -> Dict[str, Any]:
+        """Returns the full bundle of all configuration files for read replicas."""
+        config = self.repo.get_config()
+        epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
+        node_id = config.system.cluster.node_id if config.system and config.system.cluster else "node-01"
+        bundle = self.replicator.export_bundle(epoch=epoch, master_node_id=node_id)
+        return bundle.model_dump()
+
+    async def get_file_content(self, filename: str) -> str:
+        """Returns the raw content of a specific configuration file."""
+        bundle = await self.get_state_bundle()
+        files = bundle.get("files", {})
+        if filename not in files:
+            raise FileNotFoundError(f"Configuration file '{filename}' not found.")
+        return files[filename]
+
+    async def promote_node(self, node_id: str, new_epoch: Optional[int] = None, force: bool = False) -> Dict[str, Any]:
+        """Promotes a node to cluster master and increments cluster epoch."""
+        config = self.repo.get_config()
+        curr_epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
+        next_epoch = new_epoch if new_epoch is not None and new_epoch > curr_epoch else curr_epoch + 1
+
+        existing_nodes = [n.model_dump() for n in config.nodes]
+        for n in existing_nodes:
+            roles = set(n.get("roles", []))
+            if n["id"] == node_id:
+                roles.add("controller")
+            elif not force:
+                roles.discard("controller")
+            n["roles"] = list(roles)
+
+        nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes])
+        self.repo.save_nodes_config(nodes_config)
+
+        if config.system and config.system.cluster:
+            config.system.cluster.node_id = node_id
+            config.system.cluster.epoch = next_epoch
+            self.repo.save_system_config(config.system)
+
+        return {
+            "status": "promoted",
+            "node_id": node_id,
+            "epoch": next_epoch,
+            "role": "controller",
+            "message": f"Node '{node_id}' successfully promoted to master for epoch {next_epoch}."
+        }
+
+    async def demote_node(self, node_id: str) -> Dict[str, Any]:
+        """Demotes a controller node to read replica."""
+        config = self.repo.get_config()
+        existing_nodes = [n.model_dump() for n in config.nodes]
+        for n in existing_nodes:
+            if n["id"] == node_id:
+                roles = set(n.get("roles", []))
+                roles.discard("controller")
+                if not roles:
+                    roles.add("gateway_router")
+                n["roles"] = list(roles)
+
+        nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes])
+        self.repo.save_nodes_config(nodes_config)
+        return {
+            "status": "demoted",
+            "node_id": node_id,
+            "role": "node",
+            "message": f"Node '{node_id}' demoted to read replica."
+        }
+
 
 

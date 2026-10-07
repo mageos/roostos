@@ -254,4 +254,17 @@ describe('ClusterManagementComponent UI', () => {
         expect(updateSpy).toHaveBeenCalledWith('node-02', false);
         expect(loadSpy).toHaveBeenCalled();
     });
+
+    test('clicking promote button calls promoteNode and refreshes data', async () => {
+        await comp.loadData();
+        const promoteBtn = comp.querySelector('.promote-node-btn[data-id="node-02"]');
+        expect(promoteBtn).not.toBeNull();
+
+        const promoteSpy = jest.spyOn(window.clusterService, 'promoteNode').mockResolvedValueOnce({ status: 'promoted', epoch: 2 });
+        const loadSpy = jest.spyOn(comp, 'loadData').mockResolvedValueOnce();
+
+        await promoteBtn.click();
+        expect(promoteSpy).toHaveBeenCalledWith('node-02');
+        expect(loadSpy).toHaveBeenCalled();
+    });
 });

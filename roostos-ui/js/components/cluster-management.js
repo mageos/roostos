@@ -123,6 +123,10 @@ export class ClusterManagementComponent extends HTMLElement {
             btn.onclick = () => this.showInlineEditRow(btn.getAttribute("data-id"));
         });
 
+        this.querySelectorAll(".promote-node-btn").forEach(btn => {
+            btn.onclick = () => this.handlePromoteNode(btn.getAttribute("data-id"));
+        });
+
         this.querySelectorAll(".delete-node-btn").forEach(btn => {
             btn.onclick = () => this.handleRemoveNode(btn.getAttribute("data-id"));
         });
@@ -252,6 +256,17 @@ export class ClusterManagementComponent extends HTMLElement {
             await this.loadData();
         } catch (err) {
             alert(err.message || "Failed to queue update");
+        }
+    }
+
+    async handlePromoteNode(nodeId) {
+        if (!confirm(`Are you sure you want to promote node '${nodeId}' to cluster master?`)) return;
+        try {
+            await window.clusterService.promoteNode(nodeId);
+            alert(`Node '${nodeId}' promoted to cluster master!`);
+            await this.loadData();
+        } catch (err) {
+            alert(err.message || "Failed to promote node");
         }
     }
 }

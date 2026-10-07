@@ -33,6 +33,9 @@ class ClusterSettingsConfig(BaseModel):
     client_cert: Optional[str] = None
     client_key: Optional[str] = None
     sync_interval_seconds: int = 30
+    epoch: int = 1
+    failover_priority: int = 0
+    auto_failover: bool = True
 
 class SystemIdentityServerConfig(BaseModel):
     enabled: bool = False
