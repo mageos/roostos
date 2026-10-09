@@ -3,6 +3,7 @@
 import os
 import sys
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
 import click
@@ -43,23 +44,6 @@ def generate_token_cmd(ip: Optional[str], port: int, ttl: int, https: bool) -> N
 
     mgr = EdgeManager()
     bootstrap = mgr.create_bootstrap_token(vps_public_ip=public_ip, listen_port=port, ttl_minutes=ttl, use_https=https)
-
-    # Persist active token locally so the API can validate/consume it
-    state_dir = "/var/lib/roostos" if os.path.exists("/var/lib") else "/tmp/roostos"
-    os.makedirs(state_dir, exist_ok=True)
-    state_file = os.path.join(state_dir, "edge_bootstrap.json")
-    try:
-        with open(state_file, "w") as f:
-            json.dump({
-                "token": bootstrap.token,
-                "jti": jwt_get_jti(bootstrap.token),
-                "expires_at": bootstrap.expires_at,
-                "public_ip": public_ip,
-                "port": port,
-            }, f)
-    except Exception as e:
-        click.secho(f"Warning: Could not write token state file: {e}", fg="yellow")
-
     formatted_uri = f"roost-edge://{public_ip}:{port}?token={bootstrap.token}"
 
     click.secho("==================================================", fg="cyan", bold=True)
@@ -95,10 +79,17 @@ def connect_cmd(token: str, config_dir: str, mock: bool) -> None:
         bearer_token = token_str
         endpoint_url = "http://127.0.0.1:8000"
 
+    try:
+        import jwt
+        unverified = jwt.decode(bearer_token, options={"verify_signature": False})
+        if unverified.get("endpoint_url"):
+            endpoint_url = unverified["endpoint_url"]
+    except Exception:
+        pass
+
     mgr = EdgeManager(config_dir=config_dir, mock=mock)
     home_priv, home_pub = mgr.generate_wireguard_keypair()
 
-    # Call VPS enrollment API
     enroll_url = f"{endpoint_url}/api/edge/enroll"
     payload = EdgeEnrollmentPayload(
         home_public_key=home_pub,
@@ -120,6 +111,15 @@ def connect_cmd(token: str, config_dir: str, mock: bool) -> None:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             enroll_resp = EdgeEnrollmentResponse.model_validate(data)
+    except urllib.error.HTTPError as e:
+        err_msg = e.reason
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            err_msg = err_json.get("detail", err_msg)
+        except Exception:
+            pass
+        click.secho(f"✗ Enrollment failed: Edge Gateway returned HTTP {e.code} ({err_msg})", fg="red", err=True)
+        sys.exit(1)
     except Exception as e:
         click.secho(f"✗ Enrollment failed: Could not connect to Edge Gateway: {e}", fg="red", err=True)
         sys.exit(1)
@@ -145,6 +145,32 @@ def connect_cmd(token: str, config_dir: str, mock: bool) -> None:
             with open(fpath, "w") as f:
                 f.write(content)
         click.secho(f"✓ Written WireGuard network configuration to {net_dir}", fg="green")
+
+        net_yaml = os.path.join(config_dir, "network.yaml")
+        if os.path.exists(net_yaml):
+            try:
+                import yaml
+                with open(net_yaml, "r") as f:
+                    ydata = yaml.safe_load(f) or {}
+                net_section = ydata.setdefault("network", {})
+                gws = net_section.setdefault("edge_gateways", [])
+                vps_ip = enroll_resp.endpoint.split(":")[0]
+                gw_record = {
+                    "id": "edge-01",
+                    "name": "VPS Edge Gateway",
+                    "public_ip": vps_ip,
+                    "listen_port": 51820,
+                    "tunnel_ip_gateway": enroll_resp.gateway_tunnel_ip,
+                    "tunnel_ip_home": enroll_resp.assigned_tunnel_ip,
+                    "public_key": enroll_resp.gateway_public_key,
+                    "status": "connected",
+                    "ingress_routes": [],
+                }
+                net_section["edge_gateways"] = [g for g in gws if g.get("id") != "edge-01"] + [gw_record]
+                with open(net_yaml, "w") as f:
+                    yaml.dump(ydata, f)
+            except Exception:
+                pass
 
     click.secho("✓ Edge Gateway tunnel established at 10.42.0.2 -> 10.42.0.1", fg="green", bold=True)
 

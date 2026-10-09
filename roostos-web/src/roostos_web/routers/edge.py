@@ -1,19 +1,21 @@
 """FastAPI router for Edge Gateway management, bootstrap enrollment, and ingress routing."""
 
-import os
 import json
-import uuid
+import os
+import urllib.error
 import urllib.request
-from typing import List, Dict, Any, Optional
+import uuid
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header
-from pydantic import BaseModel, Field
-
 from roostos_engine.models.edge import (
     IngressRoute,
     EdgeGatewayConfig,
     EdgeBootstrapToken,
     EdgeEnrollmentPayload,
     EdgeEnrollmentResponse,
+    GenerateTokenRequest,
+    ConnectEdgeRequest,
+    IngressRoutePayload,
 )
 from roostos_engine.edge_manager import EdgeManager
 from roostos_engine.repository import ConfigRepository
@@ -30,31 +32,12 @@ def _write_network_files(net_files: Dict[str, str]) -> None:
     if not net_dir and os.getuid() == 0 and os.path.exists("/etc/systemd/network"):
         net_dir = "/etc/systemd/network"
     if net_dir and os.path.exists(net_dir):
-        try:
-            for fname, content in net_files.items():
+        for fname, content in net_files.items():
+            try:
                 with open(os.path.join(net_dir, fname), "w") as f:
                     f.write(content)
-        except Exception:
-            pass
-
-
-class GenerateTokenRequest(BaseModel):
-    public_ip: Optional[str] = None
-    port: int = 8000
-    ttl_minutes: int = 15
-    use_https: bool = False
-
-
-class ConnectEdgeRequest(BaseModel):
-    token: str  # Format: "roost-edge://<host>:<port>?token=<jwt>" or raw jwt
-    name: str = "VPS Edge Gateway"
-
-
-class IngressRoutePayload(BaseModel):
-    domain: str
-    target_ip: str
-    target_port: int
-    ssl_enabled: bool = True
+            except Exception:
+                pass
 
 
 @router.post("/token", response_model=EdgeBootstrapToken)
@@ -150,10 +133,17 @@ async def connect_to_edge_gateway(
         endpoint_url = f"http://{parts[0]}"
         bearer_token = parts[1] if len(parts) > 1 else ""
 
+    try:
+        import jwt
+        unverified = jwt.decode(bearer_token, options={"verify_signature": False})
+        if unverified.get("endpoint_url"):
+            endpoint_url = unverified["endpoint_url"]
+    except Exception:
+        pass
+
     mgr = EdgeManager(config_dir=repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos")
     home_priv, home_pub = mgr.generate_wireguard_keypair()
 
-    # Call VPS enrollment endpoint
     enroll_payload = EdgeEnrollmentPayload(
         home_public_key=home_pub,
         hostname="roost-home",
@@ -173,6 +163,17 @@ async def connect_to_edge_gateway(
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             enroll_resp = EdgeEnrollmentResponse.model_validate(data)
+    except urllib.error.HTTPError as e:
+        err_msg = e.reason
+        try:
+            err_json = json.loads(e.read().decode("utf-8"))
+            err_msg = err_json.get("detail", err_msg)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=e.code,
+            detail=f"Edge Gateway rejected enrollment: {err_msg}",
+        )
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

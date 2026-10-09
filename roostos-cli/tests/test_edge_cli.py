@@ -60,3 +60,25 @@ def test_edge_status_cli_unlinked():
         result = runner.invoke(cli, ["edge", "status", "--config-dir", tmpdir])
         assert result.exit_code == 0
         assert "No Edge Gateway currently linked" in result.output
+
+
+def test_edge_token_cli_persists_token(monkeypatch, tmp_path):
+    """Verifies CLI token generation persists token for EdgeManager validation."""
+    token_file = str(tmp_path / "edge_tokens.json")
+    monkeypatch.setenv("ROOSTOS_EDGE_TOKENS_FILE", token_file)
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["edge", "token", "--ip", "3.135.219.253", "--port", "8000"])
+    assert result.exit_code == 0
+    assert "roost-edge://3.135.219.253:8000?token=" in result.output
+
+    # Extract raw JWT from command output
+    raw_token = result.output.split("?token=")[1].split()[0].strip()
+
+    # Validate using a separate EdgeManager instance
+    from roostos_engine.edge_manager import EdgeManager
+    mgr = EdgeManager(state_file=token_file)
+    claims = mgr.validate_and_consume_token(raw_token)
+    assert claims["vps_ip"] == "3.135.219.253"
+    assert claims["role"] == "edge_bootstrap"
+

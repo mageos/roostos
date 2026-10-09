@@ -5,6 +5,14 @@
 
 const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
 
+const apiFetch = (url, options = {}) => {
+    if (window.authService?.apiFetch) return window.authService.apiFetch(url, options);
+    const token = localStorage.getItem("roostos_token");
+    const headers = { ...options.headers };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    return fetch(url, { ...options, headers });
+};
+
 const renderEdgeGatewayTemplate = (gateway, routes, rowsHtml) => html`
     <div class="card" style="margin-bottom: 24px;">
         <div class="card-header table-action-bar">
@@ -115,12 +123,12 @@ export class EdgeGatewayComponent extends HTMLElement {
 
     async loadData() {
         try {
-            const statusRes = await fetch("/api/edge/status");
+            const statusRes = await apiFetch("/api/edge/status");
             if (statusRes.ok) {
                 const data = await statusRes.json();
                 this.gateway = data.gateways?.[0] || null;
             }
-            const routesRes = await fetch("/api/edge/routes");
+            const routesRes = await apiFetch("/api/edge/routes");
             if (routesRes.ok) {
                 this.routes = await routesRes.json();
             }
@@ -172,7 +180,7 @@ export class EdgeGatewayComponent extends HTMLElement {
             }
 
             try {
-                const res = await fetch("/api/edge/routes", {
+                const res = await apiFetch("/api/edge/routes", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ domain, target_ip, target_port, ssl_enabled })
@@ -215,7 +223,7 @@ export class EdgeGatewayComponent extends HTMLElement {
     async deleteRoute(routeId) {
         if (!confirm("Are you sure you want to delete this ingress route?")) return;
         try {
-            await fetch(`/api/edge/routes/${routeId}`, { method: "DELETE" });
+            await apiFetch(`/api/edge/routes/${routeId}`, { method: "DELETE" });
             await this.loadData();
         } catch (e) {
             alert(`Error deleting route: ${e}`);
@@ -254,7 +262,7 @@ export class EdgeGatewayComponent extends HTMLElement {
             btn.textContent = "Connecting...";
 
             try {
-                const res = await fetch("/api/edge/connect", {
+                const res = await apiFetch("/api/edge/connect", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ token })

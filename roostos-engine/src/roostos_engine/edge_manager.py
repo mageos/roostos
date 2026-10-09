@@ -1,23 +1,22 @@
 """Edge Gateway Manager for WireGuard tunnel provisioning, token bootstrap, and ingress."""
 
-import os
-import time
 import base64
+import os
 import secrets
-import datetime
-from typing import Dict, Any, Optional, List, Tuple
-import jwt
+import time
+from typing import Any, Dict, List, Optional, Tuple
 
+import jwt
+from roostos_engine.edge_token_store import EdgeTokenStore
 from roostos_engine.models.edge import (
-    IngressRoute,
-    EdgeGatewayConfig,
     EdgeBootstrapToken,
+    EdgeGatewayConfig,
     EdgeEnrollmentPayload,
     EdgeEnrollmentResponse,
+    IngressRoute,
 )
 
 ALGORITHM = "HS256"
-_ACTIVE_BOOTSTRAP_TOKENS: Dict[str, float] = {}
 
 
 class EdgeManager:
@@ -28,12 +27,23 @@ class EdgeManager:
         config_dir: str = "/etc/roostos",
         secret_key: Optional[str] = None,
         mock: bool = False,
+        state_file: Optional[str] = None,
+        token_store: Optional[EdgeTokenStore] = None,
     ):
         self.config_dir = config_dir
-        self.secret_key = secret_key or os.environ.get("ROOSTOS_JWT_SECRET", "roostos-edge-default-secret-min-32-bytes!!")
         self.mock = mock
-        self._active_tokens: Dict[str, float] = _ACTIVE_BOOTSTRAP_TOKENS
+        self.token_store = token_store or EdgeTokenStore(
+            config_dir=config_dir,
+            secret_key=secret_key,
+            state_file=state_file,
+        )
+        self.secret_key = self.token_store.secret_key
+        self.state_file = self.token_store.state_file
 
+    @property
+    def _active_tokens(self) -> Dict[str, float]:
+        """Provides in-memory compatibility for active tokens."""
+        return self.token_store.load_tokens()
 
     def generate_wireguard_keypair(self) -> Tuple[str, str]:
         """Generates a WireGuard Curve25519 private and public keypair."""
@@ -43,7 +53,6 @@ class EdgeManager:
 
             priv = x25519.X25519PrivateKey.generate()
             pub = priv.public_key()
-
             priv_bytes = priv.private_bytes(
                 encoding=serialization.Encoding.Raw,
                 format=serialization.PrivateFormat.Raw,
@@ -58,7 +67,6 @@ class EdgeManager:
                 base64.b64encode(pub_bytes).decode("ascii"),
             )
         except Exception:
-            # Fallback random 32-byte keys for testing or lightweight systems
             rand_priv = secrets.token_bytes(32)
             rand_pub = secrets.token_bytes(32)
             return (
@@ -88,7 +96,7 @@ class EdgeManager:
             "exp": expires_at,
         }
         encoded_token = jwt.encode(payload, self.secret_key, algorithm=ALGORITHM)
-        self._active_tokens[jti] = expires_at
+        self.token_store.record_token(jti, float(expires_at))
 
         return EdgeBootstrapToken(
             token=encoded_token,
@@ -110,19 +118,19 @@ class EdgeManager:
 
         exp = payload.get("exp", 0)
         if exp < time.time():
-            self._active_tokens.pop(jti, None)
+            self.token_store.consume_token(jti)
             raise ValueError("Bootstrap token has expired.")
 
-        # Single-use enforcement
-        if not self.mock and jti not in self._active_tokens:
+        active = self.token_store.load_tokens()
+        if not self.mock and jti not in active:
             raise ValueError("Bootstrap token has already been consumed or is invalid.")
 
-        self._active_tokens.pop(jti, None)
+        self.token_store.consume_token(jti)
         return payload
 
     def generate_networkd_config(
         self,
-        role: str,  # "gateway" or "client"
+        role: str,
         private_key: str,
         peer_public_key: str,
         endpoint: Optional[str] = None,
@@ -133,44 +141,26 @@ class EdgeManager:
     ) -> Dict[str, str]:
         """Generates systemd-networkd .netdev and .network files for WireGuard."""
         if role == "gateway":
-            netdev = (
-                f"[NetDev]\n"
-                f"Name=wg-edge\n"
-                f"Kind=wireguard\n"
-                f"Description=RoostOS Edge Gateway WireGuard Server\n\n"
-                f"[WireGuard]\n"
-                f"PrivateKey={private_key}\n"
-                f"ListenPort={listen_port or 51820}\n\n"
-                f"[WireGuardPeer]\n"
-                f"PublicKey={peer_public_key}\n"
-                f"AllowedIPs={allowed_ips}\n"
-            )
+            peer_section = f"[WireGuardPeer]\nPublicKey={peer_public_key}\nAllowedIPs={allowed_ips}\n"
+            listen_line = f"ListenPort={listen_port or 51820}\n"
+            desc = "Server"
         else:
-            netdev = (
-                f"[NetDev]\n"
-                f"Name=wg-edge\n"
-                f"Kind=wireguard\n"
-                f"Description=RoostOS Edge Gateway WireGuard Client\n\n"
-                f"[WireGuard]\n"
-                f"PrivateKey={private_key}\n\n"
-                f"[WireGuardPeer]\n"
-                f"PublicKey={peer_public_key}\n"
-                f"Endpoint={endpoint}\n"
-                f"AllowedIPs={allowed_ips}\n"
+            peer_section = (
+                f"[WireGuardPeer]\nPublicKey={peer_public_key}\n"
+                f"Endpoint={endpoint}\nAllowedIPs={allowed_ips}\n"
                 f"PersistentKeepalive={persistent_keepalive}\n"
             )
+            listen_line = ""
+            desc = "Client"
 
-        network = (
-            f"[Match]\n"
-            f"Name=wg-edge\n\n"
-            f"[Network]\n"
-            f"Address={tunnel_ip}\n"
+        netdev = (
+            f"[NetDev]\nName=wg-edge\nKind=wireguard\n"
+            f"Description=RoostOS Edge Gateway WireGuard {desc}\n\n"
+            f"[WireGuard]\nPrivateKey={private_key}\n{listen_line}\n"
+            f"{peer_section}"
         )
-
-        return {
-            "50-wg-edge.netdev": netdev,
-            "50-wg-edge.network": network,
-        }
+        network = f"[Match]\nName=wg-edge\n\n[Network]\nAddress={tunnel_ip}\n"
+        return {"50-wg-edge.netdev": netdev, "50-wg-edge.network": network}
 
     def generate_nginx_config(self, routes: List[IngressRoute]) -> str:
         """Generates Nginx reverse-proxy server blocks for active ingress routes."""
@@ -221,5 +211,5 @@ class EdgeManager:
         """Generates nftables rules to restrict port 8000 to internal tunnel/localhost."""
         return [
             f"# RoostOS Attack Surface Hardening: Drop public port 8000 on {wan_interface}",
-            f"add rule inet filter input iifname \"{wan_interface}\" tcp dport 8000 drop",
+            f'add rule inet filter input iifname "{wan_interface}" tcp dport 8000 drop',
         ]

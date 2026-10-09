@@ -132,3 +132,22 @@ def test_edge_lockdown_endpoint(edge_client, admin_headers):
     assert res.status_code == 200
     assert res.json()["status"] == "success"
     assert len(res.json()["rules"]) > 0
+
+
+def test_enroll_consumed_token_returns_403(edge_client, admin_headers):
+    client, _ = edge_client
+    token_res = client.post("/api/edge/token", json={"public_ip": "203.0.113.10"}, headers=admin_headers)
+    token = token_res.json()["token"]
+
+    enroll_payload = {"home_public_key": "home_key_123=", "hostname": "roost-home"}
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 1. First enrollment succeeds
+    first = client.post("/api/edge/enroll", json=enroll_payload, headers=headers)
+    assert first.status_code == 200
+
+    # 2. Second enrollment with consumed token must return 403
+    second = client.post("/api/edge/enroll", json=enroll_payload, headers=headers)
+    assert second.status_code == 403
+    assert "already been consumed" in second.json()["detail"]
+

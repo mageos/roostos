@@ -101,3 +101,40 @@ def test_edge_manager_lockdown_rules():
     mgr = EdgeManager(mock=True)
     rules = mgr.compile_lockdown_rules("eth0")
     assert any("tcp dport 8000 drop" in r for r in rules)
+
+
+def test_edge_manager_cross_process_persistence(tmp_path):
+    """Simulates separate CLI creation and daemon consumption across processes."""
+    token_file = str(tmp_path / "edge_tokens.json")
+    secret = "unit-test-secure-signing-key-32bytes!!"
+
+    # Process 1: CLI generates token and terminates
+    cli_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    bootstrap = cli_mgr.create_bootstrap_token(vps_public_ip="3.135.219.253", listen_port=8000)
+
+    # Process 2: Daemon receives enrollment request and consumes token
+    daemon_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    claims = daemon_mgr.validate_and_consume_token(bootstrap.token)
+    assert claims["vps_ip"] == "3.135.219.253"
+    assert claims["role"] == "edge_bootstrap"
+
+    # Process 3: Attempting replay must fail
+    replay_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    with pytest.raises(ValueError, match="already been consumed"):
+        replay_mgr.validate_and_consume_token(bootstrap.token)
+
+
+def test_edge_manager_shared_secret_persistence(tmp_path):
+    """Verifies EdgeManager reads shared edge_jwt.secret from config directory."""
+    secret_file = tmp_path / "edge_jwt.secret"
+    secret_file.write_text("persisted-shared-secret-key-32bytes!!")
+    token_file = str(tmp_path / "edge_tokens.json")
+
+    mgr1 = EdgeManager(config_dir=str(tmp_path), state_file=token_file, mock=False)
+    assert mgr1.secret_key == "persisted-shared-secret-key-32bytes!!"
+    bootstrap = mgr1.create_bootstrap_token(vps_public_ip="3.135.219.253")
+
+    mgr2 = EdgeManager(config_dir=str(tmp_path), state_file=token_file, mock=False)
+    claims = mgr2.validate_and_consume_token(bootstrap.token)
+    assert claims["sub"] == "edge_enrollment"
+

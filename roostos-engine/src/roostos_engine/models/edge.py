@@ -53,3 +53,22 @@ class EdgeEnrollmentResponse(BaseModel):
     allowed_ips: List[str] = Field(default_factory=lambda: ["10.42.0.0/24"])
     persistent_keepalive: int = 25
     message: str = "Edge Gateway enrolled successfully."
+
+
+class GenerateTokenRequest(BaseModel):
+    public_ip: Optional[str] = None
+    port: int = 8000
+    ttl_minutes: int = 15
+    use_https: bool = False
+
+
+class ConnectEdgeRequest(BaseModel):
+    token: str
+    name: str = "VPS Edge Gateway"
+
+
+class IngressRoutePayload(BaseModel):
+    domain: str
+    target_ip: str
+    target_port: int
+    ssl_enabled: bool = True

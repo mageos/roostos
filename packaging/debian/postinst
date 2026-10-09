@@ -15,6 +15,9 @@ case "$1" in
             groupadd -r roostos
         fi
 
+        chgrp roostos /etc/roostos /var/lib/roostos 2>/dev/null || true
+        chmod 2775 /var/lib/roostos 2>/dev/null || true
+
         # Create default configuration files if missing
         if [ ! -f /etc/roostos/system.yaml ]; then
             echo "Creating default system.yaml..."
