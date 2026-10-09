@@ -1,6 +1,7 @@
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Query
 
+from pydantic import BaseModel
 from roostos_sdk.client import RoostClient
 from roostos_engine.repository import ConfigRepository
 from roostos_engine.health import HealthChecker
@@ -10,6 +11,7 @@ from roostos_web.di import Injected
 router = APIRouter(tags=["health"])
 
 
+@router.get("/health")
 @router.get("/api/health")
 async def get_node_health(
     check_mqtt: bool = Query(False, description="Whether to trigger an active MQTT broadcast ping health check"),
@@ -18,7 +20,12 @@ async def get_node_health(
 ):
     """Returns standardized node diagnostic health report, subsystem statuses, resource telemetry, and MQTT bus health."""
     try:
-        return await dbus.get_node_health(check_mqtt=check_mqtt)
+        report = await dbus.get_node_health(check_mqtt=check_mqtt)
+        if isinstance(report, dict):
+            return report
+        if isinstance(report, BaseModel):
+            return report.model_dump()
+        raise ValueError("Invalid report object returned from D-Bus")
     except Exception:
         # Fallback to local health checker
         config = repo.get_config()

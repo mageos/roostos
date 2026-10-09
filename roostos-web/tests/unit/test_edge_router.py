@@ -48,6 +48,7 @@ def edge_client(tmp_path):
     client = TestClient(app)
     yield client, repo
     app.dependency_overrides.clear()
+    set_injector(None)
 
 
 @pytest.fixture
