@@ -13,6 +13,7 @@ from roostos_engine.models.edge import (
     EdgeBootstrapToken,
     EdgeEnrollmentPayload,
     EdgeEnrollmentResponse,
+    EdgeInviteBundle,
     GenerateTokenRequest,
     ConnectEdgeRequest,
     IngressRoutePayload,
@@ -38,6 +39,17 @@ def _write_network_files(net_files: Dict[str, str]) -> None:
                     f.write(content)
             except Exception:
                 pass
+
+
+def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig) -> None:
+    """Helper to persist edge gateway record in network config."""
+    net_config = repo.get_config().network
+    existing = [gw for gw in getattr(net_config, "edge_gateways", []) if gw.id != edge_gw.id]
+    net_config.edge_gateways = [*existing, edge_gw]
+    try:
+        repo.save_network_config(net_config)
+    except Exception:
+        pass
 
 
 @router.post("/token", response_model=EdgeBootstrapToken)
@@ -122,65 +134,66 @@ async def connect_to_edge_gateway(
     current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> EdgeGatewayConfig:
-    """Home server connects to Edge Gateway VPS using the bootstrap token."""
+    """Home server connects to Edge Gateway VPS using the invite or bootstrap token."""
     token_str = payload.token.strip()
-    endpoint_url = "http://127.0.0.1:8000"
-    bearer_token = token_str
+    config_dir = repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos"
+    mgr = EdgeManager(config_dir=config_dir)
 
+    # 1. WireGuard-First Invite Token
+    if token_str.startswith("roost-edge-wg://"):
+        try:
+            invite = EdgeInviteBundle.from_token(token_str)
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Malformed WireGuard invite: {e}")
+        net_files = mgr.apply_wireguard_invite(invite)
+        _write_network_files(net_files)
+        vps_ip = invite.endpoint.split(":")[0]
+        port = int(invite.endpoint.split(":")[1]) if ":" in invite.endpoint else 51820
+        edge_gw = EdgeGatewayConfig(
+            id="edge-01",
+            name=payload.name,
+            public_ip=vps_ip,
+            listen_port=port,
+            tunnel_ip_gateway=invite.gateway_tunnel_ip,
+            tunnel_ip_home=invite.assigned_tunnel_ip,
+            public_key=invite.gateway_public_key,
+            status="connected",
+        )
+        _save_edge_gateway_record(repo, edge_gw)
+        return edge_gw
+
+    # 2. Legacy HTTP Bootstrap Token
+    endpoint_url, bearer_token = "http://127.0.0.1:8000", token_str
     if token_str.startswith("roost-edge://"):
-        raw = token_str[len("roost-edge://"):]
-        parts = raw.split("?token=")
+        parts = token_str[len("roost-edge://"):].split("?token=")
         endpoint_url = f"http://{parts[0]}"
         bearer_token = parts[1] if len(parts) > 1 else ""
-
     try:
         import jwt
         unverified = jwt.decode(bearer_token, options={"verify_signature": False})
-        if unverified.get("endpoint_url"):
-            endpoint_url = unverified["endpoint_url"]
+        endpoint_url = unverified.get("endpoint_url", endpoint_url)
     except Exception:
         pass
 
-    mgr = EdgeManager(config_dir=repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos")
     home_priv, home_pub = mgr.generate_wireguard_keypair()
-
-    enroll_payload = EdgeEnrollmentPayload(
-        home_public_key=home_pub,
-        hostname="roost-home",
-        requested_tunnel_ip="10.42.0.2/24",
-    )
     req = urllib.request.Request(
         f"{endpoint_url}/api/edge/enroll",
-        data=json.dumps(enroll_payload.model_dump()).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {bearer_token}",
-        },
+        data=json.dumps(EdgeEnrollmentPayload(home_public_key=home_pub).model_dump()).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {bearer_token}"},
         method="POST",
     )
-
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            enroll_resp = EdgeEnrollmentResponse.model_validate(data)
+            enroll_resp = EdgeEnrollmentResponse.model_validate(json.loads(resp.read().decode("utf-8")))
     except urllib.error.HTTPError as e:
-        err_msg = e.reason
         try:
-            err_json = json.loads(e.read().decode("utf-8"))
-            err_msg = err_json.get("detail", err_msg)
+            err_msg = json.loads(e.read().decode("utf-8")).get("detail", e.reason)
         except Exception:
-            pass
-        raise HTTPException(
-            status_code=e.code,
-            detail=f"Edge Gateway rejected enrollment: {err_msg}",
-        )
+            err_msg = e.reason
+        raise HTTPException(status_code=e.code, detail=f"Edge Gateway rejected enrollment: {err_msg}")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Could not connect to Edge Gateway: {e}",
-        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not connect to Edge Gateway: {e}")
 
-    # Save WireGuard network files locally
     net_files = mgr.generate_networkd_config(
         role="client",
         private_key=home_priv,
@@ -192,27 +205,17 @@ async def connect_to_edge_gateway(
     )
     _write_network_files(net_files)
 
-    # Update network.yaml
-    config = repo.get_config()
-    net_config = config.network
-    vps_ip = enroll_resp.endpoint.split(":")[0]
     edge_gw = EdgeGatewayConfig(
         id="edge-01",
         name=payload.name,
-        public_ip=vps_ip,
+        public_ip=enroll_resp.endpoint.split(":")[0],
         listen_port=51820,
         tunnel_ip_gateway=enroll_resp.gateway_tunnel_ip,
         tunnel_ip_home=enroll_resp.assigned_tunnel_ip,
         public_key=enroll_resp.gateway_public_key,
         status="connected",
     )
-    existing = [gw for gw in getattr(net_config, "edge_gateways", []) if gw.id != edge_gw.id]
-    net_config.edge_gateways = [*existing, edge_gw]
-    try:
-        repo.save_network_config(net_config)
-    except Exception:
-        pass
-
+    _save_edge_gateway_record(repo, edge_gw)
     return edge_gw
 
 
@@ -290,10 +293,5 @@ async def apply_firewall_lockdown(
     current_user: UserSession = Depends(get_current_admin),
 ) -> Dict[str, Any]:
     """Applies firewall lockdown on VPS to drop public port 8000 access."""
-    mgr = EdgeManager()
-    rules = mgr.compile_lockdown_rules(wan_interface=wan_interface)
-    return {
-        "status": "success",
-        "message": f"Port 8000 locked down on interface {wan_interface}.",
-        "rules": rules,
-    }
+    rules = EdgeManager().compile_lockdown_rules(wan_interface=wan_interface)
+    return {"status": "success", "message": f"Port 8000 locked down on interface {wan_interface}.", "rules": rules}

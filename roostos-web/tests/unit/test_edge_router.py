@@ -152,3 +152,22 @@ def test_enroll_consumed_token_returns_403(edge_client, admin_headers):
     assert second.status_code == 403
     assert "already been consumed" in second.json()["detail"]
 
+
+def test_connect_endpoint_wireguard_token(edge_client, admin_headers):
+    """Verifies connecting via WireGuard invite token (Option 1 zero web exposure)."""
+    from roostos_engine.edge_manager import EdgeManager
+
+    client, repo = edge_client
+    mgr = EdgeManager(mock=True)
+    invite = mgr.create_wireguard_invite(vps_public_ip="203.0.113.88", listen_port=51820)
+    token = invite.to_token()
+
+    res = client.post("/api/edge/connect", json={"token": token, "name": "Zero-Web VPS"}, headers=admin_headers)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["public_ip"] == "203.0.113.88"
+    assert data["status"] == "connected"
+    assert data["tunnel_ip_gateway"] == "10.42.0.1/24"
+    assert data["tunnel_ip_home"] == "10.42.0.2/24"
+
+

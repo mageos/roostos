@@ -1,5 +1,7 @@
 """Domain models and DTOs for RoostOS Edge Gateway and Ingress Reverse Proxy."""
 
+import base64
+import time
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -72,3 +74,36 @@ class IngressRoutePayload(BaseModel):
     target_ip: str
     target_port: int
     ssl_enabled: bool = True
+
+
+class EdgeInviteBundle(BaseModel):
+    """Encapsulates peer configuration for zero-web WireGuard-First onboarding."""
+    version: str = "1.0"
+    type: str = "wireguard_invite"
+    endpoint: str
+    gateway_public_key: str
+    client_private_key: str
+    client_public_key: str
+    assigned_tunnel_ip: str = "10.42.0.2/24"
+    gateway_tunnel_ip: str = "10.42.0.1/24"
+    allowed_ips: List[str] = Field(default_factory=lambda: ["10.42.0.0/24"])
+    persistent_keepalive: int = 25
+    preshared_key: Optional[str] = None
+    created_at: int = Field(default_factory=lambda: int(time.time()))
+
+    def to_token(self) -> str:
+        """Serializes bundle into a compact base64 token string: roost-edge-wg://<base64>."""
+        raw_json = self.model_dump_json()
+        b64 = base64.urlsafe_b64encode(raw_json.encode("utf-8")).decode("ascii")
+        return f"roost-edge-wg://{b64}"
+
+    @classmethod
+    def from_token(cls, token_str: str) -> "EdgeInviteBundle":
+        """Deserializes from a roost-edge-wg:// token string or raw json."""
+        raw = token_str.strip()
+        if raw.startswith("roost-edge-wg://"):
+            b64 = raw[len("roost-edge-wg://"):]
+            raw_json = base64.urlsafe_b64decode(b64.encode("ascii")).decode("utf-8")
+            return cls.model_validate_json(raw_json)
+        return cls.model_validate_json(raw)
+

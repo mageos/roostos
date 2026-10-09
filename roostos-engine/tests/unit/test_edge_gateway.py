@@ -138,3 +138,36 @@ def test_edge_manager_shared_secret_persistence(tmp_path):
     claims = mgr2.validate_and_consume_token(bootstrap.token)
     assert claims["sub"] == "edge_enrollment"
 
+
+def test_edge_manager_wireguard_invite_roundtrip(tmp_path):
+    """Verifies WireGuard invite bundle creation, token serialization, and application."""
+    bundle_file = str(tmp_path / "roost-edge.json")
+    vps_mgr = EdgeManager(config_dir=str(tmp_path / "vps_cfg"), mock=True)
+
+    invite = vps_mgr.create_wireguard_invite(
+        vps_public_ip="198.51.100.25",
+        listen_port=51820,
+        output_path=bundle_file,
+    )
+    assert invite.endpoint == "198.51.100.25:51820"
+    assert invite.gateway_tunnel_ip == "10.42.0.1/24"
+    assert invite.assigned_tunnel_ip == "10.42.0.2/24"
+    assert invite.gateway_public_key
+    assert invite.client_private_key
+
+    # Verify file was written
+    assert (tmp_path / "roost-edge.json").exists()
+
+    # Check token serialization round-trip
+    token = invite.to_token()
+    assert token.startswith("roost-edge-wg://")
+    decoded_bundle = invite.from_token(token)
+    assert decoded_bundle.endpoint == invite.endpoint
+    assert decoded_bundle.gateway_public_key == invite.gateway_public_key
+    assert decoded_bundle.client_private_key == invite.client_private_key
+
+    # Home router applies invite
+    home_mgr = EdgeManager(config_dir=str(tmp_path / "home_cfg"), mock=True)
+    home_mgr.apply_wireguard_invite(decoded_bundle)
+
+

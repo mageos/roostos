@@ -13,6 +13,7 @@ from roostos_engine.models.edge import (
     EdgeGatewayConfig,
     EdgeEnrollmentPayload,
     EdgeEnrollmentResponse,
+    EdgeInviteBundle,
     IngressRoute,
 )
 
@@ -62,17 +63,10 @@ class EdgeManager:
                 encoding=serialization.Encoding.Raw,
                 format=serialization.PublicFormat.Raw,
             )
-            return (
-                base64.b64encode(priv_bytes).decode("ascii"),
-                base64.b64encode(pub_bytes).decode("ascii"),
-            )
+            return (base64.b64encode(priv_bytes).decode("ascii"), base64.b64encode(pub_bytes).decode("ascii"))
         except Exception:
-            rand_priv = secrets.token_bytes(32)
-            rand_pub = secrets.token_bytes(32)
-            return (
-                base64.b64encode(rand_priv).decode("ascii"),
-                base64.b64encode(rand_pub).decode("ascii"),
-            )
+            return (base64.b64encode(secrets.token_bytes(32)).decode("ascii"), base64.b64encode(secrets.token_bytes(32)).decode("ascii"))
+
 
     def create_bootstrap_token(
         self,
@@ -104,6 +98,90 @@ class EdgeManager:
             expires_at=expires_at,
             public_ip=vps_public_ip,
         )
+
+    def create_wireguard_invite(
+        self,
+        vps_public_ip: str,
+        listen_port: int = 51820,
+        output_path: Optional[str] = None,
+    ) -> EdgeInviteBundle:
+        """Generates a zero-web WireGuard invitation bundle and provisions the server peer."""
+        state_dir = self.config_dir
+        key_file = os.path.join(state_dir, "edge_server.key")
+        if os.path.exists(key_file):
+            with open(key_file, "r") as f:
+                vps_priv, vps_pub = f.read().strip().split(":")
+        else:
+            vps_priv, vps_pub = self.generate_wireguard_keypair()
+            try:
+                os.makedirs(state_dir, exist_ok=True)
+                with open(key_file, "w") as f:
+                    f.write(f"{vps_priv}:{vps_pub}")
+            except Exception:
+                pass
+
+        # Generate unique keypair for the client peer
+        home_priv, home_pub = self.generate_wireguard_keypair()
+
+        # Provision server networkd config on VPS
+        net_files = self.generate_networkd_config(
+            role="gateway",
+            private_key=vps_priv,
+            peer_public_key=home_pub,
+            listen_port=listen_port,
+            tunnel_ip="10.42.0.1/24",
+            allowed_ips="10.42.0.2/32",
+        )
+        if not self.mock:
+            net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
+            if os.path.exists(net_dir):
+                for fname, content in net_files.items():
+                    try:
+                        with open(os.path.join(net_dir, fname), "w") as f:
+                            f.write(content)
+                    except Exception:
+                        pass
+
+        bundle = EdgeInviteBundle(
+            endpoint=f"{vps_public_ip}:{listen_port}",
+            gateway_public_key=vps_pub,
+            client_private_key=home_priv,
+            client_public_key=home_pub,
+            assigned_tunnel_ip="10.42.0.2/24",
+            gateway_tunnel_ip="10.42.0.1/24",
+            allowed_ips=["10.42.0.0/24"],
+            persistent_keepalive=25,
+        )
+
+        if output_path:
+            with open(output_path, "w") as f:
+                f.write(bundle.model_dump_json(indent=2))
+
+        return bundle
+
+    def apply_wireguard_invite(self, bundle: EdgeInviteBundle) -> Dict[str, str]:
+        """Applies a WireGuard invitation bundle on the home client router."""
+        net_files = self.generate_networkd_config(
+            role="client",
+            private_key=bundle.client_private_key,
+            peer_public_key=bundle.gateway_public_key,
+            endpoint=bundle.endpoint,
+            tunnel_ip=bundle.assigned_tunnel_ip,
+            allowed_ips=",".join(bundle.allowed_ips),
+            persistent_keepalive=bundle.persistent_keepalive,
+        )
+
+        if not self.mock:
+            net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
+            if os.path.exists(net_dir):
+                for fname, content in net_files.items():
+                    try:
+                        with open(os.path.join(net_dir, fname), "w") as f:
+                            f.write(content)
+                    except Exception:
+                        pass
+
+        return net_files
 
     def validate_and_consume_token(self, token_str: str) -> Dict[str, Any]:
         """Validates and single-use consumes a bootstrap enrollment token."""
