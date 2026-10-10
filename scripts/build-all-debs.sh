@@ -3,6 +3,9 @@
 set -e
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$SRC_DIR/scripts/version.py" ]]; then
+    python3 "$SRC_DIR/scripts/version.py" --write
+fi
 PACKAGE_VERSION="0.1.1"
 if [[ -f "$SRC_DIR/VERSION" ]]; then
     PACKAGE_VERSION="$(tr -d '[:space:]' < "$SRC_DIR/VERSION")"
@@ -105,7 +108,8 @@ for arch in $ARCHITECTURES; do
     rm -rf "$STAGE_DIR"
     mkdir -p "$RUNTIME_TARGET" "$STAGE_DIR/usr/bin" "$STAGE_DIR/usr/local/bin" \
              "$STAGE_DIR/usr/share/roostos/web" "$STAGE_DIR/etc/systemd/system" \
-             "$STAGE_DIR/etc/dbus-1/system.d" "$STAGE_DIR/DEBIAN"
+             "$STAGE_DIR/etc/dbus-1/system.d" "$STAGE_DIR/etc/roostos" "$STAGE_DIR/DEBIAN"
+    echo "$PACKAGE_VERSION" > "$STAGE_DIR/etc/roostos/version"
 
     echo "--- Staging Runtime & Packages for $arch ---"
     cp -a "$PYTHON_PREFIX/"* "$RUNTIME_TARGET/"

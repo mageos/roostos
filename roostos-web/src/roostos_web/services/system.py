@@ -29,6 +29,9 @@ class SystemService:
             if os.path.exists("/etc/roostos/version"):
                 with open("/etc/roostos/version", "r") as f:
                     version = f.read().strip()
+            if not version or version == "Unknown":
+                from roostos_web import __version__
+                version = __version__
         except Exception:
             pass
 

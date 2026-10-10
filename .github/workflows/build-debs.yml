@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'feature/**'
+      - 'release/**'
     tags:
       - 'v*'
   pull_request:
@@ -49,6 +50,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq dpkg-dev file
 
+      - name: Compute Dynamic Version
+        run: |
+          python3 scripts/version.py --write
+          echo "ROOSTOS_VERSION=$(cat VERSION)" >> $GITHUB_ENV
+          echo "Computed RoostOS Version: $(cat VERSION)"
+
       - name: Build Debian Packages
         env:
           TARGET_ARCHS: ${{ github.event.inputs.architectures || 'amd64 arm64' }}
@@ -64,12 +71,29 @@ jobs:
             dpkg -I "$deb"
           done
 
+      - name: Determine Artifact Name
+        id: artifact_meta
+        run: |
+          REF_NAME="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          if [[ "$REF_NAME" =~ ^feature/(.+) ]]; then
+            FEATURE="${BASH_REMATCH[1]}"
+            CLEAN_NAME=$(echo "$FEATURE" | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
+            echo "name=roostos-debian-packages-${CLEAN_NAME}" >> $GITHUB_OUTPUT
+          elif [[ "$REF_NAME" =~ ^release/(.+) ]]; then
+            RELEASE="${BASH_REMATCH[1]}"
+            CLEAN_NAME=$(echo "$RELEASE" | tr '/' '-' | tr -cd 'a-zA-Z0-9._-')
+            echo "name=roostos-debian-packages-release-${CLEAN_NAME}" >> $GITHUB_OUTPUT
+          else
+            echo "name=roostos-debian-packages-main" >> $GITHUB_OUTPUT
+          fi
+
       - name: Upload Debian Packages Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: roostos-debian-packages
+          name: ${{ steps.artifact_meta.outputs.name }}
           path: dist/debs/*.deb
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
       - name: Attach Packages to GitHub Release

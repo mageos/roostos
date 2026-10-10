@@ -16,6 +16,7 @@ from roostos_web.routers import (
     telemetry, alerts, updates, dns
 )
 from roostos_web.services.events import event_publisher
+from roostos_web import __version__
 
 from roostos_web.services.base import get_repository, set_repository, get_dbus_client, set_dbus_client
 
@@ -80,7 +81,7 @@ def create_app(
     )
 
     title = "RoostOS Edge Gateway API" if active_mode == "edge_gateway" else "RoostOS Core Management Web API"
-    app_instance = FastAPI(title=title, version="0.1.0", lifespan=lifespan)
+    app_instance = FastAPI(title=title, version=__version__, lifespan=lifespan)
     app_instance.state.mode = active_mode
     app_instance.state.no_ui = disable_ui
 
