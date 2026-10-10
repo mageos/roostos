@@ -114,6 +114,9 @@ class NodeJoinResponse(BaseModel):
     node_id: str
     controller_url: str
     message: str = "Node registered successfully"
+    ca_cert_pem: Optional[str] = None
+    client_cert_pem: Optional[str] = None
+    client_key_pem: Optional[str] = None
 
 
 class NodeHeartbeatRequest(BaseModel):

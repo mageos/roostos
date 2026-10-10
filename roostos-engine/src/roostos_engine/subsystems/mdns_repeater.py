@@ -15,6 +15,10 @@ class MdnsRepeaterSubsystem(Subsystem):
                 interfaces.append(bridge.name)
             for vlan in self.config.network.vlans:
                 interfaces.append(vlan.name)
+            if getattr(self.config.network, "edge_gateways", None):
+                interfaces.append("wg-edge")
+        if os.path.exists("/sys/class/net/wg-edge") and "wg-edge" not in interfaces:
+            interfaces.append("wg-edge")
 
         service_path = os.environ.get("ROOSTOS_MDNS_REPEATER_SERVICE")
         if not service_path:

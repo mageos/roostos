@@ -119,6 +119,38 @@ Once established, the home router is reachable by the VPS at `10.42.0.2`, and th
 
 ---
 
+### Step 4: Join the Edge Gateway to the Cluster
+
+Now that the private tunnel is active, join the VPS to the central RoostOS cluster so it can be managed centrally, receive configuration updates, and report telemetry.
+
+#### Zero-Friction Interactive Join (Auto-Discovery)
+On the VPS, simply run:
+```bash
+sudo roostos cluster join
+```
+1. **Auto-Discovery**: Probes for the controller across mDNS and the WireGuard tunnel (`10.42.0.2:8000`).
+2. **Authentication**: Choose between:
+   * **1) Admin Username & Password**: Authenticates against the controller and generates a session.
+   * **2) Pre-shared Join Token**: Enter a token previously generated on the controller with `roostos cluster token`.
+3. **mTLS Cryptographic Enrollment**: The controller issues an X.509 client certificate and delivers its Root CA. Certificates are automatically installed to `/etc/roostos/certs/`.
+
+#### Single-Command Join (Non-Interactive)
+If you already know the parameters, you can run the join in a single command:
+```bash
+# With username (prompts for password):
+sudo roostos cluster join 10.42.0.2:8000 --username admin --role edge_gateway
+
+# Or with a pre-shared token:
+sudo roostos cluster join 10.42.0.2:8000 --token roost-a1b2c3d4 --role edge_gateway
+```
+
+Once joined, verify on the home controller:
+```bash
+sudo roostos cluster list
+```
+
+---
+
 ## 4. Ingress Reverse Proxy Configuration
 
 Once the tunnel is active, you can route external domains hitting your VPS static IP directly to internal home network services.

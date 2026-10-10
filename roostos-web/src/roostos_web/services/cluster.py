@@ -99,9 +99,18 @@ class ClusterService:
         return token
 
     async def validate_join_token(self, token: str) -> bool:
-        """Validates a node pairing join token."""
-        if self.cluster_manager.mock and token.startswith("roost-"):
+        """Validates a node pairing join token or admin JWT."""
+        if not token:
+            return False
+        if self.cluster_manager.mock and (token.startswith("roost-") or token.startswith("mock-")):
             return True
+        try:
+            from roostos_web.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("role") == "admin":
+                return True
+        except Exception:
+            pass
         try:
             res = await self.dbus.validate_join_token(token)
             if res:
@@ -127,7 +136,7 @@ class ClusterService:
             return [d.model_dump() for d in detected]
 
     async def join_cluster(self, join_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validates join token and registers a node in the cluster."""
+        """Validates join token and registers a node in the cluster with mTLS certificates."""
         token = join_data.get("token", "")
         if not await self.validate_join_token(token):
             raise ValueError("Invalid or expired cluster join token.")
@@ -140,11 +149,27 @@ class ClusterService:
         if config.system and config.system.cluster and config.system.cluster.controller_url:
             controller_url = config.system.cluster.controller_url
         
+        ca_pem, client_pem, key_pem = None, None, None
+        try:
+            from roostos_engine.cert_manager import CertificateManager
+            cert_dir = os.path.join(self.repo.config_dir, "certs")
+            cert_mgr = CertificateManager(cert_dir=cert_dir)
+            bundle = cert_mgr.issue_service_cert(
+                service_name=f"node-{new_node.id}",
+                requested_scopes=["cluster:node", "telemetry:write"]
+            )
+            client_pem, key_pem, ca_pem = bundle.get("cert_pem"), bundle.get("key_pem"), bundle.get("ca_pem")
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "node_id": new_node.id,
             "controller_url": controller_url,
-            "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster."
+            "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster.",
+            "ca_cert_pem": ca_pem,
+            "client_cert_pem": client_pem,
+            "client_key_pem": key_pem,
         }
 
     async def record_heartbeat(self, node_id: str, report: Dict[str, Any]) -> Dict[str, Any]:

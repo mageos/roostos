@@ -119,6 +119,14 @@ def create_access_token(data: dict, expires_delta: Optional[datetime.timedelta] 
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def decode_access_token(token: str) -> Optional[dict]:
+    """Decodes and validates a signed JWT access token, returning the payload dictionary."""
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+
+
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     roostos_token: Optional[str] = Cookie(None)

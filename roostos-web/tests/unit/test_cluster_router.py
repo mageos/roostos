@@ -223,3 +223,23 @@ def test_cluster_sync_and_heartbeat_endpoints(cluster_test_setup, auth_headers):
     assert res.json()["command"] == "install_security_updates"
 
 
+def test_cluster_join_with_admin_jwt(cluster_test_setup):
+    repo, dbus = cluster_test_setup
+    client = TestClient(app)
+    admin_token = create_access_token({"sub": "admin", "role": "admin"})
+
+    res = client.post("/api/cluster/join", json={
+        "token": admin_token,
+        "node_id": "node-03",
+        "name": "Edge VPS Node",
+        "roles": ["edge_gateway"],
+        "management_ip": "10.42.0.1",
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["node_id"] == "node-03"
+    assert "successfully enrolled" in data["message"]
+
+
+

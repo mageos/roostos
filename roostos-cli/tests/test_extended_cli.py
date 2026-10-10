@@ -99,6 +99,32 @@ def test_cli_cluster_adopt_and_list(tmp_path: Path) -> None:
     assert "192.168.1.200" in res_list.output
 
 
+def test_cli_cluster_token(tmp_path: Path) -> None:
+    runner = CliRunner()
+    res = runner.invoke(cli, ["cluster", "token", "--config-dir", str(tmp_path)])
+    assert res.exit_code == 0
+    assert "RoostOS Cluster Join Token" in res.output
+    assert "sudo roostos cluster join --token roost-" in res.output
+
+
+def test_cli_cluster_join_mock(tmp_path: Path) -> None:
+    runner = CliRunner()
+    res = runner.invoke(cli, [
+        "cluster", "join",
+        "10.42.0.2:8000",
+        "--token", "roost-testtoken",
+        "--role", "edge_gateway",
+        "--name", "VPS-Edge-01",
+        "--config-dir", str(tmp_path),
+        "--mock",
+    ])
+    assert res.exit_code == 0
+    assert "Successfully joined cluster at http://10.42.0.2:8000" in res.output
+    assert "VPS-Edge-01" in res.output
+    assert "edge_gateway" in res.output
+
+
+
 def test_cli_devices_and_people(tmp_path: Path) -> None:
     dev_file = tmp_path / "devices.yaml"
     dev_file.write_text(
