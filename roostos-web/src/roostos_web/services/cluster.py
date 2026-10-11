@@ -101,9 +101,18 @@ class ClusterService:
         return token
 
     async def validate_join_token(self, token: str) -> bool:
-        """Validates a node pairing join token."""
-        if self.cluster_manager.mock and token.startswith("roost-"):
+        """Validates a node pairing join token or admin JWT."""
+        if not token:
+            return False
+        if self.cluster_manager.mock and (token.startswith("roost-") or token.startswith("mock-")):
             return True
+        try:
+            from roostos_web.auth import decode_access_token
+            payload = decode_access_token(token)
+            if payload and payload.get("role") == "admin":
+                return True
+        except Exception:
+            pass
         try:
             res = await self.dbus.validate_join_token(token)
             if res:
@@ -125,11 +134,11 @@ class ClusterService:
             return await self.dbus.get_detected_hardware()
         except Exception:
             from roostos_engine.hardware_inspector import HardwareInspector
-            detected = HardwareInspector.inspect_network_interfaces(mock=True)
+            detected = HardwareInspector.inspect_network_interfaces(mock=False)
             return [d.model_dump() for d in detected]
 
     async def join_cluster(self, join_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validates join token and registers a node in the cluster."""
+        """Validates join token and registers a node in the cluster with mTLS certificates."""
         token = join_data.get("token", "")
         if not await self.validate_join_token(token):
             raise ValueError("Invalid or expired cluster join token.")
@@ -137,16 +146,61 @@ class ClusterService:
         config = self.repo.get_config()
         new_node = self.cluster_manager.register_node(join_data, config.nodes)
         await self.save_node(new_node.model_dump())
+
+        # Auto-link Edge Gateway in network.edge_gateways if role is edge_gateway
+        is_edge = any(
+            (r.value == "edge_gateway" if hasattr(r, "value") else str(r) == "edge_gateway")
+            for r in new_node.roles
+        )
+        if is_edge:
+            try:
+                from roostos_engine.models.edge import EdgeGatewayConfig
+                existing_gws = list(getattr(config.network, "edge_gateways", []) or [])
+                edge_id = "edge-01"
+                existing_match = next((g for g in existing_gws if g.id in (edge_id, new_node.id)), None)
+                routes = existing_match.ingress_routes if existing_match else []
+                edge_gw = EdgeGatewayConfig(
+                    id=edge_id,
+                    name=new_node.name or "VPS Edge Gateway",
+                    public_ip=new_node.management_ip or (existing_match.public_ip if existing_match else "10.42.0.1"),
+                    listen_port=51820,
+                    tunnel_ip_gateway="10.42.0.1/24",
+                    tunnel_ip_home="10.42.0.2/24",
+                    status="connected",
+                    ingress_routes=routes,
+                )
+                updated_gws = [g for g in existing_gws if g.id not in (edge_id, new_node.id)] + [edge_gw]
+                config.network.edge_gateways = updated_gws
+                config.edge_gateways = updated_gws
+                self.repo.save_network_config(config.network)
+            except Exception:
+                pass
         
         controller_url = ""
         if config.system and config.system.cluster and config.system.cluster.controller_url:
             controller_url = config.system.cluster.controller_url
         
+        ca_pem, client_pem, key_pem = None, None, None
+        try:
+            from roostos_engine.cert_manager import CertificateManager
+            cert_dir = os.path.join(self.repo.config_dir, "certs")
+            cert_mgr = CertificateManager(cert_dir=cert_dir)
+            bundle = cert_mgr.issue_service_cert(
+                service_name=f"node-{new_node.id}",
+                requested_scopes=["cluster:node", "telemetry:write"]
+            )
+            client_pem, key_pem, ca_pem = bundle.get("cert_pem"), bundle.get("key_pem"), bundle.get("ca_pem")
+        except Exception:
+            pass
+
         return {
             "status": "success",
             "node_id": new_node.id,
             "controller_url": controller_url,
-            "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster."
+            "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster.",
+            "ca_cert_pem": ca_pem,
+            "client_cert_pem": client_pem,
+            "client_key_pem": key_pem,
         }
 
     async def record_heartbeat(self, node_id: str, report: Dict[str, Any]) -> Dict[str, Any]:

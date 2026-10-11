@@ -75,6 +75,30 @@ window.escapeHtml = function(str) {
               .replace(/'/g, "&#039;");
 };
 
+window.renderVpnTable = function(vpns = window.vpnSettings || []) {
+    const vpnTbody = document.getElementById("vpn-tbody");
+    if (!vpnTbody) return;
+    if (!vpns || vpns.length === 0) {
+        vpnTbody.innerHTML = '<tr><td colspan="5" class="empty-state">No active VPN tunnels configured.</td></tr>';
+        return;
+    }
+    vpnTbody.innerHTML = vpns.map(v => {
+        const cfg = v.config || {};
+        const endpoint = cfg.endpoint || v.endpoint || "-";
+        const localIp = cfg.local_ip || cfg.address || v.local_ip || "-";
+        const isActive = v.enabled !== false && (v.status === 'connected' || v.status === 'active' || cfg.status === 'connected' || cfg.status === 'active');
+        const badgeClass = isActive ? 'badge-success' : 'badge-secondary';
+        const statusText = isActive ? 'Active' : 'Disabled';
+        return `<tr>
+            <td><strong>${window.escapeHtml(v.name || v.id)}</strong></td>
+            <td><span class="badge badge-info">${window.escapeHtml((v.type || "WireGuard").toUpperCase())}</span></td>
+            <td><code>${window.escapeHtml(endpoint)}</code></td>
+            <td><code>${window.escapeHtml(localIp)}</code></td>
+            <td><span class="badge ${badgeClass}">${statusText}</span></td>
+        </tr>`;
+    }).join("");
+};
+
 window.escapeJs = function(str) {
     if (!str) return "";
     return str.replace(/\\/g, "\\\\")
@@ -159,6 +183,10 @@ window.switchView = function(viewId) {
 
     if (["status", "dhcp", "vpn", "firewall", "parental", "dns", "system", "people"].includes(viewId)) {
         window.switchSubTab(viewId, "basic");
+    }
+
+    if (viewId === "vpn" && window.renderVpnTable) {
+        window.renderVpnTable(window.vpnSettings);
     }
 
     window.loadDashboard();
@@ -246,11 +274,130 @@ window.changeTheme = function(theme) {
     }
 };
 
-// 4. API Operations & Global Data Coordinating Pipeline
-window.loadDashboard = async function() {
+// 3. Auto-Refresh & Active Editing Protection
+window.autoRefreshEnabled = typeof localStorage !== "undefined" && localStorage.getItem("roostos_auto_refresh") !== "false";
+window.lastInputActivity = 0;
+
+if (typeof document !== "undefined") {
+    ['input', 'change', 'keydown', 'paste'].forEach(evt => {
+        document.addEventListener(evt, () => {
+            window.lastInputActivity = Date.now();
+        }, true);
+    });
+}
+
+window.getActiveViewId = function() {
+    const activePane = document.querySelector(".view-pane.active");
+    if (!activePane || !activePane.id) return "status";
+    return activePane.id.replace("-view", "");
+};
+
+window.isUserEditing = function() {
+    // 1. Recent keyboard/input activity in the last 15 seconds
+    if (window.lastInputActivity && (Date.now() - window.lastInputActivity < 15000)) {
+        return true;
+    }
+
+    // 2. Focused element is an interactive input or inside an inline editing row
+    const active = document.activeElement;
+    if (active && (
+        active.tagName === 'INPUT' ||
+        active.tagName === 'SELECT' ||
+        active.tagName === 'TEXTAREA' ||
+        active.isContentEditable ||
+        active.closest('.inline-edit-row, .inline-add-row, .editing-row, .inline-form, #inline-edit-row, [data-editing="true"]')
+    )) {
+        return true;
+    }
+
+    // 3. Open inline rows or forms anywhere in the active view or document
+    const openForms = document.querySelector(
+        '.inline-edit-row, .inline-add-row, .editing-row, .inline-form, #inline-edit-row, [data-editing="true"]'
+    );
+    if (openForms) {
+        return true;
+    }
+
+    // 4. Open modals or dialogs
+    const openModal = document.querySelector('.modal[style*="block"], .modal:not([style*="none"]), dialog[open], #setup-wizard-modal');
+    if (openModal && typeof window.getComputedStyle === "function" && window.getComputedStyle(openModal).display !== 'none') {
+        return true;
+    }
+
+    // 5. Dirty input detection in the active view (uncommitted changes)
+    const activePane = document.querySelector('.view-pane.active');
+    if (activePane && activePane.id !== 'status-view') {
+        const inputs = activePane.querySelectorAll('input, select, textarea');
+        for (const input of inputs) {
+            if (input.type === 'checkbox' || input.type === 'radio') {
+                if (input.checked !== input.defaultChecked) return true;
+            } else {
+                if (input.value !== input.defaultValue) return true;
+            }
+        }
+    }
+
+    return false;
+};
+
+window.toggleAutoRefresh = function() {
+    window.autoRefreshEnabled = !window.autoRefreshEnabled;
+    if (typeof localStorage !== "undefined") {
+        localStorage.setItem("roostos_auto_refresh", window.autoRefreshEnabled ? "true" : "false");
+    }
+    window.updateAutoRefreshUI();
+};
+
+window.updateAutoRefreshUI = function() {
+    const iconEl = document.getElementById("auto-refresh-icon");
+    const labelEl = document.getElementById("auto-refresh-label");
+    const btnEl = document.getElementById("header-refresh-toggle-btn");
+    if (!iconEl || !labelEl) return;
+
+    if (window.autoRefreshEnabled) {
+        iconEl.textContent = "⏸";
+        labelEl.textContent = "Live";
+        if (btnEl) {
+            btnEl.title = "Auto-refresh active (10s). Click to pause.";
+            btnEl.style.color = "var(--text-secondary)";
+        }
+    } else {
+        iconEl.textContent = "▶";
+        labelEl.textContent = "Paused";
+        if (btnEl) {
+            btnEl.title = "Auto-refresh paused. Click to resume.";
+            btnEl.style.color = "var(--accent-red)";
+        }
+    }
+};
+
+window.manualRefresh = async function() {
+    const icon = document.getElementById("manual-refresh-icon");
+    if (icon) icon.classList.add("spinning");
     try {
-        // Fetch User profile details first
-        await loadUserProfile();
+        await window.loadDashboard({ force: true });
+    } finally {
+        if (icon) {
+            setTimeout(() => icon.classList.remove("spinning"), 600);
+        }
+    }
+};
+
+// 4. API Operations & Global Data Coordinating Pipeline
+window.loadDashboard = async function(options = {}) {
+    const isPeriodic = !!options.periodic;
+    const isForce = !!options.force;
+
+    if (isPeriodic) {
+        if (!window.autoRefreshEnabled) return;
+        if (window.isUserEditing()) return;
+    }
+
+    try {
+        // Fetch User profile details first (skip on periodic ticks)
+        if (!isPeriodic || isForce) {
+            await loadUserProfile();
+        }
 
         // Fetch System details
         const sysData = await window.systemService.fetchSystemSettings();
@@ -272,13 +419,40 @@ window.loadDashboard = async function() {
             metricsHistory.shift();
         }
 
-        // Render dashboard system updates
-        window.statusComponent.render(sysData);
-        window.systemComponent.render(sysData);
-
         const versionEl = document.getElementById("footer-version");
         if (versionEl && sysData.version) {
             versionEl.textContent = sysData.version;
+        }
+
+        if (window.updateAlertsBadge) window.updateAlertsBadge();
+
+        const activeViewId = window.getActiveViewId();
+
+        // If periodic update and user is NOT on status view, STOP HERE!
+        // We have updated metrics telemetry in the background without touching the active view.
+        if (isPeriodic && activeViewId !== 'status') {
+            return;
+        }
+
+        // Render dashboard system updates (status view components)
+        if (activeViewId === 'status' || isForce) {
+            if (window.statusComponent && window.statusComponent.render) {
+                window.statusComponent.render(sysData);
+            }
+            if (window.systemComponent && window.systemComponent.render) {
+                window.systemComponent.render(sysData);
+            }
+            if (window.statusComponent && window.statusComponent.drawCharts) {
+                window.statusComponent.drawCharts();
+            }
+        }
+
+        // If periodic and on status view, we only need to refresh connected devices count
+        if (isPeriodic && activeViewId === 'status') {
+            const devData = await window.deviceService.fetchDevices();
+            const connectedEl = document.getElementById("metric-connected");
+            if (connectedEl) connectedEl.textContent = (devData.active_arp || []).length;
+            return;
         }
 
         // Fetch Devices & DHCP status
@@ -301,15 +475,51 @@ window.loadDashboard = async function() {
         }
 
         // Feed leases to roost-dhcp-management
+        const staticReservations = (allDevices || [])
+            .filter(d => d.static_ip)
+            .map(d => ({
+                mac: d.mac,
+                ip: d.static_ip,
+                hostname: d.name || "",
+                description: d.description || d.notes || ""
+            }));
+
+        const primaryBridge = (window.networkSettings?.bridges || [])[0] || {};
+        const dhcpConfig = {
+            gateway: primaryBridge.ip ? primaryBridge.ip.split('/')[0] : "192.168.1.1",
+            pool_start: primaryBridge.dhcp_pool_start || "192.168.1.100",
+            pool_end: primaryBridge.dhcp_pool_end || "192.168.1.250",
+            lease_time: "86400s (24h)"
+        };
+
+        const dhcpElements = document.querySelectorAll("#dhcp-mgmt-elem, #net-dhcp-comp");
+        dhcpElements.forEach(el => {
+            if (el && el.setData) {
+                el.setData(staticReservations, activeLeases, dhcpConfig);
+            }
+        });
         const dhcpElem = document.getElementById("dhcp-mgmt-elem");
-        if (dhcpElem && dhcpElem.setData) {
-            dhcpElem.setData(devData.reservations || [], activeLeases, devData.dhcp_config || {});
-        } else if (window.dhcpComponent && window.dhcpComponent.render) {
-            window.dhcpComponent.render();
+        if (dhcpElem) {
+            dhcpElem.onSave = async (reservations) => {
+                if (window.deviceService && reservations) {
+                    for (const r of reservations) {
+                        await window.deviceService.saveDevice({
+                            mac: r.mac,
+                            name: r.hostname || `Device ${r.mac.slice(-5)}`,
+                            static_ip: r.ip,
+                            description: r.description || ""
+                        });
+                    }
+                    await window.deviceService.fetchDevices();
+                }
+            };
         }
 
         // Fetch Networks (bridges, interfaces, VLANs, Wi-Fi APs)
         await window.networkService.fetchConfig();
+        if (window.renderVpnTable) {
+            window.renderVpnTable(window.vpnSettings);
+        }
         const netElem = document.getElementById("net-view-elem");
         if (netElem && netElem.render) {
             netElem.render();
@@ -352,14 +562,13 @@ window.loadDashboard = async function() {
         } catch (_) {}
 
         // Fetch DNS Configurations
-        const dnsData = await window.securityService.fetchDnsConfig();
-        const dnsUpstreams = document.getElementById("dns-upstreams");
-        if (dnsUpstreams && dnsData.upstream_servers) {
-            dnsUpstreams.textContent = dnsData.upstream_servers.join(", ");
-        }
-        if (window.dnsComponent && window.dnsComponent.render) {
-            window.dnsComponent.render(dnsData);
-        }
+        try {
+            const dnsData = await window.securityService.fetchDnsConfig();
+            const dnsElem = document.getElementById("dns-settings-elem");
+            if (dnsElem && dnsElem.setData) {
+                dnsElem.setData(dnsData);
+            }
+        } catch (_) {}
 
         // Fetch operator logins & household members
         const users = await window.securityService.fetchUsers();
@@ -479,14 +688,14 @@ function init() {
         vpnPane.className = "view-pane";
         vpnPane.innerHTML = `
             <div class="card">
-                <div class="card-header">
-                    <h3>VPN Connections & Tunnels</h3>
-                    <span class="badge badge-info">WireGuard / OpenVPN</span>
+                <div class="card-header table-action-bar">
+                    <div>
+                        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">VPN Connections & Tunnels</h3>
+                        <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary);">Secure encrypted site-to-site and client tunnels configured on this node.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="switchView('edge')">Manage Edge Gateway</button>
                 </div>
-                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
-                    Secure encrypted site-to-site and client tunnels configured on this node.
-                </p>
-                <div id="vpn-list-container" class="table-responsive">
+                <div id="vpn-list-container" class="table-responsive" style="margin-top: 12px;">
                     <table class="data-table">
                         <thead>
                             <tr><th>Tunnel</th><th>Type</th><th>Endpoint</th><th>Local IP</th><th>Status</th></tr>
@@ -552,20 +761,7 @@ function init() {
         dnsPane.id = "dns-view";
         dnsPane.className = "view-pane";
         dnsPane.innerHTML = `
-            <div class="card">
-                <div class="card-header">
-                    <h3>DNS Resolver Settings</h3>
-                    <span class="badge badge-info">Local DNS</span>
-                </div>
-                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
-                    Local caching DNS resolver and upstream DNS-over-HTTPS / TLS forwarding configuration.
-                </p>
-                <div class="grid-3-col" style="gap: 16px; margin-top: 12px;">
-                    <div class="stat-item"><span class="stat-label">Local DNS Listen IP:</span><span class="stat-value" id="dns-local-ip">127.0.0.1</span></div>
-                    <div class="stat-item"><span class="stat-label">Upstream Servers:</span><span class="stat-value" id="dns-upstreams">1.1.1.1, 8.8.8.8</span></div>
-                    <div class="stat-item"><span class="stat-label">DNS Filter Status:</span><span class="stat-value badge badge-success" id="dns-blocking-status">Active</span></div>
-                </div>
-            </div>
+            <roost-dns-settings id="dns-settings-elem"></roost-dns-settings>
         `;
         viewContainer.appendChild(dnsPane);
 
@@ -678,31 +874,30 @@ function init() {
     
     // Start periodic status refresh (every 10 seconds fallback)
     setInterval(() => {
-        const active = document.activeElement;
-        const isFocused = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT' || active.tagName === 'TEXTAREA');
-        const hasOpenForms = document.querySelector('table tbody input, table tbody select, .editing-row, .inline-form, #inline-edit-row');
-        if (isFocused || hasOpenForms) {
-            return;
-        }
-        window.loadDashboard();
-        if (window.updateAlertsBadge) window.updateAlertsBadge();
+        window.loadDashboard({ periodic: true });
     }, 10000);
 
     // Initialize real-time Server-Sent Events (SSE) telemetry
     window.initEventStream();
     if (window.updateAlertsBadge) window.updateAlertsBadge();
+    window.updateAutoRefreshUI();
 }
 
 window.initEventStream = function() {
     if (typeof EventSource === "undefined") return;
     try {
         const evtSource = new EventSource("/api/v1/events/stream");
-        evtSource.addEventListener("device_connected", () => window.loadDashboard());
-        evtSource.addEventListener("unknown_device", () => window.loadDashboard());
-        evtSource.addEventListener("upnp_request", () => window.loadDashboard());
-        evtSource.addEventListener("devices_updated", () => window.loadDashboard());
-        evtSource.addEventListener("schedules_updated", () => window.loadDashboard());
-        evtSource.addEventListener("bypass_expired", () => window.loadDashboard());
+        const onEvent = () => {
+            if (!window.autoRefreshEnabled) return;
+            if (window.isUserEditing()) return;
+            window.loadDashboard({ periodic: true });
+        };
+        evtSource.addEventListener("device_connected", onEvent);
+        evtSource.addEventListener("unknown_device", onEvent);
+        evtSource.addEventListener("upnp_request", onEvent);
+        evtSource.addEventListener("devices_updated", onEvent);
+        evtSource.addEventListener("schedules_updated", onEvent);
+        evtSource.addEventListener("bypass_expired", onEvent);
         evtSource.addEventListener("alert", () => {
             if (window.updateAlertsBadge) window.updateAlertsBadge();
         });

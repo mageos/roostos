@@ -34,3 +34,38 @@ def test_cli_setup_non_interactive(tmp_path):
     assert result.exit_code == 0
     assert "Gateway Router successfully configured" in result.output
     assert (tmp_path / "network.yaml").exists()
+
+
+def test_cli_setup_with_technitium(tmp_path):
+    runner = CliRunner()
+    result = runner.invoke(cli, [
+        "setup",
+        "--role", "gateway",
+        "--wan", "eth0",
+        "--lan", "eth1",
+        "--dns-subsystem", "technitium",
+        "--config-dir", str(tmp_path),
+        "--mock",
+        "--non-interactive",
+    ])
+    assert result.exit_code == 0
+    assert "Gateway Router successfully configured" in result.output
+    assert (tmp_path / "plugins.yaml").exists()
+
+
+def test_cli_setup_fails_without_root(monkeypatch, tmp_path):
+    import os
+    runner = CliRunner()
+    monkeypatch.setenv("ROOSTOS_MOCK_INSTALL", "0")
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+    result = runner.invoke(cli, [
+        "setup",
+        "--role", "gateway",
+        "--wan", "eth0",
+        "--lan", "eth1",
+        "--config-dir", str(tmp_path),
+        "--non-interactive",
+    ])
+    assert result.exit_code != 0
+    assert "Root privileges are required" in result.output
+

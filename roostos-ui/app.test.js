@@ -80,6 +80,8 @@ const scriptLoadOrder = [
     'js/components/firewall-rules.js',
     'js/components/people-list.js',
     'js/components/user-list.js',
+    'js/components/edge-gateway-templates.js',
+    'js/components/edge-gateway.js',
     // Main orchestrator
     'app.js'
 ];
@@ -88,6 +90,10 @@ for (const scriptRelativePath of scriptLoadOrder) {
     const absolutePath = path.resolve(__dirname, scriptRelativePath);
     if (fs.existsSync(absolutePath)) {
         let content = fs.readFileSync(absolutePath, 'utf8');
+        content = content.replace(/import\s*\{[\s\S]*?\}\s*from\s*['"][^'"]+['"];?/g, '');
+        content = content.replace(/import\s+.*?from\s+['"][^'"]+['"];?/g, '');
+        content = content.replace(/^export\s+const\s+(\w+)\s*=/gm, 'global.$1 = window.$1 =');
+        content = content.replace(/^export\s+class\s+(\w+)/gm, 'global.$1 = window.$1 = class $1');
         content = content.replace(/^export\s+/gm, '');
         eval(content);
     }
@@ -652,4 +658,158 @@ describe('Network Modular Components', () => {
         comp.remove();
     });
 });
+
+describe('Auto-Refresh & Active Editing Protection', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        window.autoRefreshEnabled = true;
+        window.lastInputActivity = 0;
+        document.body.innerHTML = `
+            <div id="header-refresh-toggle-btn">
+                <span id="auto-refresh-icon">⏸</span>
+                <span id="auto-refresh-label">Live</span>
+            </div>
+            <div id="manual-refresh-icon">↻</div>
+            <div class="view-container">
+                <div id="status-view" class="view-pane active"></div>
+                <div id="dns-view" class="view-pane"></div>
+            </div>
+        `;
+    });
+
+    test('toggleAutoRefresh toggles autoRefreshEnabled state and updates localStorage and UI', () => {
+        expect(window.autoRefreshEnabled).toBe(true);
+
+        window.toggleAutoRefresh();
+        expect(window.autoRefreshEnabled).toBe(false);
+        expect(localStorage.getItem('roostos_auto_refresh')).toBe('false');
+        expect(document.getElementById('auto-refresh-label').textContent).toBe('Paused');
+
+        window.toggleAutoRefresh();
+        expect(window.autoRefreshEnabled).toBe(true);
+        expect(localStorage.getItem('roostos_auto_refresh')).toBe('true');
+        expect(document.getElementById('auto-refresh-label').textContent).toBe('Live');
+    });
+
+    test('isUserEditing returns true when inline edit or add rows are present', () => {
+        expect(window.isUserEditing()).toBe(false);
+
+        const editRow = document.createElement('div');
+        editRow.className = 'inline-edit-row';
+        document.body.appendChild(editRow);
+        expect(window.isUserEditing()).toBe(true);
+
+        editRow.remove();
+        expect(window.isUserEditing()).toBe(false);
+
+        const addRow = document.createElement('div');
+        addRow.className = 'inline-add-row';
+        document.body.appendChild(addRow);
+        expect(window.isUserEditing()).toBe(true);
+
+        addRow.remove();
+        expect(window.isUserEditing()).toBe(false);
+    });
+
+    test('isUserEditing returns true when input activity is recent', () => {
+        expect(window.isUserEditing()).toBe(false);
+
+        window.lastInputActivity = Date.now();
+        expect(window.isUserEditing()).toBe(true);
+
+        window.lastInputActivity = Date.now() - 20000; // 20s ago
+        expect(window.isUserEditing()).toBe(false);
+    });
+
+    test('isUserEditing returns true when active view has dirty uncommitted inputs', () => {
+        const dnsPane = document.getElementById('dns-view');
+        document.getElementById('status-view').classList.remove('active');
+        dnsPane.classList.add('active');
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.defaultValue = '1.1.1.1';
+        input.value = '1.1.1.1';
+        dnsPane.appendChild(input);
+
+        expect(window.isUserEditing()).toBe(false);
+
+        input.value = '9.9.9.9'; // Changed
+        expect(window.isUserEditing()).toBe(true);
+    });
+
+    test('loadDashboard aborts early when periodic and auto-refresh is paused', async () => {
+        window.autoRefreshEnabled = false;
+        const fetchSpy = jest.spyOn(window.systemService, 'fetchSystemSettings');
+
+        await window.loadDashboard({ periodic: true });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        fetchSpy.mockRestore();
+    });
+
+    test('loadDashboard aborts early when periodic and user is editing', async () => {
+        window.autoRefreshEnabled = true;
+        window.lastInputActivity = Date.now();
+        const fetchSpy = jest.spyOn(window.systemService, 'fetchSystemSettings');
+
+        await window.loadDashboard({ periodic: true });
+        expect(fetchSpy).not.toHaveBeenCalled();
+        fetchSpy.mockRestore();
+    });
+
+    test('renderVpnTable populates vpn-tbody with VPN tunnel rows including edge gateways', () => {
+        let vpnTbody = document.getElementById('vpn-tbody');
+        if (!vpnTbody) {
+            vpnTbody = document.createElement('tbody');
+            vpnTbody.id = 'vpn-tbody';
+            document.body.appendChild(vpnTbody);
+        }
+        expect(vpnTbody).toBeDefined();
+
+        const testVpns = [
+            {
+                id: 'edge-edge-01',
+                name: 'VPS Edge Gateway (Edge Gateway Tunnel)',
+                type: 'wireguard',
+                role: 'client',
+                enabled: true,
+                config: {
+                    endpoint: '198.51.100.55:51820',
+                    local_ip: '10.42.0.2/24',
+                    remote_ip: '10.42.0.1/24',
+                    status: 'connected'
+                }
+            }
+        ];
+
+        window.renderVpnTable(testVpns);
+        expect(vpnTbody.innerHTML).toContain('VPS Edge Gateway (Edge Gateway Tunnel)');
+        expect(vpnTbody.innerHTML).toContain('198.51.100.55:51820');
+        expect(vpnTbody.innerHTML).toContain('10.42.0.2/24');
+        expect(vpnTbody.innerHTML).toContain('badge-success');
+        expect(vpnTbody.innerHTML).toContain('Active');
+
+        // Test empty state
+        window.renderVpnTable([]);
+        expect(vpnTbody.innerHTML).toContain('No active VPN tunnels configured.');
+    });
+
+    test('renderEdgeGatewayTemplate includes edit endpoint button and domain if set', () => {
+        const gateway = {
+            id: 'edge-01',
+            public_ip: '198.51.100.55',
+            domain: 'vps.roostos.net',
+            listen_port: 51820,
+            status: 'connected',
+            tunnel_ip_home: '10.42.0.2/24',
+            tunnel_ip_gateway: '10.42.0.1/24'
+        };
+        const rendered = renderEdgeGatewayTemplate(gateway, [], '');
+        expect(rendered).toContain('edit-endpoint-btn');
+        expect(rendered).toContain('vps.roostos.net');
+        expect(rendered).toContain('Endpoint (Domain / IP)');
+    });
+});
+
+
 

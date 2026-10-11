@@ -198,6 +198,23 @@ class SystemService {
         if (res.ok) return await res.json();
         throw new Error("Failed to save updates config");
     }
+
+    async fetchDependencies() {
+        const res = await window.authService.apiFetch("/api/system/dependencies");
+        if (res.ok) return await res.json();
+        throw new Error("Failed to fetch system dependencies");
+    }
+
+    async installDependencies(feature = null, packages = null) {
+        const res = await window.authService.apiFetch("/api/system/dependencies/install", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ feature, packages })
+        });
+        if (res.ok) return await res.json();
+        const err = await res.json().catch(() => ({ detail: "Installation failed" }));
+        throw new Error(err.detail || "Failed to install dependencies");
+    }
 }
 
 window.systemService = new SystemService();

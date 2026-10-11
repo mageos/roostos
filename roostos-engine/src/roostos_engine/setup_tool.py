@@ -33,7 +33,7 @@ from roostos_engine.config import (
 
 def has_existing_config(config_dir: str) -> bool:
     """Check if main configuration files already exist in the target directory."""
-    expected_files = ["system.yaml", "network.yaml", "schedules.yaml"]
+    expected_files = ["system.yaml", "network.yaml", "firewall.yaml", "schedules.yaml"]
     return any(os.path.exists(os.path.join(config_dir, f)) for f in expected_files)
 
 def handle_cancel(val: Any) -> None:
@@ -138,14 +138,9 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     click.secho("===================================================", fg="cyan", bold=True)
     
     if os.getuid() != 0 and config_dir == "/etc/roostos":
-        if not non_interactive:
-            cont = yes_no_dialog(
-                title="Warning: Not Running as Root",
-                text="You are not running as root. Writing configurations to /etc/roostos will likely fail.\n\nDo you want to continue anyway?"
-            ).run()
-            if not cont:
-                click.echo("Setup cancelled.")
-                sys.exit(0)
+        click.secho("✗ Root privileges are required to run the RoostOS setup tool.", fg="red", bold=True, err=True)
+        click.secho("Please run with sudo or as root: sudo roostos-setup", fg="yellow", err=True)
+        sys.exit(1)
 
     # 0. Optional / Automatic Controller Discovery (mDNS)
     if discover or os.environ.get("ROOSTOS_DISCOVER_CONTROLLERS") == "1":
@@ -638,9 +633,7 @@ def main(config_dir: str, non_interactive: bool, discover: bool = False) -> None
     )
 
     schedules_config_obj = SchedulesConfig(
-        firewall=ScheduleSettings(
-            schedules=[s.model_dump() for s in existing_schedules]
-        )
+        schedules=[s.model_dump() for s in existing_schedules]
     )
 
     from roostos_engine.models.node import NodesConfigFile, NodeConfig, NodeRole, NodeInterface, InterfaceType, InterfaceMode

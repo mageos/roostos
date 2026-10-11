@@ -54,6 +54,73 @@ export class NetworkViewComponent extends HTMLElement {
         this.innerHTML = renderNetworkViewTemplate();
         this.bindSubtabs();
         this.bindChildEvents();
+        this.populateChildData();
+    }
+
+    setData(networkSettings, wifiSettings) {
+        if (networkSettings) window.networkSettings = networkSettings;
+        if (wifiSettings) window.wifiSettings = wifiSettings;
+        this.populateChildData();
+    }
+
+    populateChildData() {
+        const net = window.networkSettings || {};
+        const interfacesComp = this.querySelector("#net-interfaces-comp");
+        if (interfacesComp && interfacesComp.setData) {
+            const ifaces = net.interfaces || [];
+            const wanIface = ifaces.find(i => i.role === "wan" || i.network === "wan") || {};
+            const wan = {
+                interface: wanIface.name || "",
+                proto: wanIface.protocol || (wanIface.dhcp ? "dhcp" : "static"),
+                ip: wanIface.ip || "",
+                gateway: wanIface.gateway || "",
+                dns: wanIface.dns || [],
+                mtu: wanIface.mtu || 1500,
+            };
+            interfacesComp.setData(ifaces, wan);
+        }
+
+        const bridgesComp = this.querySelector("#net-bridges-comp");
+        if (bridgesComp && bridgesComp.setData) {
+            bridgesComp.setData(net.bridges || [], net.vlans || []);
+        }
+
+        const zonesComp = this.querySelector("#net-zones-comp");
+        if (zonesComp && zonesComp.setZones) {
+            zonesComp.setZones(net.zones || []);
+        }
+
+        const wifiComp = this.querySelector("#net-wifi-comp");
+        if (wifiComp && wifiComp.setAccessPoints) {
+            const wifi = window.wifiSettings || {};
+            wifiComp.setAccessPoints(wifi.access_points || []);
+        }
+
+        const qosComp = this.querySelector("#net-qos-comp");
+        if (qosComp && qosComp.setQos) {
+            qosComp.setQos(net.qos || {});
+        }
+
+        const dhcpComp = this.querySelector("#net-dhcp-comp");
+        if (dhcpComp && dhcpComp.setData) {
+            const devices = window.allDevices || [];
+            const reservations = devices
+                .filter(d => d.static_ip)
+                .map(d => ({
+                    mac: d.mac,
+                    ip: d.static_ip,
+                    hostname: d.name || "",
+                    description: d.description || d.notes || ""
+                }));
+            const primaryBridge = (net.bridges || [])[0] || {};
+            const dhcpConfig = {
+                gateway: primaryBridge.ip ? primaryBridge.ip.split('/')[0] : "192.168.1.1",
+                pool_start: primaryBridge.dhcp_pool_start || "192.168.1.100",
+                pool_end: primaryBridge.dhcp_pool_end || "192.168.1.250",
+                lease_time: "86400s (24h)"
+            };
+            dhcpComp.setData(reservations, window.activeLeases || [], dhcpConfig);
+        }
     }
 
     bindSubtabs() {
@@ -118,8 +185,18 @@ export class NetworkViewComponent extends HTMLElement {
 
         const dhcpComp = this.querySelector("#net-dhcp-comp");
         if (dhcpComp) {
-            dhcpComp.onSave = async () => {
-                await this.persistNetworkConfig();
+            dhcpComp.onSave = async (reservations) => {
+                if (window.deviceService && reservations) {
+                    for (const r of reservations) {
+                        await window.deviceService.saveDevice({
+                            mac: r.mac,
+                            name: r.hostname || `Device ${r.mac.slice(-5)}`,
+                            static_ip: r.ip,
+                            description: r.description || ""
+                        });
+                    }
+                    await window.deviceService.fetchDevices();
+                }
             };
         }
 

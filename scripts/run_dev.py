@@ -81,11 +81,20 @@ def seed_default_configs() -> None:
     if not os.path.exists(sch_path):
         print(f"Seeding default config: {sch_path}")
         with open(sch_path, "w") as f:
+            yaml.safe_dump({"schedules": []}, f)
+
+    # 5. firewall.yaml
+    fw_path = os.path.join(CONFIG_DIR, "firewall.yaml")
+    if not os.path.exists(fw_path):
+        print(f"Seeding default config: {fw_path}")
+        with open(fw_path, "w") as f:
             yaml.safe_dump({
                 "firewall": {
-                    "schedules": [],
                     "rules": [],
-                    "port_forwards": []
+                    "port_forwards": [],
+                    "block_doh": False,
+                    "block_vpns": False,
+                    "block_quic": False
                 }
             }, f)
 

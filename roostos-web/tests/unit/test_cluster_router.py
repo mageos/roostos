@@ -42,7 +42,7 @@ class DummyClusterConfigRepo(ConfigRepository):
         pass
 
     def save_network_config(self, data):
-        pass
+        self.config.network = data
 
     def save_schedules_config(self, data):
         pass
@@ -246,6 +246,30 @@ def test_cluster_sync_and_heartbeat_endpoints(cluster_test_setup, auth_headers):
     res = client.post("/api/cluster/demote", json={"node_id": "node-02"}, headers=auth_headers)
     assert res.status_code == 200
     assert res.json()["status"] == "demoted"
+
+
+
+def test_cluster_join_with_admin_jwt(cluster_test_setup):
+    repo, dbus = cluster_test_setup
+    client = TestClient(app)
+    admin_token = create_access_token({"sub": "admin", "role": "admin"})
+
+    res = client.post("/api/cluster/join", json={
+        "token": admin_token,
+        "node_id": "node-03",
+        "name": "Edge VPS Node",
+        "roles": ["edge_gateway"],
+        "management_ip": "10.42.0.1",
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "success"
+    assert data["node_id"] == "node-03"
+    assert "successfully enrolled" in data["message"]
+    assert len(repo.config.network.edge_gateways) == 1
+    assert repo.config.network.edge_gateways[0].id == "edge-01"
+    assert repo.config.network.edge_gateways[0].public_ip == "10.42.0.1"
+    assert repo.config.network.edge_gateways[0].status == "connected"
 
 
 

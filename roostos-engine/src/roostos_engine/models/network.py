@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional, Any, Union
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+from roostos_engine.models.edge import EdgeGatewayConfig
 
 class PPPoEConfig(BaseModel):
     username: str
@@ -82,6 +83,7 @@ class NetworkSettings(BaseModel):
     zones: List[ZoneConfig] = Field(default_factory=list)
     gateways: List[NetworkGateway] = Field(default_factory=list)
     qos: Optional[QoSConfig] = Field(default_factory=QoSConfig)
+    edge_gateways: List[EdgeGatewayConfig] = Field(default_factory=list)
 
 class WifiRadio(BaseModel):
     interface: str
@@ -112,8 +114,6 @@ class WifiSettings(BaseModel):
     access_points: List[WifiAccessPoint] = Field(default_factory=list)
     mesh: Optional[WifiMesh] = None
 
-from roostos_engine.models.edge import EdgeGatewayConfig
-
 class VPNConfig(BaseModel):
     id: str
     name: str
@@ -127,3 +127,35 @@ class NetworkConfig(BaseModel):
     wifi: Optional[WifiSettings] = None
     vpns: List[VPNConfig] = Field(default_factory=list)
     edge_gateways: List[EdgeGatewayConfig] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reconcile_network_dict(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "network" not in data and any(k in data for k in ("interfaces", "bridges", "vlans", "zones", "gateways")):
+                net_fields = {k: v for k, v in data.items() if k in ("interfaces", "bridges", "vlans", "zones", "gateways", "qos", "edge_gateways")}
+                data = {
+                    "network": net_fields,
+                    "wifi": data.get("wifi"),
+                    "vpns": data.get("vpns", []),
+                    "edge_gateways": data.get("edge_gateways", net_fields.get("edge_gateways", [])),
+                }
+            elif "network" in data and isinstance(data["network"], dict):
+                net_dict = data["network"]
+                if "edge_gateways" in net_dict and "edge_gateways" not in data:
+                    data["edge_gateways"] = net_dict["edge_gateways"]
+                elif "edge_gateways" in data and "edge_gateways" not in net_dict:
+                    net_dict["edge_gateways"] = data["edge_gateways"]
+        return data
+
+    @model_validator(mode="after")
+    def sync_edge_gateways(self) -> "NetworkConfig":
+        if self.network is not None:
+            combined: List[EdgeGatewayConfig] = list(self.edge_gateways or [])
+            for gw in (self.network.edge_gateways or []):
+                if not any(g.id == gw.id for g in combined):
+                    combined.append(gw)
+            self.edge_gateways = combined
+            self.network.edge_gateways = combined
+        return self
+

@@ -1,10 +1,13 @@
 from abc import ABC, abstractmethod
 import os
+from typing import Union
+import yaml
 from roostos_engine.config import (
     RoostConfig,
     SystemConfig,
     NodesConfigFile,
     DevicesConfig,
+    NetworkSettings,
     NetworkConfig,
     SchedulesConfig,
     FirewallConfig,
@@ -19,32 +22,19 @@ class ConfigRepository(ABC):
         pass
 
     @abstractmethod
-    def save_system_config(self, data: SystemConfig) -> None:
-        pass
-
+    def save_system_config(self, data: SystemConfig) -> None: pass
     @abstractmethod
-    def save_nodes_config(self, data: NodesConfigFile) -> None:
-        pass
-
+    def save_nodes_config(self, data: NodesConfigFile) -> None: pass
     @abstractmethod
-    def save_devices_config(self, data: DevicesConfig) -> None:
-        pass
-
+    def save_devices_config(self, data: DevicesConfig) -> None: pass
     @abstractmethod
-    def save_network_config(self, data: NetworkConfig) -> None:
-        pass
-
+    def save_network_config(self, data: Union[NetworkConfig, NetworkSettings]) -> None: pass
     @abstractmethod
-    def save_schedules_config(self, data: SchedulesConfig) -> None:
-        pass
-
+    def save_schedules_config(self, data: SchedulesConfig) -> None: pass
     @abstractmethod
-    def save_firewall_config(self, data: FirewallConfig) -> None:
-        pass
-
+    def save_firewall_config(self, data: FirewallConfig) -> None: pass
     @abstractmethod
-    def save_plugins_config(self, data: PluginsConfig) -> None:
-        pass
+    def save_plugins_config(self, data: PluginsConfig) -> None: pass
 
 
 class YAMLConfigRepository(ConfigRepository):
@@ -67,8 +57,26 @@ class YAMLConfigRepository(ConfigRepository):
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.config_dir, "devices.yaml", data)
 
-    def save_network_config(self, data: NetworkConfig) -> None:
-        save_config_file(self.config_dir, "network.yaml", data)
+    def save_network_config(self, data: Union[NetworkConfig, NetworkSettings]) -> None:
+        if isinstance(data, NetworkSettings):
+            existing = None
+            filepath = os.path.join(self.config_dir, "network.yaml")
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "r") as f:
+                        raw = yaml.safe_load(f) or {}
+                    existing = NetworkConfig.model_validate(raw)
+                except Exception:
+                    pass
+            if existing:
+                existing.network = data
+                existing.edge_gateways = data.edge_gateways
+                net_cfg = existing
+            else:
+                net_cfg = NetworkConfig(network=data, edge_gateways=data.edge_gateways)
+            save_config_file(self.config_dir, "network.yaml", net_cfg)
+        else:
+            save_config_file(self.config_dir, "network.yaml", data)
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.config_dir, "schedules.yaml", data)
@@ -109,6 +117,7 @@ class StagingConfigRepository(ConfigRepository):
                 config.network = parsed_net.network
                 config.wifi = parsed_net.wifi
                 config.vpns = parsed_net.vpns
+                config.edge_gateways = parsed_net.edge_gateways
             if "devices.yaml" in staged_files:
                 parsed_dev = DevicesConfig.model_validate(self._load_staged_yaml("devices.yaml"))
                 config.people = parsed_dev.people
@@ -117,12 +126,17 @@ class StagingConfigRepository(ConfigRepository):
                 config.devices = parsed_dev.devices
             if "schedules.yaml" in staged_files:
                 parsed_sch = SchedulesConfig.model_validate(self._load_staged_yaml("schedules.yaml"))
-                config.schedules = parsed_sch.firewall.schedules if parsed_sch.firewall else []
+                config.schedules = parsed_sch.schedules
             if "firewall.yaml" in staged_files:
                 parsed_fw = FirewallConfig.model_validate(self._load_staged_yaml("firewall.yaml"))
                 if parsed_fw.firewall:
                     config.firewall.port_forwards = parsed_fw.firewall.port_forwards
                     config.firewall.rules = parsed_fw.firewall.rules
+                    config.firewall.block_doh = parsed_fw.firewall.block_doh
+                    config.firewall.block_vpns = parsed_fw.firewall.block_vpns
+                    config.firewall.block_quic = parsed_fw.firewall.block_quic
+                    config.firewall.custom_doh_ips = parsed_fw.firewall.custom_doh_ips
+                    config.firewall.custom_vpn_ips = parsed_fw.firewall.custom_vpn_ips
             if "plugins.yaml" in staged_files:
                 parsed_plg = PluginsConfig.model_validate(self._load_staged_yaml("plugins.yaml"))
                 config.plugins = parsed_plg.plugins
@@ -149,8 +163,28 @@ class StagingConfigRepository(ConfigRepository):
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.staged_dir, "devices.yaml", data)
 
-    def save_network_config(self, data: NetworkConfig) -> None:
-        save_config_file(self.staged_dir, "network.yaml", data)
+    def save_network_config(self, data: Union[NetworkConfig, NetworkSettings]) -> None:
+        if isinstance(data, NetworkSettings):
+            existing = None
+            filepath = os.path.join(self.staged_dir, "network.yaml")
+            if not os.path.exists(filepath):
+                filepath = os.path.join(self.active_repo.config_dir, "network.yaml")
+            if os.path.exists(filepath):
+                try:
+                    with open(filepath, "r") as f:
+                        raw = yaml.safe_load(f) or {}
+                    existing = NetworkConfig.model_validate(raw)
+                except Exception:
+                    pass
+            if existing:
+                existing.network = data
+                existing.edge_gateways = data.edge_gateways
+                net_cfg = existing
+            else:
+                net_cfg = NetworkConfig(network=data, edge_gateways=data.edge_gateways)
+            save_config_file(self.staged_dir, "network.yaml", net_cfg)
+        else:
+            save_config_file(self.staged_dir, "network.yaml", data)
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.staged_dir, "schedules.yaml", data)
@@ -207,7 +241,7 @@ class InMemoryConfigRepository(ConfigRepository):
                 buildings=[],
                 rooms=[],
                 devices=[],
-                firewall=FirewallSettings(schedules=[], port_forwards=[], rules=[]),
+                firewall=FirewallSettings(port_forwards=[], rules=[]),
                 schedules=[],
                 plugins=[],
             )
@@ -234,11 +268,17 @@ class InMemoryConfigRepository(ConfigRepository):
         self._config.vpns = data.vpns
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
-        self._config.firewall.schedules = data.schedules
+        self._config.schedules = data.schedules
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
-        self._config.firewall.port_forwards = data.port_forwards
-        self._config.firewall.rules = data.rules
+        fw = data.firewall if hasattr(data, "firewall") and data.firewall else data
+        self._config.firewall.port_forwards = getattr(fw, "port_forwards", [])
+        self._config.firewall.rules = getattr(fw, "rules", [])
+        self._config.firewall.block_doh = getattr(fw, "block_doh", False)
+        self._config.firewall.block_vpns = getattr(fw, "block_vpns", False)
+        self._config.firewall.block_quic = getattr(fw, "block_quic", False)
+        self._config.firewall.custom_doh_ips = getattr(fw, "custom_doh_ips", [])
+        self._config.firewall.custom_vpn_ips = getattr(fw, "custom_vpn_ips", [])
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         self._config.plugins = data.plugins

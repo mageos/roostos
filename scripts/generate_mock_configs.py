@@ -110,6 +110,35 @@ def generate_mock_configs(target_dir):
 
     # 4. schedules.yaml
     schedules_data = {
+        "schedules": [
+            {
+                "name": "Kids School Night Bedtime",
+                "targets": [{"person": "alice_profile"}, {"person": "bob_profile"}],
+                "days": ["Sun", "Mon", "Tue", "Wed", "Thu"],
+                "start_time": "20:30",
+                "end_time": "06:00",
+                "action": "block_internet"
+            },
+            {
+                "name": "Weekend Screen Time Limit",
+                "targets": [{"tag": "kids"}],
+                "days": ["Fri", "Sat"],
+                "daily_limit": 120, # 2 hours
+                "action": "block_internet"
+            },
+            {
+                "name": "No IoT Internet Access",
+                "targets": [{"tag": "iot"}],
+                "days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+                "action": "block_internet"
+            }
+        ]
+    }
+    with open(os.path.join(target_dir, "schedules.yaml"), "w") as f:
+        yaml.safe_dump(schedules_data, f, default_flow_style=False, sort_keys=False)
+
+    # 5. firewall.yaml
+    firewall_data = {
         "firewall": {
             "port_forwards": [
                 {"name": "Plex Server Port", "protocol": "tcp", "external_port": 32400, "internal_ip": "192.168.1.100", "internal_port": 32400},
@@ -120,33 +149,13 @@ def generate_mock_configs(target_dir):
                 {"name": "Allow HTTPS from Internet", "interface": "eth0", "protocol": "tcp", "port": 443, "action": "accept", "enabled": True},
                 {"name": "Allow WireGuard VPN", "interface": "eth0", "protocol": "udp", "port": 51820, "action": "accept", "enabled": False}
             ],
-            "schedules": [
-                {
-                    "name": "Kids School Night Bedtime",
-                    "targets": [{"person": "alice_profile"}, {"person": "bob_profile"}],
-                    "days": ["Sun", "Mon", "Tue", "Wed", "Thu"],
-                    "start_time": "20:30",
-                    "end_time": "06:00",
-                    "action": "block_internet"
-                },
-                {
-                    "name": "Weekend Screen Time Limit",
-                    "targets": [{"tag": "kids"}],
-                    "days": ["Fri", "Sat"],
-                    "daily_limit": 120, # 2 hours
-                    "action": "block_internet"
-                },
-                {
-                    "name": "No IoT Internet Access",
-                    "targets": [{"tag": "iot"}],
-                    "days": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-                    "action": "block_internet"
-                }
-            ]
+            "block_doh": False,
+            "block_vpns": False,
+            "block_quic": False,
         }
     }
-    with open(os.path.join(target_dir, "schedules.yaml"), "w") as f:
-        yaml.safe_dump(schedules_data, f, default_flow_style=False, sort_keys=False)
+    with open(os.path.join(target_dir, "firewall.yaml"), "w") as f:
+        yaml.safe_dump(firewall_data, f, default_flow_style=False, sort_keys=False)
 
     plugins_data = {
         "plugins": [

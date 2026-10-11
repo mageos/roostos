@@ -26,9 +26,13 @@ class DeviceService:
 
     async def get_active_leases(self) -> List[Dict[str, Any]]:
         try:
-            return await self.dbus.get_active_leases()
+            leases = await self.dbus.get_active_leases()
+            if leases:
+                return leases
         except Exception:
-            return []
+            pass
+        from roostos_engine.state_db import StateDB
+        return StateDB._read_kea_leases_csv()
 
     def get_active_arp(self) -> List[Dict[str, Any]]:
         import os
@@ -79,4 +83,10 @@ class DeviceService:
         return devices
 
     async def trigger_config_reload(self):
-        await self.dbus.get_config()
+        try:
+            if hasattr(self.dbus, "reload_config"):
+                await self.dbus.reload_config()
+            else:
+                await self.dbus.get_config()
+        except Exception:
+            pass

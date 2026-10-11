@@ -128,6 +128,21 @@ class EnvironmentInspector:
         except Exception:
             return results
 
+        # Discover assigned IPv4 addresses via ip -j addr show
+        ip_map: Dict[str, str] = {}
+        try:
+            import subprocess, json
+            res = subprocess.run(["ip", "-j", "addr", "show"], capture_output=True, text=True, timeout=1)
+            if res.returncode == 0:
+                for item in json.loads(res.stdout):
+                    ifname = item.get("ifname", "")
+                    for addr in item.get("addr_info", []):
+                        if addr.get("family") == "inet":
+                            ip_map[ifname] = f"{addr.get('local')}/{addr.get('prefixlen')}"
+                            break
+        except Exception:
+            pass
+
         for name in entries:
             if name == "lo" or name.startswith(("veth", "br", "docker", "virbr", "tap", "tun")):
                 continue
@@ -154,6 +169,7 @@ class EnvironmentInspector:
             results.append(InterfaceInfo(
                 name=name,
                 mac_address=mac.lower() if mac else None,
+                ip_address=ip_map.get(name),
                 operstate=operstate,
                 speed_mbps=speed,
                 is_wireless=is_wireless,

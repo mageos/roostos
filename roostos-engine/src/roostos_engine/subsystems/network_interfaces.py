@@ -186,7 +186,30 @@ class NetworkInterfacesSubsystem(Subsystem):
                             print(f"Warning: Could not remove stale network config {filename}: {e}", file=sys.stderr)
 
             if os.getuid() == 0 and not self.mock:
+                for bridge in self.config.network.bridges:
+                    try:
+                        subprocess.run(["ip", "link", "add", "name", bridge.name, "type", "bridge"], check=False, capture_output=True)
+                        if bridge.ip:
+                            subprocess.run(["ip", "addr", "add", bridge.ip, "dev", bridge.name], check=False, capture_output=True)
+                        subprocess.run(["ip", "link", "set", bridge.name, "up"], check=False, capture_output=True)
+                    except Exception:
+                        pass
+
+                for iface in self._resolve_target_interfaces():
+                    if iface.network == "lan" and iface.bridge:
+                        try:
+                            subprocess.run(["ip", "link", "set", iface.name, "master", iface.bridge], check=False, capture_output=True)
+                            subprocess.run(["ip", "link", "set", iface.name, "up"], check=False, capture_output=True)
+                        except Exception:
+                            pass
+
+                try:
+                    subprocess.run(["systemctl", "enable", "--now", "systemd-networkd"], check=False, capture_output=True)
+                    subprocess.run(["networkctl", "reload"], check=False, capture_output=True)
+                    subprocess.run(["networkctl", "reconfigure", "-a"], check=False, capture_output=True)
+                except Exception:
+                    pass
                 print("Restarting systemd-networkd service...")
-                subprocess.run(["systemctl", "restart", "systemd-networkd"], check=True)
+                subprocess.run(["systemctl", "restart", "systemd-networkd"], check=False)
         except Exception as e:
             print(f"Error updating network interfaces: {e}", file=sys.stderr)

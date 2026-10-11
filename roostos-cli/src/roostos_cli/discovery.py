@@ -48,6 +48,18 @@ class NetworkDiscoverer:
         except Exception:
             pass
 
+        # 3. Check WireGuard tunnel peers (10.42.0.2 is default gateway/controller)
+        for wg_peer in ("10.42.0.2", "10.42.0.1"):
+            if wg_peer != gw_ip and cls._probe_port(wg_peer, 8000, timeout=timeout_seconds):
+                discovered.append(DiscoveredService(
+                    name=f"RoostOS Controller via WireGuard ({wg_peer})",
+                    ip=wg_peer,
+                    port=8000,
+                    service_type="controller",
+                    properties={"source": "wireguard_tunnel"}
+                ))
+                break
+
         return discovered
 
     @classmethod

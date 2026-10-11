@@ -39,6 +39,7 @@ Before modifying the system, review the architectural blueprints and configurati
 *   **[Configuration Schema](file:///home/matt/source/github/mageos/roostos/docs/config_schema.md)**: Documents the split configuration files under `/etc/roostos/`, including shared Domain Objects (Devices, Persons, Locations) and sidecar plugin settings.
 *   **[Device Management & State Engine](file:///home/matt/source/github/mageos/roostos/docs/device_management.md)**: Explains the real-time DHCP lease discovery pipeline, the transient SQLite cache schema, and how nftables dynamic sets enforce bedtime schedules and daily time limits.
 *   **[Extensibility & Plugins Guide](file:///home/matt/source/github/mageos/roostos/docs/extensibility.md)**: Details how to build and package third-party extensions as Docker containers, the `org.roostos.DNSResolver` D-Bus API, sidecar network namespace sharing, and how to use the `roostos-sdk`.
+*   **[VPS Edge Gateway & CGNAT Bypass](file:///home/matt/source/github/mageos/roostos/docs/edge_gateway.md)**: Details the WireGuard-First zero-exposure onboarding architecture, cloud VPS ingress reverse proxy, automated Let's Encrypt TLS, and how to expose internal services without a public static IPv4.
 *   **[Multi-Node Test Harness](file:///home/matt/source/github/mageos/roostos/docs/test_harness.md)**: Explains the containerized multi-node virtual network environment, real socket automation testing with pytest, manual Web UI testing mode, and deployment scenarios.
 
 ---
@@ -47,6 +48,9 @@ Before modifying the system, review the architectural blueprints and configurati
 
 ### Device Management & Parental Controls
 As a family-oriented network router/firewall, Device Management is a core feature. It allows you to see all devices on your network, map them to rooms or people, and create firewall and DNS-based filtering rules for tags or specific devices. In addition to static rules, you can create time-based schedules that block or restrict access at certain times of the day or days of the week. The web UI also provides simple ways to grant temporary access bypasses (e.g. "+30 minutes"). Each member of the family can have their own account, with access controls restricting what actions they can perform.
+
+### VPS Edge Gateway & CGNAT Bypass
+For households behind Carrier-Grade NAT (CGNAT) or dynamic public IPs, RoostOS includes a VPS Edge Gateway role. By running a lightweight RoostOS node on a cloud VPS with a static IP, you can establish an encrypted WireGuard tunnel using zero-exposure onboarding (`roost-edge-wg://`) and route external domain traffic (with automated SSL/TLS certificates) directly to internal home applications without exposing local ports to the internet.
 
 ### Whole-Network VPN
 If you want to route all network traffic (or traffic only from specific devices/tags) through a secure VPN tunnel, RoostOS makes it easy to configure Wireguard endpoints and routing policies directly from the Web UI or YAML.

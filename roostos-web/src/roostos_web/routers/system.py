@@ -2,6 +2,11 @@ from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from pydantic import BaseModel
 
+from roostos_engine.pkg_manager import (
+    detect_package_manager,
+    check_all_dependencies,
+    get_feature_dependencies,
+)
 from roostos_engine.config import SystemConfig, UserConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
@@ -176,4 +181,46 @@ async def get_system_services(
 ):
     """Returns active state and substate for core system services."""
     return await system_service.get_services_status()
+
+
+class InstallDependenciesPayload(BaseModel):
+    feature: Optional[str] = None
+    packages: Optional[List[str]] = None
+
+
+@router.get("/api/system/dependencies")
+async def get_system_dependencies(
+    current_user: UserSession = Depends(get_current_parent),
+):
+    """Returns OS package dependency status for all RoostOS subsystem features."""
+    return check_all_dependencies().model_dump()
+
+
+@router.post("/api/system/dependencies/install")
+async def install_system_dependencies(
+    request: Request,
+    payload: InstallDependenciesPayload,
+    current_user: UserSession = Depends(get_current_admin),
+):
+    """Installs missing OS packages for a specific feature or explicit package list."""
+    mgr = detect_package_manager()
+    pkgs = list(payload.packages or [])
+    if payload.feature:
+        pkgs.extend(get_feature_dependencies(payload.feature))
+    pkgs = list(dict.fromkeys(pkgs))
+
+    if not pkgs:
+        raise HTTPException(status_code=400, detail="No packages specified for installation.")
+
+    result = mgr.install_packages(pkgs)
+    log_system_action(
+        username=current_user.username,
+        action="install_dependencies",
+        request=request,
+        details=f"packages={pkgs}, success={result.success}",
+    )
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.message)
+    return result.model_dump()
+
 

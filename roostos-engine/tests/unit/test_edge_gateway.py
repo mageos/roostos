@@ -1,3 +1,4 @@
+import os
 import time
 import pytest
 from roostos_engine.edge_manager import EdgeManager
@@ -101,3 +102,103 @@ def test_edge_manager_lockdown_rules():
     mgr = EdgeManager(mock=True)
     rules = mgr.compile_lockdown_rules("eth0")
     assert any("tcp dport 8000 drop" in r for r in rules)
+
+
+def test_edge_manager_cross_process_persistence(tmp_path):
+    """Simulates separate CLI creation and daemon consumption across processes."""
+    token_file = str(tmp_path / "edge_tokens.json")
+    secret = "unit-test-secure-signing-key-32bytes!!"
+
+    # Process 1: CLI generates token and terminates
+    cli_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    bootstrap = cli_mgr.create_bootstrap_token(vps_public_ip="3.135.219.253", listen_port=8000)
+
+    # Process 2: Daemon receives enrollment request and consumes token
+    daemon_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    claims = daemon_mgr.validate_and_consume_token(bootstrap.token)
+    assert claims["vps_ip"] == "3.135.219.253"
+    assert claims["role"] == "edge_bootstrap"
+
+    # Process 3: Attempting replay must fail
+    replay_mgr = EdgeManager(secret_key=secret, state_file=token_file, mock=False)
+    with pytest.raises(ValueError, match="already been consumed"):
+        replay_mgr.validate_and_consume_token(bootstrap.token)
+
+
+def test_edge_manager_shared_secret_persistence(tmp_path):
+    """Verifies EdgeManager reads shared edge_jwt.secret from config directory."""
+    secret_file = tmp_path / "edge_jwt.secret"
+    secret_file.write_text("persisted-shared-secret-key-32bytes!!")
+    token_file = str(tmp_path / "edge_tokens.json")
+
+    mgr1 = EdgeManager(config_dir=str(tmp_path), state_file=token_file, mock=False)
+    assert mgr1.secret_key == "persisted-shared-secret-key-32bytes!!"
+    bootstrap = mgr1.create_bootstrap_token(vps_public_ip="3.135.219.253")
+
+    mgr2 = EdgeManager(config_dir=str(tmp_path), state_file=token_file, mock=False)
+    claims = mgr2.validate_and_consume_token(bootstrap.token)
+    assert claims["sub"] == "edge_enrollment"
+
+
+def test_edge_manager_wireguard_invite_roundtrip(tmp_path):
+    """Verifies WireGuard invite bundle creation, token serialization, and application."""
+    bundle_file = str(tmp_path / "roost-edge.json")
+    vps_mgr = EdgeManager(config_dir=str(tmp_path / "vps_cfg"), mock=True)
+
+    invite = vps_mgr.create_wireguard_invite(
+        vps_public_ip="198.51.100.25",
+        listen_port=51820,
+        output_path=bundle_file,
+    )
+    assert invite.endpoint == "198.51.100.25:51820"
+    assert invite.gateway_tunnel_ip == "10.42.0.1/24"
+    assert invite.assigned_tunnel_ip == "10.42.0.2/24"
+    assert invite.gateway_public_key
+    assert invite.client_private_key
+
+    # Verify file was written
+    assert (tmp_path / "roost-edge.json").exists()
+
+    # Check token serialization round-trip
+    token = invite.to_token()
+    assert token.startswith("roost-edge-wg://")
+    decoded_bundle = invite.from_token(token)
+    assert decoded_bundle.endpoint == invite.endpoint
+    assert decoded_bundle.gateway_public_key == invite.gateway_public_key
+    assert decoded_bundle.client_private_key == invite.client_private_key
+
+    # Home router applies invite
+    home_mgr = EdgeManager(config_dir=str(tmp_path / "home_cfg"), mock=True)
+    home_mgr.apply_wireguard_invite(decoded_bundle)
+
+
+def test_edge_manager_wireguard_invite_with_domain(tmp_path):
+    """Verifies WireGuard invite bundle endpoint uses domain name when specified."""
+    vps_mgr = EdgeManager(config_dir=str(tmp_path), mock=True)
+    invite = vps_mgr.create_wireguard_invite(
+        vps_public_ip="198.51.100.25",
+        listen_port=51820,
+        domain="vpn.roostos.example.org",
+    )
+    assert invite.endpoint == "vpn.roostos.example.org:51820"
+
+
+def test_edge_manager_update_peer_endpoint(tmp_path, monkeypatch):
+    """Verifies updating WireGuard endpoint in 50-wg-edge.netdev."""
+    net_dir = str(tmp_path / "networkd")
+    os.makedirs(net_dir, exist_ok=True)
+    monkeypatch.setenv("ROOSTOS_SYSTEMD_NETWORK_DIR", net_dir)
+    netdev = os.path.join(net_dir, "50-wg-edge.netdev")
+    with open(netdev, "w") as f:
+        f.write("[WireGuardPeer]\nPublicKey=testkey\nEndpoint=198.51.100.1:51820\n")
+
+    mgr = EdgeManager(config_dir=str(tmp_path), mock=True)
+    updated = mgr.update_peer_endpoint(endpoint_host="edge.roostos.net", port=51822)
+    assert updated is True
+
+    with open(netdev, "r") as f:
+        content = f.read()
+    assert "Endpoint=edge.roostos.net:51822" in content
+
+
+

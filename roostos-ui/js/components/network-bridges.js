@@ -140,14 +140,8 @@ const renderInlineAddVlanRowTemplate = () => html`
 export class NetworkBridgesComponent extends HTMLElement {
     constructor() {
         super();
-        this.bridges = [
-            { name: "br0", ip: "192.168.1.1/24", interfaces: ["eth1"], dhcp_enabled: true, isolate: false },
-            { name: "br-guest", ip: "192.168.10.1/24", interfaces: ["vlan-guest"], dhcp_enabled: true, isolate: true }
-        ];
-        this.vlans = [
-            { id: 10, name: "vlan10", parent: "eth1", ip: "10.10.10.1/24" },
-            { id: 20, name: "vlan-guest", parent: "eth1", ip: "192.168.10.1/24" }
-        ];
+        this.bridges = [];
+        this.vlans = [];
     }
 
     setData(bridges, vlans) {
@@ -161,8 +155,12 @@ export class NetworkBridgesComponent extends HTMLElement {
     }
 
     render() {
-        const bridgeRowsHtml = this.bridges.map(b => renderBridgeRowTemplate(b)).join("");
-        const vlanRowsHtml = this.vlans.map(v => renderVlanRowTemplate(v)).join("");
+        const bridgeRowsHtml = this.bridges.length > 0
+            ? this.bridges.map(b => renderBridgeRowTemplate(b)).join("")
+            : '<tr><td colspan="6" class="empty-state" style="text-align:center; padding: 16px; color: var(--text-secondary);">No bridge interfaces configured.</td></tr>';
+        const vlanRowsHtml = this.vlans.length > 0
+            ? this.vlans.map(v => renderVlanRowTemplate(v)).join("")
+            : '<tr><td colspan="5" class="empty-state" style="text-align:center; padding: 16px; color: var(--text-secondary);">No 802.1Q VLAN tags configured.</td></tr>';
         this.innerHTML = renderBridgesTemplate(this.bridges.length, bridgeRowsHtml, this.vlans.length, vlanRowsHtml);
 
         this.querySelectorAll("#top-add-bridge-btn, #bottom-add-bridge-btn").forEach(btn => {

@@ -42,6 +42,20 @@ class DhcpServicesSubsystem(Subsystem):
             
             # Restart kea-dhcp4-server using systemctl if running as root
             if os.getuid() == 0:
+                for d in ["/var/lib/kea", "/run/kea"]:
+                    os.makedirs(d, exist_ok=True)
+                    try:
+                        import pwd
+                        for uname in ["_kea", "kea"]:
+                            try:
+                                u = pwd.getpwnam(uname)
+                                os.chown(d, u.pw_uid, u.pw_gid)
+                                break
+                            except KeyError:
+                                continue
+                    except Exception:
+                        pass
+
                 # Remove stale socket/lock files to prevent permission issues for the _kea user
                 for stale_file in ["/run/kea/kea-dhcp4-ctrl.sock", "/run/kea/kea-dhcp4-ctrl.sock.lock"]:
                     try:
@@ -51,6 +65,6 @@ class DhcpServicesSubsystem(Subsystem):
                         print(f"Warning: Could not remove stale file {stale_file}: {ex}", file=sys.stderr)
 
                 print("Restarting kea-dhcp4-server service...")
-                subprocess.run(["systemctl", "restart", "kea-dhcp4-server"], check=True)
+                subprocess.run(["systemctl", "restart", "kea-dhcp4-server"], check=False)
         except Exception as e:
             print(f"Error updating DHCP services: {e}", file=sys.stderr)
