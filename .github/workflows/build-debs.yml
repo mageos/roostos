@@ -22,6 +22,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-debian-packages:
     name: Build RoostOS Debian Packages
@@ -64,11 +67,21 @@ jobs:
           bash scripts/build-all-debs.sh $TARGET_ARCHS
 
       - name: Verify Package Contents
+        env:
+          TARGET_ARCHS: ${{ github.event.inputs.architectures || 'amd64 arm64' }}
         run: |
           ls -lh dist/debs/
           for deb in dist/debs/*.deb; do
             echo "=== Package: $deb ==="
             dpkg -I "$deb"
+          done
+          for arch in $TARGET_ARCHS; do
+            count=$(ls dist/debs/*_${arch}.deb 2>/dev/null | wc -l)
+            if [ "$count" -eq 0 ]; then
+              echo "Error: Expected deb package for architecture '$arch', but none was found!" >&2
+              exit 1
+            fi
+            echo "✓ Verified package built for architecture: $arch"
           done
 
       - name: Determine Artifact Name

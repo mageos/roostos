@@ -4,7 +4,11 @@ set -e
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [[ -f "$SRC_DIR/scripts/version.py" ]]; then
-    python3 "$SRC_DIR/scripts/version.py" --write
+    if command -v python3 >/dev/null 2>&1; then
+        python3 "$SRC_DIR/scripts/version.py" --write
+    elif command -v uv >/dev/null 2>&1; then
+        uv run python "$SRC_DIR/scripts/version.py" --write
+    fi
 fi
 PACKAGE_VERSION="0.1.1"
 if [[ -f "$SRC_DIR/VERSION" ]]; then
@@ -58,9 +62,7 @@ if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
         echo "Cross-building Unified RoostOS Debian package for $arch via Docker ($docker_platform)"
         echo "============================================="
         BUILDER_IMAGE="roostos-deb-builder:$arch"
-        if ! docker image inspect "$BUILDER_IMAGE" >/dev/null 2>&1; then
-            docker build --platform "$docker_platform" -t "$BUILDER_IMAGE" -f "$SRC_DIR/packaging/debian/Dockerfile.builder" "$SRC_DIR/packaging/debian"
-        fi
+        docker build --platform "$docker_platform" -t "$BUILDER_IMAGE" -f "$SRC_DIR/packaging/debian/Dockerfile.builder" "$SRC_DIR/packaging/debian"
         HOST_UID=$(id -u)
         HOST_GID=$(id -g)
         docker run --rm \
@@ -69,8 +71,13 @@ if [[ -z "${ROOSTOS_DOCKER_BUILD:-}" ]]; then
             -v "roostos-uv-cache-$arch:/root/.cache/uv" \
             -w /workspace \
             -e ROOSTOS_DOCKER_BUILD=1 \
+            -e ROOSTOS_VERSION="$PACKAGE_VERSION" \
+            -e GITHUB_REF_NAME="${GITHUB_REF_NAME:-}" \
+            -e GITHUB_HEAD_REF="${GITHUB_HEAD_REF:-}" \
+            -e GITHUB_REF="${GITHUB_REF:-}" \
+            -e GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT:-}" \
             "$BUILDER_IMAGE" \
-            bash -c "bash scripts/build-all-debs.sh '$arch' && chown -R $HOST_UID:$HOST_GID dist build-deb-tmp 2>/dev/null || true"
+            bash -c "set -e; bash scripts/build-all-debs.sh '$arch'; exit_code=\$?; chown -R $HOST_UID:$HOST_GID dist build-deb-tmp* 2>/dev/null || true; exit \$exit_code"
     done
 
     if [[ ${#NATIVE_ARCHS[@]} -eq 0 ]]; then
@@ -86,11 +93,18 @@ echo "Target Architectures: $ARCHITECTURES"
 echo "Output Directory: $DIST_DIR"
 echo "============================================="
 
-rm -rf "$BUILD_DIR"
-mkdir -p "$DIST_DIR" "$BUILD_DIR"
+mkdir -p "$DIST_DIR"
 
 # 1. Prepare standalone Python 3.13 and locked requirements
-uv python install 3.13
+if ! uv python install 3.13 2>/dev/null; then
+    echo "Notice: uv python install failed (likely QEMU emulation). Falling back to direct tar extraction..."
+    PY_ARCH="$HOST_ARCH"
+    [[ "$PY_ARCH" == "arm64" ]] && PY_ARCH="aarch64"
+    [[ "$PY_ARCH" == "amd64" ]] && PY_ARCH="x86_64"
+    PY_DIR="${HOME}/.local/share/uv/python/cpython-3.13.16-linux-${HOST_ARCH}-gnu"
+    mkdir -p "$PY_DIR"
+    curl -fsSL "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-${PY_ARCH}-unknown-linux-gnu-install_only_stripped.tar.gz" | tar -xz -C "$PY_DIR" --strip-components=1
+fi
 STANDALONE_PYTHON="$(uv python list --only-installed 2>/dev/null | grep -E '^cpython-3\.13' | awk '{print $2}' | head -n 1)"
 if [[ -n "$STANDALONE_PYTHON" && -x "$STANDALONE_PYTHON" ]]; then
     REAL_PYTHON="$(readlink -f "$STANDALONE_PYTHON")"
@@ -100,9 +114,13 @@ else
     REAL_PYTHON="$(which python3)"
 fi
 PYTHON_PREFIX="$(dirname "$(dirname "$REAL_PYTHON")")"
-uv export --no-dev --no-emit-workspace > "$BUILD_DIR/requirements-runtime.txt"
 
 for arch in $ARCHITECTURES; do
+    BUILD_DIR="$SRC_DIR/build-deb-tmp-$arch"
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+    uv export --no-dev --no-emit-workspace > "$BUILD_DIR/requirements-runtime.txt"
+
     STAGE_DIR="$BUILD_DIR/roostos-$arch"
     RUNTIME_TARGET="$STAGE_DIR/usr/lib/roostos/runtime"
     rm -rf "$STAGE_DIR"
@@ -226,6 +244,7 @@ EOF
     echo "--- Packing: $deb_filename ---"
     dpkg-deb --root-owner-group --build "$STAGE_DIR" "$DIST_DIR/$deb_filename"
     echo "✓ Built: $DIST_DIR/$deb_filename"
+    rm -rf "$BUILD_DIR"
 done
 
 echo "============================================="
