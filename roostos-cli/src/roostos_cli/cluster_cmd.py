@@ -194,16 +194,28 @@ def join_cluster_cmd(
     hostname = socket.gethostname() or "roost-node"
     node_name, node_role = name or hostname, role or "edge_gateway"
     node_id = f"node-{uuid.uuid4().hex[:8]}"
+    mgmt_ip = None
+    try:
+        p = urllib.parse.urlparse(target_controller)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect((p.hostname or "127.0.0.1", p.port or 80))
+        mgmt_ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
 
     if mock:
         click.secho(f"✓ [MOCK] Successfully joined cluster at {target_controller} as '{node_name}' ({node_role})", fg="green", bold=True)
         return
 
     click.echo(f"Submitting enrollment request to {target_controller}...")
+    join_payload: Dict[str, Any] = {"token": auth_token, "node_id": node_id, "name": node_name, "roles": [node_role]}
+    if mgmt_ip:
+        join_payload["management_ip"] = mgmt_ip
     try:
         req = urllib.request.Request(
             f"{target_controller}/api/cluster/join",
-            data=json.dumps({"token": auth_token, "node_id": node_id, "name": node_name, "roles": [node_role]}).encode("utf-8"),
+            data=json.dumps(join_payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
         )

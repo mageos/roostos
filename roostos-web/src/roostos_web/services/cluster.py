@@ -144,6 +144,35 @@ class ClusterService:
         config = self.repo.get_config()
         new_node = self.cluster_manager.register_node(join_data, config.nodes)
         await self.save_node(new_node.model_dump())
+
+        # Auto-link Edge Gateway in network.edge_gateways if role is edge_gateway
+        is_edge = any(
+            (r.value == "edge_gateway" if hasattr(r, "value") else str(r) == "edge_gateway")
+            for r in new_node.roles
+        )
+        if is_edge:
+            try:
+                from roostos_engine.models.edge import EdgeGatewayConfig
+                existing_gws = list(getattr(config.network, "edge_gateways", []) or [])
+                edge_id = "edge-01"
+                existing_match = next((g for g in existing_gws if g.id in (edge_id, new_node.id)), None)
+                routes = existing_match.ingress_routes if existing_match else []
+                edge_gw = EdgeGatewayConfig(
+                    id=edge_id,
+                    name=new_node.name or "VPS Edge Gateway",
+                    public_ip=new_node.management_ip or (existing_match.public_ip if existing_match else "10.42.0.1"),
+                    listen_port=51820,
+                    tunnel_ip_gateway="10.42.0.1/24",
+                    tunnel_ip_home="10.42.0.2/24",
+                    status="connected",
+                    ingress_routes=routes,
+                )
+                updated_gws = [g for g in existing_gws if g.id not in (edge_id, new_node.id)] + [edge_gw]
+                config.network.edge_gateways = updated_gws
+                config.edge_gateways = updated_gws
+                self.repo.save_network_config(config.network)
+            except Exception:
+                pass
         
         controller_url = ""
         if config.system and config.system.cluster and config.system.cluster.controller_url:

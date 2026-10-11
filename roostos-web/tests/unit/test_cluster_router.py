@@ -42,7 +42,7 @@ class DummyClusterConfigRepo(ConfigRepository):
         pass
 
     def save_network_config(self, data):
-        pass
+        self.config.network = data
 
     def save_schedules_config(self, data):
         pass
@@ -240,6 +240,10 @@ def test_cluster_join_with_admin_jwt(cluster_test_setup):
     assert data["status"] == "success"
     assert data["node_id"] == "node-03"
     assert "successfully enrolled" in data["message"]
+    assert len(repo.config.network.edge_gateways) == 1
+    assert repo.config.network.edge_gateways[0].id == "edge-01"
+    assert repo.config.network.edge_gateways[0].public_ip == "10.42.0.1"
+    assert repo.config.network.edge_gateways[0].status == "connected"
 
 
 

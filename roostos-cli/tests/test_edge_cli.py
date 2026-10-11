@@ -115,3 +115,78 @@ def test_edge_token_cli_export_and_connect(tmp_path):
     assert res_token_conn.exit_code == 0
     assert "Zero public web API calls made" in res_token_conn.output
 
+    # 4. Verify roostos edge status displays linked gateway
+    res_status = runner.invoke(cli, ["edge", "status", "--config-dir", config_dir])
+    assert res_status.exit_code == 0
+    assert "Gateway ID:     edge-01" in res_status.output
+    assert "Public IP:      198.51.100.5" in res_status.output
+    assert "Tunnel:         10.42.0.2/24 -> 10.42.0.1/24" in res_status.output
+    assert "Status:         connected" in res_status.output
+
+
+def test_edge_status_cli_fallback_to_nodes_yaml(tmp_path):
+    """Verifies roostos edge status falls back to nodes.yaml if network.yaml has no edge gateways."""
+    config_dir = str(tmp_path / "config")
+    os.makedirs(config_dir, exist_ok=True)
+    import yaml
+    nodes_file = os.path.join(config_dir, "nodes.yaml")
+    with open(nodes_file, "w") as f:
+        yaml.dump({
+            "nodes": [
+                {
+                    "id": "node-vps-99",
+                    "name": "VPS Gateway Node",
+                    "roles": ["edge_gateway"],
+                    "management_ip": "203.0.113.88",
+                    "status": "active",
+                }
+            ]
+        }, f)
+
+    runner = CliRunner()
+    res_status = runner.invoke(cli, ["edge", "status", "--config-dir", config_dir])
+    assert res_status.exit_code == 0
+    assert "Gateway ID:     node-vps-99" in res_status.output
+    assert "Public IP:      203.0.113.88" in res_status.output
+    assert "Status:         connected (Cluster Node)" in res_status.output
+
+
+def test_edge_token_cli_with_domain():
+    """Verifies generating invite bundle with domain name instead of IP."""
+    runner = CliRunner()
+    res = runner.invoke(cli, ["edge", "token", "--domain", "vps.roostos.net", "--port", "51820"])
+    assert res.exit_code == 0
+    assert "vps.roostos.net:51820" in res.output
+    assert "roost-edge-wg://" in res.output
+
+
+def test_edge_update_cli(tmp_path, monkeypatch):
+    """Verifies roostos edge update updates both netdev Endpoint and network.yaml."""
+    config_dir = str(tmp_path / "config")
+    net_dir = str(tmp_path / "networkd")
+    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(net_dir, exist_ok=True)
+    monkeypatch.setenv("ROOSTOS_SYSTEMD_NETWORK_DIR", net_dir)
+
+    netdev_path = os.path.join(net_dir, "50-wg-edge.netdev")
+    with open(netdev_path, "w") as f:
+        f.write("[NetDev]\nName=wg-edge\n\n[WireGuardPeer]\nPublicKey=testkey\nEndpoint=1.2.3.4:51820\n")
+
+    import yaml
+    with open(os.path.join(config_dir, "network.yaml"), "w") as f:
+        yaml.dump({"edge_gateways": [{"id": "edge-01", "public_ip": "1.2.3.4", "listen_port": 51820}]}, f)
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["edge", "update", "--domain", "edge.roostos.cloud", "--port", "51820", "--config-dir", config_dir])
+    assert res.exit_code == 0
+    assert "Edge Gateway WireGuard endpoint updated to edge.roostos.cloud:51820" in res.output
+
+    with open(netdev_path, "r") as f:
+        updated_netdev = f.read()
+    assert "Endpoint=edge.roostos.cloud:51820" in updated_netdev
+
+    with open(os.path.join(config_dir, "network.yaml"), "r") as f:
+        ydata = yaml.safe_load(f)
+    assert ydata["edge_gateways"][0]["domain"] == "edge.roostos.cloud"
+
+

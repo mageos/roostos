@@ -19,7 +19,7 @@ from roostos_engine.models.network import (
 )
 from roostos_engine.models.edge import (
     IngressRoute, EdgeGatewayConfig, EdgeBootstrapToken,
-    EdgeEnrollmentPayload, EdgeEnrollmentResponse,
+    EdgeEnrollmentPayload, EdgeEnrollmentResponse, UpdateEdgeEndpointRequest,
 )
 from roostos_engine.models.node import (
     NodeRole, InterfaceType, InterfaceMode, NodeInterface,
@@ -211,10 +211,16 @@ def load_config_directory(config_dir: str) -> RoostConfig:
                         save_config_file(config_dir, "network.yaml", parsed)
                     except Exception as e:
                         print(f"Warning: Failed to write migrated network config: {e}")
+            edge_gateways = list(parsed.edge_gateways or [])
+            if parsed.network:
+                for gw in (parsed.network.edge_gateways or []):
+                    if not any(g.id == gw.id for g in edge_gateways):
+                        edge_gateways.append(gw)
+                parsed.network.edge_gateways = edge_gateways
             raw_data["network"] = parsed.network
             raw_data["wifi"] = parsed.wifi
             raw_data["vpns"] = parsed.vpns
-            raw_data["edge_gateways"] = parsed.edge_gateways
+            raw_data["edge_gateways"] = edge_gateways
         elif namespace == "devices":
             raw_data["people"] = parsed.people
             raw_data["buildings"] = parsed.buildings

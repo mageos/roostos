@@ -75,6 +75,30 @@ window.escapeHtml = function(str) {
               .replace(/'/g, "&#039;");
 };
 
+window.renderVpnTable = function(vpns = window.vpnSettings || []) {
+    const vpnTbody = document.getElementById("vpn-tbody");
+    if (!vpnTbody) return;
+    if (!vpns || vpns.length === 0) {
+        vpnTbody.innerHTML = '<tr><td colspan="5" class="empty-state">No active VPN tunnels configured.</td></tr>';
+        return;
+    }
+    vpnTbody.innerHTML = vpns.map(v => {
+        const cfg = v.config || {};
+        const endpoint = cfg.endpoint || v.endpoint || "-";
+        const localIp = cfg.local_ip || cfg.address || v.local_ip || "-";
+        const isActive = v.enabled !== false && (v.status === 'connected' || v.status === 'active' || cfg.status === 'connected' || cfg.status === 'active');
+        const badgeClass = isActive ? 'badge-success' : 'badge-secondary';
+        const statusText = isActive ? 'Active' : 'Disabled';
+        return `<tr>
+            <td><strong>${window.escapeHtml(v.name || v.id)}</strong></td>
+            <td><span class="badge badge-info">${window.escapeHtml((v.type || "WireGuard").toUpperCase())}</span></td>
+            <td><code>${window.escapeHtml(endpoint)}</code></td>
+            <td><code>${window.escapeHtml(localIp)}</code></td>
+            <td><span class="badge ${badgeClass}">${statusText}</span></td>
+        </tr>`;
+    }).join("");
+};
+
 window.escapeJs = function(str) {
     if (!str) return "";
     return str.replace(/\\/g, "\\\\")
@@ -159,6 +183,10 @@ window.switchView = function(viewId) {
 
     if (["status", "dhcp", "vpn", "firewall", "parental", "dns", "system", "people"].includes(viewId)) {
         window.switchSubTab(viewId, "basic");
+    }
+
+    if (viewId === "vpn" && window.renderVpnTable) {
+        window.renderVpnTable(window.vpnSettings);
     }
 
     window.loadDashboard();
@@ -489,6 +517,9 @@ window.loadDashboard = async function(options = {}) {
 
         // Fetch Networks (bridges, interfaces, VLANs, Wi-Fi APs)
         await window.networkService.fetchConfig();
+        if (window.renderVpnTable) {
+            window.renderVpnTable(window.vpnSettings);
+        }
         const netElem = document.getElementById("net-view-elem");
         if (netElem && netElem.render) {
             netElem.render();
@@ -657,14 +688,14 @@ function init() {
         vpnPane.className = "view-pane";
         vpnPane.innerHTML = `
             <div class="card">
-                <div class="card-header">
-                    <h3>VPN Connections & Tunnels</h3>
-                    <span class="badge badge-info">WireGuard / OpenVPN</span>
+                <div class="card-header table-action-bar">
+                    <div>
+                        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">VPN Connections & Tunnels</h3>
+                        <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary);">Secure encrypted site-to-site and client tunnels configured on this node.</p>
+                    </div>
+                    <button class="btn btn-secondary btn-sm" onclick="switchView('edge')">Manage Edge Gateway</button>
                 </div>
-                <p class="text-secondary" style="font-size:13px; margin: 12px 0;">
-                    Secure encrypted site-to-site and client tunnels configured on this node.
-                </p>
-                <div id="vpn-list-container" class="table-responsive">
+                <div id="vpn-list-container" class="table-responsive" style="margin-top: 12px;">
                     <table class="data-table">
                         <thead>
                             <tr><th>Tunnel</th><th>Type</th><th>Endpoint</th><th>Local IP</th><th>Status</th></tr>

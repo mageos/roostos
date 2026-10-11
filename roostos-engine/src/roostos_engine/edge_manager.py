@@ -8,6 +8,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import jwt
 from roostos_engine.edge_token_store import EdgeTokenStore
+from roostos_engine.ingress_helper import (
+    generate_nginx_config as _gen_nginx_config,
+    compile_lockdown_rules as _compile_lockdown,
+    update_peer_endpoint_file,
+    persist_gateway_config as _persist_gw_config,
+)
 from roostos_engine.models.edge import (
     EdgeBootstrapToken,
     EdgeGatewayConfig,
@@ -34,9 +40,7 @@ class EdgeManager:
         self.config_dir = config_dir
         self.mock = mock
         self.token_store = token_store or EdgeTokenStore(
-            config_dir=config_dir,
-            secret_key=secret_key,
-            state_file=state_file,
+            config_dir=config_dir, secret_key=secret_key, state_file=state_file
         )
         self.secret_key = self.token_store.secret_key
         self.state_file = self.token_store.state_file
@@ -104,6 +108,7 @@ class EdgeManager:
         vps_public_ip: str,
         listen_port: int = 51820,
         output_path: Optional[str] = None,
+        domain: Optional[str] = None,
     ) -> EdgeInviteBundle:
         """Generates a zero-web WireGuard invitation bundle and provisions the server peer."""
         state_dir = self.config_dir
@@ -132,18 +137,11 @@ class EdgeManager:
             tunnel_ip="10.42.0.1/24",
             allowed_ips="10.42.0.2/32",
         )
-        if not self.mock:
-            net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
-            if os.path.exists(net_dir):
-                for fname, content in net_files.items():
-                    try:
-                        with open(os.path.join(net_dir, fname), "w") as f:
-                            f.write(content)
-                    except Exception:
-                        pass
+        self._apply_network_files(net_files)
 
+        endpoint_host = domain if domain else vps_public_ip
         bundle = EdgeInviteBundle(
-            endpoint=f"{vps_public_ip}:{listen_port}",
+            endpoint=f"{endpoint_host}:{listen_port}",
             gateway_public_key=vps_pub,
             client_private_key=home_priv,
             client_public_key=home_pub,
@@ -159,6 +157,35 @@ class EdgeManager:
 
         return bundle
 
+    def _apply_network_files(self, net_files: Dict[str, str]) -> None:
+        """Writes networkd configs and triggers systemd-networkd reload if root."""
+        if self.mock:
+            return
+        net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
+        if not os.path.exists(net_dir):
+            try:
+                os.makedirs(net_dir, exist_ok=True)
+            except Exception:
+                pass
+        if os.path.exists(net_dir):
+            import sys
+            for fname, content in net_files.items():
+                fpath = os.path.join(net_dir, fname)
+                try:
+                    mode = 0o600 if fname.endswith(".netdev") else 0o644
+                    with open(os.open(fpath, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode), "w") as f:
+                        f.write(content)
+                except Exception as e:
+                    print(f"Warning: Failed writing {fpath}: {e}", file=sys.stderr)
+            if os.getuid() == 0:
+                import subprocess
+                try:
+                    subprocess.run(["systemctl", "enable", "--now", "systemd-networkd"], check=False, capture_output=True)
+                    subprocess.run(["networkctl", "reload"], check=False, capture_output=True)
+                    subprocess.run(["networkctl", "reconfigure", "wg-edge"], check=False, capture_output=True)
+                except Exception:
+                    pass
+
     def apply_wireguard_invite(self, bundle: EdgeInviteBundle) -> Dict[str, str]:
         """Applies a WireGuard invitation bundle on the home client router."""
         net_files = self.generate_networkd_config(
@@ -170,17 +197,7 @@ class EdgeManager:
             allowed_ips=",".join(bundle.allowed_ips),
             persistent_keepalive=bundle.persistent_keepalive,
         )
-
-        if not self.mock:
-            net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
-            if os.path.exists(net_dir):
-                for fname, content in net_files.items():
-                    try:
-                        with open(os.path.join(net_dir, fname), "w") as f:
-                            f.write(content)
-                    except Exception:
-                        pass
-
+        self._apply_network_files(net_files)
         return net_files
 
     def validate_and_consume_token(self, token_str: str) -> Dict[str, Any]:
@@ -240,54 +257,41 @@ class EdgeManager:
         network = f"[Match]\nName=wg-edge\n\n[Network]\nAddress={tunnel_ip}\n"
         return {"50-wg-edge.netdev": netdev, "50-wg-edge.network": network}
 
+    def update_peer_endpoint(self, endpoint_host: str, port: int = 51820) -> bool:
+        """Updates the WireGuard peer endpoint (domain or IP) in 50-wg-edge.netdev and reloads networkd."""
+        net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
+        updated = update_peer_endpoint_file(endpoint_host=endpoint_host, port=port, network_dir=net_dir)
+        if not self.mock and os.getuid() == 0:
+            import subprocess
+            try:
+                subprocess.run(["networkctl", "reload"], check=False, capture_output=True)
+                subprocess.run(["networkctl", "reconfigure", "wg-edge"], check=False, capture_output=True)
+            except Exception:
+                pass
+        return updated
+
+    def persist_gateway_config(
+        self,
+        vps_ip: str,
+        gw_tunnel: str,
+        home_tunnel: str,
+        pub_key: str,
+        port: int = 51820,
+        domain: Optional[str] = None,
+    ) -> None:
+        """Helper to persist edge gateway record in network.yaml."""
+        _persist_gw_config(
+            config_dir=self.config_dir,
+            vps_ip=vps_ip,
+            gw_tunnel=gw_tunnel,
+            home_tunnel=home_tunnel,
+            pub_key=pub_key,
+            port=port,
+            domain=domain,
+        )
+
     def generate_nginx_config(self, routes: List[IngressRoute]) -> str:
-        """Generates Nginx reverse-proxy server blocks for active ingress routes."""
-        if not routes:
-            return (
-                "# RoostOS Edge Ingress Proxy\n"
-                "# No active routes configured.\n"
-                "server {\n"
-                "    listen 80 default_server;\n"
-                "    server_name _;\n"
-                "    return 404 'RoostOS Edge Gateway: No routes configured\\n';\n"
-                "}\n"
-            )
-
-        blocks: List[str] = ["# RoostOS Ingress Reverse Proxy Configuration\n"]
-        for r in routes:
-            ssl_block = ""
-            if r.ssl_enabled:
-                ssl_block = (
-                    f"    # SSL / TLS Termination\n"
-                    f"    ssl_certificate /etc/roostos/certs/{r.domain}/fullchain.pem;\n"
-                    f"    ssl_certificate_key /etc/roostos/certs/{r.domain}/privkey.pem;\n"
-                )
-
-            server_block = (
-                f"server {{\n"
-                f"    listen 80;\n"
-                f"    {'listen 443 ssl http2;' if r.ssl_enabled else ''}\n"
-                f"    server_name {r.domain};\n"
-                f"{ssl_block}\n"
-                f"    location / {{\n"
-                f"        proxy_pass http://{r.target_ip}:{r.target_port};\n"
-                f"        proxy_set_header Host $host;\n"
-                f"        proxy_set_header X-Real-IP $remote_addr;\n"
-                f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
-                f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
-                f"        proxy_http_version 1.1;\n"
-                f"        proxy_set_header Upgrade $http_upgrade;\n"
-                f"        proxy_set_header Connection \"upgrade\";\n"
-                f"    }}\n"
-                f"}}\n"
-            )
-            blocks.append(server_block)
-
-        return "\n".join(blocks)
+        return _gen_nginx_config(routes)
 
     def compile_lockdown_rules(self, wan_interface: str = "eth0") -> List[str]:
-        """Generates nftables rules to restrict port 8000 to internal tunnel/localhost."""
-        return [
-            f"# RoostOS Attack Surface Hardening: Drop public port 8000 on {wan_interface}",
-            f'add rule inet filter input iifname "{wan_interface}" tcp dport 8000 drop',
-        ]
+        return _compile_lockdown(wan_interface)

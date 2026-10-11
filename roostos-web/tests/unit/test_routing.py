@@ -120,6 +120,34 @@ def test_get_network_endpoint(mock_dependencies, auth_headers):
     assert "vpns" in json_data
 
 
+def test_get_network_includes_edge_gateway_as_vpn(mock_dependencies, auth_headers):
+    repo, dbus = mock_dependencies
+    client = TestClient(app)
+    from roostos_engine.models.edge import EdgeGatewayConfig
+    repo.config.network.edge_gateways = [
+        EdgeGatewayConfig(
+            id="edge-01",
+            name="VPS Edge Gateway",
+            public_ip="203.0.113.88",
+            listen_port=51820,
+            tunnel_ip_gateway="10.42.0.1/24",
+            tunnel_ip_home="10.42.0.2/24",
+            status="connected",
+        )
+    ]
+    response = client.get("/api/network", headers=auth_headers)
+    assert response.status_code == 200
+    json_data = response.json()
+    assert "vpns" in json_data
+    edge_vpns = [v for v in json_data["vpns"] if "edge-" in v["id"]]
+    assert len(edge_vpns) == 1
+    assert edge_vpns[0]["name"] == "VPS Edge Gateway (Edge Gateway Tunnel)"
+    assert edge_vpns[0]["type"] == "wireguard"
+    assert edge_vpns[0]["enabled"] is True
+    assert edge_vpns[0]["config"]["endpoint"] == "203.0.113.88:51820"
+    assert edge_vpns[0]["config"]["local_ip"] == "10.42.0.2/24"
+
+
 def test_post_network_endpoint(mock_dependencies, auth_headers):
     client = TestClient(app)
     payload = {
@@ -143,6 +171,48 @@ def test_post_network_endpoint(mock_dependencies, auth_headers):
     response = client.post("/api/network", json=payload, headers=auth_headers)
     assert response.status_code == 200
     assert response.json()["status"] == "success"
+
+
+def test_post_network_endpoint_preserves_clean_vpns(mock_dependencies, auth_headers):
+    repo, dbus = mock_dependencies
+    client = TestClient(app)
+    payload = {
+        "network": {
+            "interfaces": [{"name": "eth0", "role": "wan", "dhcp": True}]
+        },
+        "wifi": {
+            "access_points": []
+        },
+        "vpns": [
+            {
+                "id": "edge-edge-01",
+                "name": "VPS Edge Gateway (Edge Gateway Tunnel)",
+                "type": "wireguard",
+                "role": "client",
+                "enabled": True,
+                "config": {}
+            },
+            {
+                "id": "wg-client",
+                "name": "User WG Tunnel",
+                "type": "wireguard",
+                "role": "client",
+                "enabled": True,
+                "config": {}
+            }
+        ]
+    }
+    saved_cfg = None
+    def mock_save(data):
+        nonlocal saved_cfg
+        saved_cfg = data
+    repo.save_network_config = mock_save
+    response = client.post("/api/network", json=payload, headers=auth_headers)
+    assert response.status_code == 200
+    assert saved_cfg is not None
+    persisted_ids = [v.id for v in saved_cfg.vpns]
+    assert "wg-client" in persisted_ids
+    assert "edge-edge-01" not in persisted_ids
 
 
 def test_get_plugins_endpoint(mock_dependencies, auth_headers):

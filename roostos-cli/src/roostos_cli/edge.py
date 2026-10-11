@@ -37,33 +37,17 @@ def _record_edge_gateway(
     home_tunnel: str,
     pub_key: str,
     port: int = 51820,
+    domain: Optional[str] = None,
 ) -> None:
     """Helper to persist edge gateway record in network.yaml."""
-    net_yaml = os.path.join(config_dir, "network.yaml")
-    if not os.path.exists(net_yaml):
-        return
-    try:
-        import yaml
-        with open(net_yaml, "r") as f:
-            ydata = yaml.safe_load(f) or {}
-        net_section = ydata.setdefault("network", {})
-        gws = net_section.setdefault("edge_gateways", [])
-        gw_record = {
-            "id": "edge-01",
-            "name": "VPS Edge Gateway",
-            "public_ip": vps_ip,
-            "listen_port": port,
-            "tunnel_ip_gateway": gw_tunnel,
-            "tunnel_ip_home": home_tunnel,
-            "public_key": pub_key,
-            "status": "connected",
-            "ingress_routes": [],
-        }
-        net_section["edge_gateways"] = [g for g in gws if g.get("id") != "edge-01"] + [gw_record]
-        with open(net_yaml, "w") as f:
-            yaml.dump(ydata, f)
-    except Exception:
-        pass
+    EdgeManager(config_dir=config_dir).persist_gateway_config(
+        vps_ip=vps_ip,
+        gw_tunnel=gw_tunnel,
+        home_tunnel=home_tunnel,
+        pub_key=pub_key,
+        port=port,
+        domain=domain,
+    )
 
 
 @click.group(name="edge")
@@ -73,6 +57,7 @@ def edge_group() -> None:
 
 
 @edge_group.command(name="token")
+@click.option("--domain", default=None, help="Domain name / FQDN of this VPS (used instead of IP in invite)")
 @click.option("--ip", default=None, help="Public IP address of this VPS (auto-detected if omitted)")
 @click.option("--port", default=51820, help="WireGuard UDP listen port (default: 51820)")
 @click.option("--ttl", default=15, help="Token validity window in minutes (legacy HTTP only)")
@@ -80,6 +65,7 @@ def edge_group() -> None:
 @click.option("--legacy-http", is_flag=True, help="Use legacy HTTP API bootstrap token instead of WireGuard invite")
 @click.option("--https", is_flag=True, help="Use HTTPS protocol in legacy HTTP token")
 def generate_token_cmd(
+    domain: Optional[str],
     ip: Optional[str],
     port: int,
     ttl: int,
@@ -96,28 +82,31 @@ def generate_token_cmd(
             vps_public_ip=public_ip,
             listen_port=port,
             output_path=export_file,
+            domain=domain,
         )
         wg_token = invite.to_token()
+        _record_edge_gateway(
+            config_dir="/etc/roostos",
+            vps_ip=public_ip,
+            gw_tunnel=invite.gateway_tunnel_ip,
+            home_tunnel=invite.assigned_tunnel_ip,
+            pub_key=invite.gateway_public_key,
+            port=port,
+            domain=domain,
+        )
 
-        click.secho("=== RoostOS WireGuard Edge Gateway Invitation ===", fg="cyan", bold=True)
-        click.echo(f"Endpoint: {invite.endpoint} (WAN port 8000 closed)")
-        click.echo("Paste token into Home Router Web Console or CLI:\n")
+        click.secho(f"=== RoostOS WireGuard Edge Gateway Invitation ===\nEndpoint: {invite.endpoint} (WAN port 8000 closed)\nPaste token into Home Router Web Console or CLI:\n", fg="cyan", bold=True)
         click.secho(wg_token, fg="green", bold=True)
         if export_file:
             click.echo(f"\n✓ Exported to: {export_file}")
         return
 
     bootstrap = mgr.create_bootstrap_token(
-        vps_public_ip=public_ip,
-        listen_port=port if port != 51820 else 8000,
-        ttl_minutes=ttl,
-        use_https=https,
+        vps_public_ip=public_ip, listen_port=port if port != 51820 else 8000,
+        ttl_minutes=ttl, use_https=https,
     )
-    formatted_uri = f"roost-edge://{public_ip}:{port}?token={bootstrap.token}"
-
-    click.secho("=== RoostOS Edge Gateway Bootstrap Token ===", fg="cyan", bold=True)
-    click.echo(f"Expires: {ttl} min | Public IP: {public_ip}")
-    click.echo("Paste into Home Router Web Console or CLI:\n")
+    formatted_uri = f"roost-edge://{domain or public_ip}:{port}?token={bootstrap.token}"
+    click.secho(f"=== RoostOS Edge Gateway Bootstrap Token ===\nExpires: {ttl} min | Public IP: {public_ip}\nPaste into Home Router Web Console or CLI:\n", fg="cyan", bold=True)
     click.secho(formatted_uri, fg="green", bold=True)
 
 
@@ -227,23 +216,11 @@ def connect_cmd(
 
     # Generate networkd configuration on home router
     net_files = mgr.generate_networkd_config(
-        role="client",
-        private_key=home_priv,
-        peer_public_key=enroll_resp.gateway_public_key,
-        endpoint=enroll_resp.endpoint,
-        tunnel_ip=enroll_resp.assigned_tunnel_ip,
-        allowed_ips=",".join(enroll_resp.allowed_ips),
-        persistent_keepalive=enroll_resp.persistent_keepalive,
+        role="client", private_key=home_priv, peer_public_key=enroll_resp.gateway_public_key,
+        endpoint=enroll_resp.endpoint, tunnel_ip=enroll_resp.assigned_tunnel_ip,
+        allowed_ips=",".join(enroll_resp.allowed_ips), persistent_keepalive=enroll_resp.persistent_keepalive,
     )
-
-    net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
-    if not mock:
-        os.makedirs(net_dir, exist_ok=True)
-        for fname, content in net_files.items():
-            fpath = os.path.join(net_dir, fname)
-            with open(fpath, "w") as f:
-                f.write(content)
-        click.secho(f"✓ Written WireGuard network configuration to {net_dir}", fg="green")
+    mgr._apply_network_files(net_files)
 
     vps_ip = enroll_resp.endpoint.split(":")[0]
     _record_edge_gateway(
@@ -261,25 +238,21 @@ def connect_cmd(
 def status_cmd(config_dir: str) -> None:
     """Displays active Edge Gateway status and Ingress routes."""
     click.secho("=== Edge Gateway Status ===", fg="cyan", bold=True)
-
-    net_yaml = os.path.join(config_dir, "network.yaml")
-    if os.path.exists(net_yaml):
-        try:
-            import yaml
-            with open(net_yaml, "r") as f:
-                data = yaml.safe_load(f) or {}
-            edge_gateways = data.get("network", {}).get("edge_gateways", [])
-            if edge_gateways:
-                for gw in edge_gateways:
-                    click.echo(f"Gateway ID:     {gw.get('id')}")
-                    click.echo(f"Name:           {gw.get('name')}")
-                    click.echo(f"Public IP:      {gw.get('public_ip')}")
-                    click.echo(f"Tunnel:         {gw.get('tunnel_ip_home')} -> {gw.get('tunnel_ip_gateway')}")
-                    click.echo(f"Status:         {gw.get('status', 'connected')}")
-                    click.echo(f"Ingress Routes: {len(gw.get('ingress_routes', []))}")
+    import yaml
+    for fpath in (os.path.join(config_dir, "network.yaml"), os.path.join(config_dir, "nodes.yaml")):
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r") as f:
+                    data = yaml.safe_load(f) or {}
+                for gw in (data.get("edge_gateways") or data.get("network", {}).get("edge_gateways", [])):
+                    click.echo(f"Gateway ID:     {gw.get('id')}\nName:           {gw.get('name')}\nPublic IP:      {gw.get('public_ip')}\nTunnel:         {gw.get('tunnel_ip_home')} -> {gw.get('tunnel_ip_gateway')}\nStatus:         {gw.get('status', 'connected')}\nIngress Routes: {len(gw.get('ingress_routes', []))}")
                     return
-        except Exception:
-            pass
+                for n in data.get("nodes", []):
+                    if "edge_gateway" in n.get("roles", []):
+                        click.echo(f"Gateway ID:     {n.get('id')}\nName:           {n.get('name')}\nPublic IP:      {n.get('management_ip') or '10.42.0.1'}\nTunnel:         10.42.0.2 -> 10.42.0.1\nStatus:         connected (Cluster Node)\nIngress Routes: 0")
+                        return
+            except Exception:
+                pass
 
     click.echo("No Edge Gateway currently linked. Run 'roostos edge connect --token <TOKEN>' to link.")
 
@@ -295,3 +268,31 @@ def lockdown_cmd(wan: str) -> None:
         click.echo(f"  {r}")
     click.secho("✓ RoostOS REST API is now restricted to internal WireGuard tunnel (10.42.0.1) & localhost.", fg="green")
 
+
+@edge_group.command(name="update")
+@click.option("--domain", default=None, help="Domain name (FQDN) of the Edge Gateway VPS")
+@click.option("--ip", default=None, help="Public IP address of the Edge Gateway VPS")
+@click.option("--port", default=51820, help="WireGuard UDP listen port (default: 51820)")
+@click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
+def update_cmd(
+    domain: Optional[str],
+    ip: Optional[str],
+    port: int,
+    config_dir: str,
+) -> None:
+    """Updates the Edge Gateway endpoint to use a domain name or IP address."""
+    if not domain and not ip:
+        click.secho("Error: Either --domain or --ip must be specified.", fg="red", err=True)
+        sys.exit(1)
+
+    endpoint_host = domain or ip
+    mgr = EdgeManager(config_dir=config_dir)
+    updated_file = mgr.update_peer_endpoint(endpoint_host=endpoint_host, port=port)
+    from roostos_engine.ingress_helper import update_gateway_endpoint
+    update_gateway_endpoint(config_dir=config_dir, endpoint_host=endpoint_host, port=port, is_domain=bool(domain))
+
+    if updated_file:
+        click.secho(f"✓ Edge Gateway WireGuard endpoint updated to {endpoint_host}:{port}", fg="green", bold=True)
+        click.secho("✓ Systemd-networkd reloaded.", fg="green")
+    else:
+        click.secho(f"✓ Edge Gateway record updated to {endpoint_host}:{port}.", fg="green")

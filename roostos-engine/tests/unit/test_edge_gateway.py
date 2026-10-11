@@ -1,3 +1,4 @@
+import os
 import time
 import pytest
 from roostos_engine.edge_manager import EdgeManager
@@ -169,5 +170,35 @@ def test_edge_manager_wireguard_invite_roundtrip(tmp_path):
     # Home router applies invite
     home_mgr = EdgeManager(config_dir=str(tmp_path / "home_cfg"), mock=True)
     home_mgr.apply_wireguard_invite(decoded_bundle)
+
+
+def test_edge_manager_wireguard_invite_with_domain(tmp_path):
+    """Verifies WireGuard invite bundle endpoint uses domain name when specified."""
+    vps_mgr = EdgeManager(config_dir=str(tmp_path), mock=True)
+    invite = vps_mgr.create_wireguard_invite(
+        vps_public_ip="198.51.100.25",
+        listen_port=51820,
+        domain="vpn.roostos.example.org",
+    )
+    assert invite.endpoint == "vpn.roostos.example.org:51820"
+
+
+def test_edge_manager_update_peer_endpoint(tmp_path, monkeypatch):
+    """Verifies updating WireGuard endpoint in 50-wg-edge.netdev."""
+    net_dir = str(tmp_path / "networkd")
+    os.makedirs(net_dir, exist_ok=True)
+    monkeypatch.setenv("ROOSTOS_SYSTEMD_NETWORK_DIR", net_dir)
+    netdev = os.path.join(net_dir, "50-wg-edge.netdev")
+    with open(netdev, "w") as f:
+        f.write("[WireGuardPeer]\nPublicKey=testkey\nEndpoint=198.51.100.1:51820\n")
+
+    mgr = EdgeManager(config_dir=str(tmp_path), mock=True)
+    updated = mgr.update_peer_endpoint(endpoint_host="edge.roostos.net", port=51822)
+    assert updated is True
+
+    with open(netdev, "r") as f:
+        content = f.read()
+    assert "Endpoint=edge.roostos.net:51822" in content
+
 
 

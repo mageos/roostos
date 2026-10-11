@@ -6,6 +6,7 @@ class NetworkService {
             window.networkSettings = data.network || {};
             window.wifiSettings = data.wifi || {};
             window.vpnSettings = data.vpns || [];
+            if (window.renderVpnTable) window.renderVpnTable(window.vpnSettings);
             return data;
         }
         throw new Error("Failed to load network settings");

@@ -3,7 +3,13 @@
  * Manages CGNAT bypass, WireGuard tunnel link, and domain proxy routes.
  */
 
-const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
+import {
+    html,
+    createModal,
+    renderEdgeGatewayTemplate,
+    renderRouteRowTemplate,
+    renderInlineRouteRowTemplate,
+} from "./edge-gateway-templates.js";
 
 const apiFetch = (url, options = {}) => {
     if (window.authService?.apiFetch) return window.authService.apiFetch(url, options);
@@ -12,80 +18,6 @@ const apiFetch = (url, options = {}) => {
     if (token) headers["Authorization"] = `Bearer ${token}`;
     return fetch(url, { ...options, headers });
 };
-
-const renderEdgeGatewayTemplate = (gateway, routes, rowsHtml) => html`
-    <div class="card" style="margin-bottom: 24px;">
-        <div class="card-header table-action-bar">
-            <div>
-                <h3 style="margin: 0; font-size: 18px; font-weight: 600;">VPS Edge Gateway (CGNAT Bypass)</h3>
-                <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary);">Public static IP entrypoint routing external traffic over an encrypted WireGuard tunnel.</p>
-            </div>
-            <button class="btn btn-primary btn-sm" id="open-link-modal-btn">${gateway ? "Re-link Gateway" : "+ Connect Edge Gateway"}</button>
-        </div>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 8px; padding: 12px;">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 4px;">Status</div>
-                <div style="font-weight: 600; display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: ${gateway && gateway.status === 'connected' ? '#10b981' : '#f59e0b'};"></span>
-                    ${gateway ? (gateway.status === 'connected' ? 'Connected & Active' : 'Connecting...') : 'Unlinked'}
-                </div>
-            </div>
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 8px; padding: 12px;">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 4px;">VPS Public IP</div>
-                <div style="font-family: monospace; font-size: 14px; font-weight: 600;">${gateway?.public_ip || 'None'}</div>
-            </div>
-            <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 8px; padding: 12px;">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 4px;">Tunnel Link</div>
-                <div style="font-family: monospace; font-size: 13px;">${gateway ? `${gateway.tunnel_ip_home} ➔ ${gateway.tunnel_ip_gateway}` : '10.42.0.0/24 (Inactive)'}</div>
-            </div>
-        </div>
-    </div>
-    <div class="card">
-        <div class="card-header table-action-bar">
-            <h3>Ingress Reverse Proxy Routes (${routes.length})</h3>
-            <button class="btn btn-primary btn-sm" id="top-add-route-btn">+ Add Route</button>
-        </div>
-        <div class="table-responsive">
-            <table class="data-table" id="routes-table">
-                <thead><tr><th>Public Domain</th><th>Target LAN Destination</th><th>SSL / HTTPS</th><th>Actions</th></tr></thead>
-                <tbody id="routes-tbody">${rowsHtml}</tbody>
-            </table>
-        </div>
-        <div class="card-footer table-action-bar" style="margin-top:12px;">
-            <span></span>
-            <button class="btn btn-primary btn-sm" id="bottom-add-route-btn">+ Add Route</button>
-        </div>
-    </div>
-`;
-
-const renderRouteRowTemplate = (r) => html`
-    <tr id="route-row-${r.id}">
-        <td><strong><code>${r.domain}</code></strong></td>
-        <td><code>${r.target_ip}:${r.target_port}</code></td>
-        <td><span class="badge ${r.ssl_enabled ? 'badge-success' : 'badge-secondary'}">${r.ssl_enabled ? 'TLS Enabled' : 'HTTP Only'}</span></td>
-        <td>
-            <button class="btn btn-secondary btn-sm edit-route-btn" data-id="${r.id}">Edit</button>
-            <button class="btn btn-danger btn-sm delete-route-btn" data-id="${r.id}">Delete</button>
-        </td>
-    </tr>
-`;
-
-const renderInlineRouteRowTemplate = (r = {}) => html`
-    <tr class="inline-add-row" ${r.id ? `id="edit-row-${r.id}"` : ''}>
-        <td><input type="text" class="inline-input route-domain-input" placeholder="app.yourdomain.com" value="${r.domain || ''}"></td>
-        <td><div style="display: flex; gap: 6px;">
-            <input type="text" class="inline-input route-ip-input" placeholder="192.168.1.50" value="${r.target_ip || ''}" style="flex: 2;">
-            <input type="number" class="inline-input route-port-input" placeholder="8080" value="${r.target_port || ''}" style="flex: 1;">
-        </div></td>
-        <td><label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
-            <input type="checkbox" class="route-ssl-input" ${r.ssl_enabled !== false ? 'checked' : ''}> Automated SSL
-        </label></td>
-        <td><div class="inline-form-controls">
-            <button class="btn btn-success btn-sm save-route-btn">Save</button>
-            <button class="btn btn-secondary btn-sm cancel-route-btn">Cancel</button>
-        </div></td>
-    </tr>
-`;
 
 export class EdgeGatewayComponent extends HTMLElement {
     constructor() {
@@ -123,6 +55,7 @@ export class EdgeGatewayComponent extends HTMLElement {
         this.innerHTML = renderEdgeGatewayTemplate(this.gateway, this.routes, rowsHtml);
 
         this.querySelector("#open-link-modal-btn")?.addEventListener("click", () => this.showLinkModal());
+        this.querySelector("#edit-endpoint-btn")?.addEventListener("click", () => this.showEditEndpointModal());
         this.querySelectorAll("#top-add-route-btn, #bottom-add-route-btn").forEach(btn => {
             btn.onclick = () => this.showInlineAddRow();
         });
@@ -207,31 +140,72 @@ export class EdgeGatewayComponent extends HTMLElement {
         }
     }
 
-    showLinkModal() {
-        const modal = document.createElement("div");
-        modal.id = "edge-link-modal";
-        modal.style.cssText = "position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(10,15,30,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:10000;";
+    showEditEndpointModal() {
+        const currentHost = this.gateway?.domain || this.gateway?.public_ip || "";
+        const currentPort = this.gateway?.listen_port || 51820;
+        const modal = createModal("edge-endpoint-modal", `
+            <h3 style="margin-top:0;margin-bottom:12px;">Update Edge Endpoint</h3>
+            <p style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:16px;">
+                Specify a domain name (e.g. <code>vps.example.com</code>) or IP address for WireGuard endpoint resolution.
+            </p>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Domain Name or IP:</label>
+                <input type="text" id="endpoint-host-input" class="input-field" placeholder="vps.example.com" value="${currentHost}" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
+                <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Port:</label>
+                <input type="number" id="endpoint-port-input" class="input-field" value="${currentPort}" style="width:100%;">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:12px;">
+                <button class="btn btn-secondary" id="endpoint-modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="endpoint-modal-save">Update Endpoint</button>
+            </div>
+        `);
 
-        modal.innerHTML = `
-            <div class="card" style="width:90%;max-width:560px;background:#131b2e;border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:24px;color:#f1f5f9;font-family:'Outfit',sans-serif;">
-                <h3 style="margin-top:0;margin-bottom:12px;">Connect VPS Edge Gateway</h3>
-                <p style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:16px;">
-                    Run <code>roostos edge token</code> on your Debian VPS, then paste the WireGuard invite token or upload the bundle file:
-                </p>
-                <div class="form-group" style="margin-bottom:12px;">
-                    <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Invitation Token:</label>
-                    <input type="text" id="edge-token-input" class="input-field" placeholder="roost-edge-wg://... or roost-edge://..." style="width:100%;">
-                </div>
-                <div class="form-group" style="margin-bottom:16px;">
-                    <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Or Upload Invitation File (.json):</label>
-                    <input type="file" id="edge-bundle-file" accept=".json" style="font-size:12px;color:#94a3b8;width:100%;">
-                </div>
-                <div style="display:flex;justify-content:flex-end;gap:12px;">
-                    <button class="btn btn-secondary" id="edge-modal-cancel">Cancel</button>
-                    <button class="btn btn-primary" id="edge-modal-connect">Connect & Establish Tunnel</button>
-                </div>
-            </div>`;
-        document.body.appendChild(modal);
+        modal.querySelector("#endpoint-modal-cancel").onclick = () => modal.remove();
+        modal.querySelector("#endpoint-modal-save").onclick = async () => {
+            const host = modal.querySelector("#endpoint-host-input").value.trim();
+            const port = parseInt(modal.querySelector("#endpoint-port-input").value, 10) || 51820;
+            if (!host) return alert("Please specify a domain name or IP.");
+            const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
+            try {
+                const res = await apiFetch("/api/edge/endpoint", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ domain: isIp ? null : host, ip: isIp ? host : null, port })
+                });
+                if (res.ok) {
+                    modal.remove();
+                    await this.loadData();
+                } else {
+                    const err = await res.json();
+                    alert(`Update failed: ${err.detail || "Error"}`);
+                }
+            } catch (err) {
+                alert(`Network error: ${err}`);
+            }
+        };
+    }
+
+    showLinkModal() {
+        const modal = createModal("edge-link-modal", `
+            <h3 style="margin-top:0;margin-bottom:12px;">Connect VPS Edge Gateway</h3>
+            <p style="font-size:13px;color:#94a3b8;line-height:1.6;margin-bottom:16px;">
+                Run <code>roostos edge token</code> on your Debian VPS, then paste the WireGuard invite token or upload the bundle file:
+            </p>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Invitation Token:</label>
+                <input type="text" id="edge-token-input" class="input-field" placeholder="roost-edge-wg://... or roost-edge://..." style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:16px;">
+                <label style="font-size:12px;color:#94a3b8;display:block;margin-bottom:4px;">Or Upload Invitation File (.json):</label>
+                <input type="file" id="edge-bundle-file" accept=".json" style="font-size:12px;color:#94a3b8;width:100%;">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:12px;">
+                <button class="btn btn-secondary" id="edge-modal-cancel">Cancel</button>
+                <button class="btn btn-primary" id="edge-modal-connect">Connect & Establish Tunnel</button>
+            </div>
+        `);
 
         modal.querySelector("#edge-bundle-file").onchange = (e) => {
             const file = e.target.files[0];

@@ -8,15 +8,9 @@ import uuid
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Header
 from roostos_engine.models.edge import (
-    IngressRoute,
-    EdgeGatewayConfig,
-    EdgeBootstrapToken,
-    EdgeEnrollmentPayload,
-    EdgeEnrollmentResponse,
-    EdgeInviteBundle,
-    GenerateTokenRequest,
-    ConnectEdgeRequest,
-    IngressRoutePayload,
+    IngressRoute, EdgeGatewayConfig, EdgeBootstrapToken, EdgeEnrollmentPayload,
+    EdgeEnrollmentResponse, EdgeInviteBundle, GenerateTokenRequest, ConnectEdgeRequest,
+    IngressRoutePayload, UpdateEdgeEndpointRequest,
 )
 from roostos_engine.edge_manager import EdgeManager
 from roostos_engine.repository import ConfigRepository
@@ -27,29 +21,16 @@ from roostos_web.di import Injected
 router = APIRouter(prefix="/api/edge", tags=["edge"])
 
 
-def _write_network_files(net_files: Dict[str, str]) -> None:
-    """Helper to safely write systemd network files if directory is accessible."""
-    net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR")
-    if not net_dir and os.getuid() == 0 and os.path.exists("/etc/systemd/network"):
-        net_dir = "/etc/systemd/network"
-    if net_dir and os.path.exists(net_dir):
-        for fname, content in net_files.items():
-            try:
-                with open(os.path.join(net_dir, fname), "w") as f:
-                    f.write(content)
-            except Exception:
-                pass
-
-
 def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig) -> None:
     """Helper to persist edge gateway record in network config."""
-    net_config = repo.get_config().network
-    existing = [gw for gw in getattr(net_config, "edge_gateways", []) if gw.id != edge_gw.id]
-    net_config.edge_gateways = [*existing, edge_gw]
+    config = repo.get_config()
+    existing = [gw for gw in (getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", [])) if gw.id != edge_gw.id]
+    config.network.edge_gateways = [*existing, edge_gw]
+    config.edge_gateways = [*existing, edge_gw]
     try:
-        repo.save_network_config(net_config)
-    except Exception:
-        pass
+        repo.save_network_config(config.network)
+    except Exception as e:
+        print(f"Warning: Failed to save edge gateway: {e}")
 
 
 @router.post("/token", response_model=EdgeBootstrapToken)
@@ -59,12 +40,9 @@ async def generate_bootstrap_token(
 ) -> EdgeBootstrapToken:
     """Generates a short-lived single-use bootstrap token on the VPS for enrollment."""
     vps_ip = payload.public_ip or os.environ.get("ROOSTOS_PUBLIC_IP", "127.0.0.1")
-    mgr = EdgeManager()
-    return mgr.create_bootstrap_token(
-        vps_public_ip=vps_ip,
-        listen_port=payload.port,
-        ttl_minutes=payload.ttl_minutes,
-        use_https=payload.use_https,
+    return EdgeManager().create_bootstrap_token(
+        vps_public_ip=vps_ip, listen_port=payload.port,
+        ttl_minutes=payload.ttl_minutes, use_https=payload.use_https,
     )
 
 
@@ -107,23 +85,15 @@ async def enroll_home_server(
 
     # Provision server networkd config
     net_files = mgr.generate_networkd_config(
-        role="gateway",
-        private_key=vps_priv,
-        peer_public_key=payload.home_public_key,
-        listen_port=51820,
-        tunnel_ip="10.42.0.1/24",
-        allowed_ips="10.42.0.2/32",
+        role="gateway", private_key=vps_priv, peer_public_key=payload.home_public_key,
+        listen_port=51820, tunnel_ip="10.42.0.1/24", allowed_ips="10.42.0.2/32",
     )
-    _write_network_files(net_files)
+    mgr._apply_network_files(net_files)
 
     return EdgeEnrollmentResponse(
-        status="success",
-        gateway_public_key=vps_pub,
-        endpoint=f"{vps_ip}:51820",
-        assigned_tunnel_ip="10.42.0.2/24",
-        gateway_tunnel_ip="10.42.0.1/24",
-        allowed_ips=["10.42.0.0/24"],
-        persistent_keepalive=25,
+        status="success", gateway_public_key=vps_pub, endpoint=f"{vps_ip}:51820",
+        assigned_tunnel_ip="10.42.0.2/24", gateway_tunnel_ip="10.42.0.1/24",
+        allowed_ips=["10.42.0.0/24"], persistent_keepalive=25,
         message="Edge Gateway successfully paired with home server.",
     )
 
@@ -145,19 +115,13 @@ async def connect_to_edge_gateway(
             invite = EdgeInviteBundle.from_token(token_str)
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Malformed WireGuard invite: {e}")
-        net_files = mgr.apply_wireguard_invite(invite)
-        _write_network_files(net_files)
+        mgr.apply_wireguard_invite(invite)
         vps_ip = invite.endpoint.split(":")[0]
         port = int(invite.endpoint.split(":")[1]) if ":" in invite.endpoint else 51820
         edge_gw = EdgeGatewayConfig(
-            id="edge-01",
-            name=payload.name,
-            public_ip=vps_ip,
-            listen_port=port,
-            tunnel_ip_gateway=invite.gateway_tunnel_ip,
-            tunnel_ip_home=invite.assigned_tunnel_ip,
-            public_key=invite.gateway_public_key,
-            status="connected",
+            id="edge-01", name=payload.name, public_ip=vps_ip, listen_port=port,
+            tunnel_ip_gateway=invite.gateway_tunnel_ip, tunnel_ip_home=invite.assigned_tunnel_ip,
+            public_key=invite.gateway_public_key, status="connected",
         )
         _save_edge_gateway_record(repo, edge_gw)
         return edge_gw
@@ -195,28 +159,62 @@ async def connect_to_edge_gateway(
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not connect to Edge Gateway: {e}")
 
     net_files = mgr.generate_networkd_config(
-        role="client",
-        private_key=home_priv,
-        peer_public_key=enroll_resp.gateway_public_key,
-        endpoint=enroll_resp.endpoint,
-        tunnel_ip=enroll_resp.assigned_tunnel_ip,
-        allowed_ips=",".join(enroll_resp.allowed_ips),
-        persistent_keepalive=enroll_resp.persistent_keepalive,
+        role="client", private_key=home_priv, peer_public_key=enroll_resp.gateway_public_key,
+        endpoint=enroll_resp.endpoint, tunnel_ip=enroll_resp.assigned_tunnel_ip,
+        allowed_ips=",".join(enroll_resp.allowed_ips), persistent_keepalive=enroll_resp.persistent_keepalive,
     )
-    _write_network_files(net_files)
+    mgr._apply_network_files(net_files)
 
     edge_gw = EdgeGatewayConfig(
-        id="edge-01",
-        name=payload.name,
-        public_ip=enroll_resp.endpoint.split(":")[0],
-        listen_port=51820,
-        tunnel_ip_gateway=enroll_resp.gateway_tunnel_ip,
-        tunnel_ip_home=enroll_resp.assigned_tunnel_ip,
-        public_key=enroll_resp.gateway_public_key,
+        id="edge-01", name=payload.name, public_ip=enroll_resp.endpoint.split(":")[0],
+        listen_port=51820, tunnel_ip_gateway=enroll_resp.gateway_tunnel_ip,
+        tunnel_ip_home=enroll_resp.assigned_tunnel_ip, public_key=enroll_resp.gateway_public_key,
         status="connected",
     )
     _save_edge_gateway_record(repo, edge_gw)
     return edge_gw
+
+
+@router.put("/endpoint", response_model=EdgeGatewayConfig)
+async def update_edge_endpoint(
+    payload: UpdateEdgeEndpointRequest,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> EdgeGatewayConfig:
+    """Updates the Edge Gateway endpoint host (domain or IP) and port."""
+    endpoint_host = payload.domain or payload.ip
+    if not endpoint_host:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Either domain or ip must be specified.")
+
+    config_dir = getattr(repo, "config_dir", "/etc/roostos")
+    EdgeManager(config_dir=config_dir).update_peer_endpoint(endpoint_host=endpoint_host, port=payload.port)
+    config = repo.get_config()
+    gateways = _get_active_gateways(config)
+    if not gateways:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active Edge Gateway configured.")
+    edge_gw = gateways[0]
+    if payload.domain:
+        edge_gw.domain = payload.domain
+    if payload.ip:
+        edge_gw.public_ip = payload.ip
+    edge_gw.listen_port = payload.port
+    _save_edge_gateway_record(repo, edge_gw)
+    return edge_gw
+
+
+def _get_active_gateways(config: Any) -> List[EdgeGatewayConfig]:
+    gateways = list(getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", []))
+    if not gateways:
+        for node in getattr(config, "nodes", []):
+            roles = [r.value if hasattr(r, "value") else str(r) for r in node.roles]
+            if "edge_gateway" in roles:
+                return [EdgeGatewayConfig(
+                    id="edge-01", name=node.name or "VPS Edge Gateway",
+                    public_ip=node.management_ip or "10.42.0.1",
+                    listen_port=51820, tunnel_ip_gateway="10.42.0.1/24",
+                    tunnel_ip_home="10.42.0.2/24", status="connected",
+                )]
+    return gateways
 
 
 @router.get("/status")
@@ -225,7 +223,8 @@ async def get_edge_status(
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> Dict[str, Any]:
     """Returns linked Edge Gateway status and active ingress routes."""
-    gateways = getattr(repo.get_config().network, "edge_gateways", [])
+    config = repo.get_config()
+    gateways = _get_active_gateways(config)
     return {"linked": bool(gateways), "gateways": [gw.model_dump() for gw in gateways]}
 
 
@@ -235,7 +234,8 @@ async def list_ingress_routes(
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> List[IngressRoute]:
     """Lists all configured ingress reverse proxy routes."""
-    gateways = getattr(repo.get_config().network, "edge_gateways", [])
+    config = repo.get_config()
+    gateways = _get_active_gateways(config)
     return [route for gw in gateways for route in gw.ingress_routes]
 
 
@@ -247,7 +247,7 @@ async def create_ingress_route(
 ) -> IngressRoute:
     """Adds a new ingress reverse proxy route."""
     config = repo.get_config()
-    edge_gateways = getattr(config.network, "edge_gateways", [])
+    edge_gateways = _get_active_gateways(config)
     if not edge_gateways:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -263,10 +263,7 @@ async def create_ingress_route(
         edge_gateway_id=edge_gateways[0].id,
     )
     edge_gateways[0].ingress_routes.append(new_route)
-    try:
-        repo.save_network_config(config.network)
-    except Exception:
-        pass
+    _save_edge_gateway_record(repo, edge_gateways[0])
     return new_route
 
 
@@ -278,12 +275,9 @@ async def delete_ingress_route(
 ) -> Dict[str, str]:
     """Deletes an ingress reverse proxy route."""
     config = repo.get_config()
-    for gw in getattr(config.network, "edge_gateways", []):
+    for gw in _get_active_gateways(config):
         gw.ingress_routes = [r for r in gw.ingress_routes if r.id != route_id]
-    try:
-        repo.save_network_config(config.network)
-    except Exception:
-        pass
+        _save_edge_gateway_record(repo, gw)
     return {"status": "success", "message": f"Route '{route_id}' deleted."}
 
 
@@ -293,5 +287,8 @@ async def apply_firewall_lockdown(
     current_user: UserSession = Depends(get_current_admin),
 ) -> Dict[str, Any]:
     """Applies firewall lockdown on VPS to drop public port 8000 access."""
-    rules = EdgeManager().compile_lockdown_rules(wan_interface=wan_interface)
-    return {"status": "success", "message": f"Port 8000 locked down on interface {wan_interface}.", "rules": rules}
+    return {
+        "status": "success",
+        "message": f"Port 8000 locked down on interface {wan_interface}.",
+        "rules": EdgeManager().compile_lockdown_rules(wan_interface=wan_interface),
+    }

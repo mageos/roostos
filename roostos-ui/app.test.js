@@ -80,6 +80,8 @@ const scriptLoadOrder = [
     'js/components/firewall-rules.js',
     'js/components/people-list.js',
     'js/components/user-list.js',
+    'js/components/edge-gateway-templates.js',
+    'js/components/edge-gateway.js',
     // Main orchestrator
     'app.js'
 ];
@@ -88,6 +90,10 @@ for (const scriptRelativePath of scriptLoadOrder) {
     const absolutePath = path.resolve(__dirname, scriptRelativePath);
     if (fs.existsSync(absolutePath)) {
         let content = fs.readFileSync(absolutePath, 'utf8');
+        content = content.replace(/import\s*\{[\s\S]*?\}\s*from\s*['"][^'"]+['"];?/g, '');
+        content = content.replace(/import\s+.*?from\s+['"][^'"]+['"];?/g, '');
+        content = content.replace(/^export\s+const\s+(\w+)\s*=/gm, 'global.$1 = window.$1 =');
+        content = content.replace(/^export\s+class\s+(\w+)/gm, 'global.$1 = window.$1 = class $1');
         content = content.replace(/^export\s+/gm, '');
         eval(content);
     }
@@ -750,6 +756,60 @@ describe('Auto-Refresh & Active Editing Protection', () => {
         expect(fetchSpy).not.toHaveBeenCalled();
         fetchSpy.mockRestore();
     });
+
+    test('renderVpnTable populates vpn-tbody with VPN tunnel rows including edge gateways', () => {
+        let vpnTbody = document.getElementById('vpn-tbody');
+        if (!vpnTbody) {
+            vpnTbody = document.createElement('tbody');
+            vpnTbody.id = 'vpn-tbody';
+            document.body.appendChild(vpnTbody);
+        }
+        expect(vpnTbody).toBeDefined();
+
+        const testVpns = [
+            {
+                id: 'edge-edge-01',
+                name: 'VPS Edge Gateway (Edge Gateway Tunnel)',
+                type: 'wireguard',
+                role: 'client',
+                enabled: true,
+                config: {
+                    endpoint: '198.51.100.55:51820',
+                    local_ip: '10.42.0.2/24',
+                    remote_ip: '10.42.0.1/24',
+                    status: 'connected'
+                }
+            }
+        ];
+
+        window.renderVpnTable(testVpns);
+        expect(vpnTbody.innerHTML).toContain('VPS Edge Gateway (Edge Gateway Tunnel)');
+        expect(vpnTbody.innerHTML).toContain('198.51.100.55:51820');
+        expect(vpnTbody.innerHTML).toContain('10.42.0.2/24');
+        expect(vpnTbody.innerHTML).toContain('badge-success');
+        expect(vpnTbody.innerHTML).toContain('Active');
+
+        // Test empty state
+        window.renderVpnTable([]);
+        expect(vpnTbody.innerHTML).toContain('No active VPN tunnels configured.');
+    });
+
+    test('renderEdgeGatewayTemplate includes edit endpoint button and domain if set', () => {
+        const gateway = {
+            id: 'edge-01',
+            public_ip: '198.51.100.55',
+            domain: 'vps.roostos.net',
+            listen_port: 51820,
+            status: 'connected',
+            tunnel_ip_home: '10.42.0.2/24',
+            tunnel_ip_gateway: '10.42.0.1/24'
+        };
+        const rendered = renderEdgeGatewayTemplate(gateway, [], '');
+        expect(rendered).toContain('edit-endpoint-btn');
+        expect(rendered).toContain('vps.roostos.net');
+        expect(rendered).toContain('Endpoint (Domain / IP)');
+    });
 });
+
 
 

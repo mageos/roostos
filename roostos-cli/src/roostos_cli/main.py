@@ -20,6 +20,7 @@ from roostos_cli.edge import edge_group
 from roostos_cli.app_cmd import app_group
 from roostos_cli.update_cmd import update_group
 from roostos_cli.doctor import doctor_cmd
+from roostos_cli.diagnose import diagnose_cmd
 from roostos_cli.service_cmd import service_group, logs_cmd
 from roostos_cli.network_cmd import net_group, dhcp_group
 from roostos_cli.firewall_cmd import fw_group
@@ -38,7 +39,8 @@ cli.add_command(edge_group)
 cli.add_command(app_group)
 cli.add_command(update_group)
 cli.add_command(doctor_cmd)
-cli.add_command(doctor_cmd, name="diag")
+cli.add_command(diagnose_cmd, name="diagnose")
+cli.add_command(diagnose_cmd, name="diag")
 cli.add_command(service_group)
 cli.add_command(logs_cmd)
 cli.add_command(net_group)

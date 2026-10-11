@@ -22,6 +22,7 @@ class EdgeGatewayConfig(BaseModel):
     name: str = "VPS Edge Gateway"
     public_ip: str
     listen_port: int = 51820
+    domain: Optional[str] = None
     tunnel_ip_gateway: str = "10.42.0.1/24"
     tunnel_ip_home: str = "10.42.0.2/24"
     public_key: Optional[str] = None
@@ -36,6 +37,7 @@ class EdgeBootstrapToken(BaseModel):
     endpoint_url: str
     expires_at: int
     public_ip: str
+    domain: Optional[str] = None
 
 
 class EdgeEnrollmentPayload(BaseModel):
@@ -59,9 +61,17 @@ class EdgeEnrollmentResponse(BaseModel):
 
 class GenerateTokenRequest(BaseModel):
     public_ip: Optional[str] = None
+    domain: Optional[str] = None
     port: int = 8000
     ttl_minutes: int = 15
     use_https: bool = False
+
+
+class UpdateEdgeEndpointRequest(BaseModel):
+    """Request to update WireGuard peer endpoint domain or IP."""
+    domain: Optional[str] = None
+    ip: Optional[str] = None
+    port: int = 51820
 
 
 class ConnectEdgeRequest(BaseModel):
