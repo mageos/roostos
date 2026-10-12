@@ -2,22 +2,43 @@
  * HTML Templates for Network Topology and Inter-Network Routing Component
  */
 
+import { renderTopologyDiagramSvg } from "./network-topology-diagram.js";
+
 export const html = (strings, ...values) => String.raw({ raw: strings }, ...values);
 
-export const renderTopologyTemplate = (networks = [], links = [], netRowsHtml = "", linkRowsHtml = "") => html`
+export const renderTopologyTemplate = (
+    networks = [],
+    links = [],
+    netRowsHtml = "",
+    linkRowsHtml = "",
+    activeView = "diagram",
+    selectedNodeId = null,
+    selectedLinkId = null
+) => html`
     <div class="card" style="margin-bottom: 24px;">
         <div class="card-header table-action-bar">
             <div>
                 <h3 style="margin: 0; font-size: 18px; font-weight: 600;">Inter-Network Topology Map</h3>
                 <p style="margin: 4px 0 0; font-size: 13px; color: var(--text-secondary);">
-                    Visual architecture of physical LANs, WAN uplinks, WireGuard overlay tunnels, and Cloud VPC subnets.
+                    Architectural visual diagram of physical LANs, WAN uplinks, WireGuard tunnels, and Cloud VPC subnets.
                 </p>
             </div>
-            <span class="badge badge-success">${networks.length} Subnets • ${links.length} Connected Links</span>
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <div class="btn-group" style="display: flex; gap: 4px; background: rgba(0,0,0,0.15); padding: 2px; border-radius: 6px;">
+                    <button class="btn btn-sm ${activeView === 'diagram' ? 'btn-primary' : 'btn-secondary'}" id="toggle-view-diagram" style="padding: 4px 10px; font-size: 12px;">📊 Diagram</button>
+                    <button class="btn btn-sm ${activeView === 'cards' ? 'btn-primary' : 'btn-secondary'}" id="toggle-view-cards" style="padding: 4px 10px; font-size: 12px;">🗂️ Cards</button>
+                </div>
+                <span class="badge badge-success">${networks.length} Subnets • ${links.length} Connected Links</span>
+            </div>
         </div>
 
-        <!-- Visual Subnet Nodes Grid -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px;">
+        <!-- Visual Diagram View -->
+        <div id="topology-diagram-section" style="${activeView === 'diagram' ? 'display: block;' : 'display: none;'} margin-top: 16px;">
+            ${renderTopologyDiagramSvg(networks, links, selectedNodeId, selectedLinkId)}
+        </div>
+
+        <!-- Visual Subnet Cards Grid -->
+        <div id="topology-cards-section" style="${activeView === 'cards' ? 'display: grid;' : 'display: none;'} grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 16px;">
             ${networks.map(n => renderTopologyCard(n, links)).join("")}
         </div>
     </div>
@@ -90,9 +111,9 @@ export const renderTopologyTemplate = (networks = [], links = [], netRowsHtml = 
 export const renderTopologyCard = (n, links) => {
     const typeIcons = {
         lan: "🖥️ Local LAN",
-        wan_upstream: "🌐 Upstream Home / WAN",
+        wan_upstream: "🌐 Upstream WAN",
         vpn_overlay: "🔒 WireGuard Transit",
-        cloud_vpc: "☁️ Cloud VPS VPC",
+        cloud_vpc: "☁️ Cloud VPC",
         dmz: "🛡️ DMZ",
         guest: "👥 Guest Wi-Fi",
     };
@@ -226,15 +247,15 @@ export const renderNetRowTemplate = (n) => html`
 
 export const renderInlineNetFormTemplate = (n = {}) => html`
     <tr class="inline-add-row" ${n.id ? `id="edit-net-row-${n.id}"` : ''}>
-        <td><input type="text" class="inline-input net-name-input" placeholder="e.g. RoostOS Lab" value="${n.name || ''}"></td>
-        <td><input type="text" class="inline-input net-subnet-input" placeholder="e.g. 192.168.1.0/24" value="${n.subnet || ''}"></td>
-        <td><input type="text" class="inline-input net-gw-input" placeholder="e.g. 192.168.1.1" value="${n.gateway_ip || ''}"></td>
+        <td><input type="text" class="inline-input net-name-input" placeholder="e.g. Office LAN" value="${n.name || ''}"></td>
+        <td><input type="text" class="inline-input net-subnet-input" placeholder="e.g. 10.0.1.0/24" value="${n.subnet || ''}"></td>
+        <td><input type="text" class="inline-input net-gw-input" placeholder="e.g. 10.0.1.1" value="${n.gateway_ip || ''}"></td>
         <td>
             <select class="inline-input net-type-select">
                 <option value="lan" ${n.network_type === 'lan' ? 'selected' : ''}>Local LAN</option>
                 <option value="wan_upstream" ${n.network_type === 'wan_upstream' ? 'selected' : ''}>Upstream WAN</option>
                 <option value="vpn_overlay" ${n.network_type === 'vpn_overlay' ? 'selected' : ''}>WireGuard Overlay</option>
-                <option value="cloud_vpc" ${n.network_type === 'cloud_vpc' ? 'selected' : ''}>Cloud VPS VPC</option>
+                <option value="cloud_vpc" ${n.network_type === 'cloud_vpc' ? 'selected' : ''}>Cloud VPC</option>
                 <option value="dmz" ${n.network_type === 'dmz' ? 'selected' : ''}>DMZ</option>
             </select>
         </td>

@@ -27,6 +27,7 @@ function loadScript(relPath) {
     (0, eval)(content);
 }
 
+loadScript('js/components/network-topology-diagram.js');
 loadScript('js/components/network-topology-templates.js');
 loadScript('js/components/network-topology.js');
 loadScript('js/components/network-view.js');
@@ -131,6 +132,35 @@ describe('Network Topology & Inter-Network Routing Component', () => {
         expect(global.fetch).toHaveBeenCalledWith('/api/network/topology/links/link-office-wan', expect.objectContaining({
             method: 'DELETE'
         }));
+    });
+
+    test('Renders interactive SVG architectural diagram and switches views', async () => {
+        const elem = document.getElementById('topo-elem');
+        await elem.loadData();
+
+        // Check SVG diagram is rendered
+        const svg = elem.querySelector('.topology-diagram-container svg');
+        expect(svg).not.toBeNull();
+        expect(svg.querySelectorAll('.diagram-node').length).toBe(4);
+        expect(svg.querySelectorAll('.diagram-edge').length).toBe(2);
+
+        // Click a diagram node to select it
+        const firstNode = svg.querySelector('.diagram-node[data-node-id="office-lan"]');
+        expect(firstNode).not.toBeNull();
+        firstNode.onclick();
+        expect(elem.selectedNodeId).toBe('office-lan');
+
+        // Toggle to Cards view
+        const cardsBtn = elem.querySelector('#toggle-view-cards');
+        expect(cardsBtn).not.toBeNull();
+        cardsBtn.click();
+        expect(elem.querySelector('#topology-cards-section').style.display).not.toBe('none');
+
+        // Toggle back to Diagram view
+        const diagBtn = elem.querySelector('#toggle-view-diagram');
+        expect(diagBtn).not.toBeNull();
+        diagBtn.click();
+        expect(elem.querySelector('#topology-diagram-section').style.display).toBe('block');
     });
 
     test('NetworkViewComponent activates topology subtab pane on switch', () => {

@@ -1,6 +1,6 @@
 /**
  * NetworkTopologyComponent - Web Component for Network Topology and Inter-Network Links
- * Visualizes subnets, routing links, and firewall policies.
+ * Visualizes subnets, routing links, and firewall policies via interactive diagram and tables.
  */
 
 import {
@@ -25,6 +25,9 @@ export class NetworkTopologyComponent extends HTMLElement {
         super();
         this.networks = [];
         this.links = [];
+        this.activeView = "diagram";
+        this.selectedNodeId = null;
+        this.selectedLinkId = null;
     }
 
     connectedCallback() {
@@ -54,13 +57,47 @@ export class NetworkTopologyComponent extends HTMLElement {
             ? html`<tr><td colspan="6" class="empty-state">No managed subnets found. Click "+ Add Subnet" to register networks.</td></tr>`
             : this.networks.map(n => renderNetRowTemplate(n)).join("");
 
-        this.innerHTML = renderTopologyTemplate(this.networks, this.links, netRowsHtml, linkRowsHtml);
+        this.innerHTML = renderTopologyTemplate(
+            this.networks, this.links, netRowsHtml, linkRowsHtml,
+            this.activeView, this.selectedNodeId, this.selectedLinkId
+        );
 
+        // View toggle buttons
+        const diagBtn = this.querySelector("#toggle-view-diagram");
+        const cardsBtn = this.querySelector("#toggle-view-cards");
+        if (diagBtn) diagBtn.onclick = () => { this.activeView = "diagram"; this.render(); };
+        if (cardsBtn) cardsBtn.onclick = () => { this.activeView = "cards"; this.render(); };
+
+        // Diagram node click interaction
+        this.querySelectorAll(".diagram-node").forEach(nodeEl => {
+            nodeEl.onclick = () => {
+                const id = nodeEl.dataset.nodeId;
+                this.selectedNodeId = (this.selectedNodeId === id ? null : id);
+                this.render();
+                const tableRow = this.querySelector(`#net-row-${id}`);
+                if (tableRow && typeof tableRow.scrollIntoView === "function") {
+                    tableRow.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            };
+        });
+
+        // Diagram link badge click interaction
+        this.querySelectorAll(".diagram-link-badge").forEach(badgeEl => {
+            badgeEl.onclick = (e) => {
+                e.stopPropagation();
+                const linkId = badgeEl.dataset.linkId;
+                this.selectedLinkId = linkId;
+                this.showInlineEditLinkRow(linkId);
+            };
+        });
+
+        // Connection table actions
         this.querySelectorAll("#top-add-link-btn").forEach(b => { b.onclick = () => this.showInlineAddLinkRow(false); });
         this.querySelectorAll("#bottom-add-link-btn").forEach(b => { b.onclick = () => this.showInlineAddLinkRow(true); });
         this.querySelectorAll(".edit-link-btn").forEach(b => { b.onclick = (e) => this.showInlineEditLinkRow(e.target.dataset.id); });
         this.querySelectorAll(".delete-link-btn").forEach(b => { b.onclick = (e) => this.deleteLink(e.target.dataset.id); });
 
+        // Subnet table actions
         this.querySelectorAll("#top-add-net-btn").forEach(b => { b.onclick = () => this.showInlineAddNetRow(false); });
         this.querySelectorAll("#bottom-add-net-btn").forEach(b => { b.onclick = () => this.showInlineAddNetRow(true); });
         this.querySelectorAll(".edit-net-btn").forEach(b => { b.onclick = (e) => this.showInlineEditNetRow(e.target.dataset.id); });
@@ -121,6 +158,9 @@ export class NetworkTopologyComponent extends HTMLElement {
         temp.innerHTML = renderInlineLinkFormTemplate(link, this.networks);
         const editTr = temp.firstElementChild;
         row.replaceWith(editTr);
+        if (typeof editTr.scrollIntoView === "function") {
+            editTr.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
 
         editTr.querySelector(".save-link-btn").onclick = async () => {
             const src = editTr.querySelector(".link-src-select").value;
@@ -152,12 +192,12 @@ export class NetworkTopologyComponent extends HTMLElement {
     }
 
     async deleteLink(linkId) {
-        if (!confirm("Are you sure you want to delete this inter-network connection?")) return;
+        if (!confirm("Are you sure you want to delete this inter-network link?")) return;
         try {
             const res = await apiFetch(`/api/network/topology/links/${linkId}`, { method: "DELETE" });
             if (res.ok) await this.loadData();
         } catch (e) {
-            alert(`Error: ${e}`);
+            alert(`Failed to delete link: ${e}`);
         }
     }
 
@@ -174,17 +214,20 @@ export class NetworkTopologyComponent extends HTMLElement {
         addTr.querySelector(".save-net-btn").onclick = async () => {
             const name = addTr.querySelector(".net-name-input").value.trim();
             const subnet = addTr.querySelector(".net-subnet-input").value.trim();
-            const gateway_ip = addTr.querySelector(".net-gw-input").value.trim();
-            const network_type = addTr.querySelector(".net-type-select").value;
+            const gw = addTr.querySelector(".net-gw-input").value.trim();
+            const type = addTr.querySelector(".net-type-select").value;
             const iface = addTr.querySelector(".net-if-input").value.trim();
 
-            if (!name || !subnet) return alert("Please specify network name and subnet CIDR.");
+            if (!name || !subnet) return alert("Network name and subnet CIDR are required.");
 
             try {
                 const res = await apiFetch("/api/network/topology/subnets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name, subnet, gateway_ip, network_type, interface: iface })
+                    body: JSON.stringify({
+                        name, subnet, gateway_ip: gw || null,
+                        network_type: type, interface: iface || null,
+                    })
                 });
                 if (res.ok) await this.loadData();
             } catch (err) {
@@ -204,19 +247,25 @@ export class NetworkTopologyComponent extends HTMLElement {
         temp.innerHTML = renderInlineNetFormTemplate(net);
         const editTr = temp.firstElementChild;
         row.replaceWith(editTr);
+        if (typeof editTr.scrollIntoView === "function") {
+            editTr.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
 
         editTr.querySelector(".save-net-btn").onclick = async () => {
             const name = editTr.querySelector(".net-name-input").value.trim();
             const subnet = editTr.querySelector(".net-subnet-input").value.trim();
-            const gateway_ip = editTr.querySelector(".net-gw-input").value.trim();
-            const network_type = editTr.querySelector(".net-type-select").value;
+            const gw = editTr.querySelector(".net-gw-input").value.trim();
+            const type = editTr.querySelector(".net-type-select").value;
             const iface = editTr.querySelector(".net-if-input").value.trim();
 
             try {
                 const res = await apiFetch("/api/network/topology/subnets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ id: netId, name, subnet, gateway_ip, network_type, interface: iface })
+                    body: JSON.stringify({
+                        id: netId, name, subnet, gateway_ip: gw || null,
+                        network_type: type, interface: iface || null,
+                    })
                 });
                 if (res.ok) await this.loadData();
             } catch (err) {
@@ -228,12 +277,12 @@ export class NetworkTopologyComponent extends HTMLElement {
     }
 
     async deleteNet(netId) {
-        if (!confirm("Delete this subnet from the topology? Connected routing links will also be removed.")) return;
+        if (!confirm("Are you sure you want to remove this subnet from topology? Connected links will be severed.")) return;
         try {
             const res = await apiFetch(`/api/network/topology/subnets/${netId}`, { method: "DELETE" });
             if (res.ok) await this.loadData();
         } catch (e) {
-            alert(`Error: ${e}`);
+            alert(`Failed to delete subnet: ${e}`);
         }
     }
 }
