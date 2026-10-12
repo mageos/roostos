@@ -35,9 +35,9 @@ class NetworkLink(BaseModel):
 
 
 class Network(BaseModel):
-    id: str  # e.g. "lan", "iot", "guest", "management", "vps_vpc", "upstream_home"
-    name: str  # e.g. "Family LAN", "RoostOS Lab", "Upstream Home Network", "Cloud VPS"
-    subnet: str  # e.g. "192.168.1.0/24", "192.168.5.0/24", "172.26.0.0/20", "10.42.0.0/24"
+    id: str  # e.g. "lan", "iot", "guest", "management", "cloud_vpc", "wan"
+    name: str  # e.g. "Primary LAN", "Guest Wi-Fi", "Cloud VPC"
+    subnet: str  # e.g. "192.168.1.0/24", "10.0.0.0/24"
     vlan_tag: Optional[int] = None  # e.g. 20, 50
     gateway_ip: Optional[str] = None  # e.g. "192.168.1.1"
     network_type: str = "lan"  # "lan", "wan_upstream", "vpn_overlay", "cloud_vpc", "dmz", "guest"

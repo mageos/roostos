@@ -34,24 +34,24 @@ loadScript('js/components/network-view.js');
 describe('Network Topology & Inter-Network Routing Component', () => {
     const mockTopologyData = {
         networks: [
-            { id: "lab-lan", name: "RoostOS Lab", subnet: "192.168.1.0/24", gateway_ip: "192.168.1.1", network_type: "lan", interface: "br-lan" },
-            { id: "home-lan", name: "Upstream Home", subnet: "192.168.5.0/24", gateway_ip: "192.168.5.1", network_type: "wan_upstream", interface: "eth0" },
+            { id: "office-lan", name: "Primary LAN", subnet: "10.0.1.0/24", gateway_ip: "10.0.1.1", network_type: "lan", interface: "br-lan" },
+            { id: "upstream-wan", name: "Upstream WAN", subnet: "198.51.100.0/24", gateway_ip: "198.51.100.1", network_type: "wan_upstream", interface: "eth0" },
             { id: "wg-overlay", name: "WireGuard Hub", subnet: "10.42.0.0/24", gateway_ip: "10.42.0.1", network_type: "vpn_overlay", interface: "wg-edge" },
-            { id: "vps-vpc", name: "Cloud VPS", subnet: "172.26.0.0/20", gateway_ip: "172.26.2.49", network_type: "cloud_vpc", interface: "vps-eth0" }
+            { id: "cloud-vpc", name: "Cloud VPC", subnet: "10.100.0.0/16", gateway_ip: "10.100.0.1", network_type: "cloud_vpc", interface: "vps-eth0" }
         ],
         links: [
             {
-                id: "link-lab-home",
-                source_network_id: "lab-lan",
-                target_network_id: "home-lan",
+                id: "link-office-wan",
+                source_network_id: "office-lan",
+                target_network_id: "upstream-wan",
                 connection_type: "physical_wan",
                 routing_mode: "nat_masquerade",
                 firewall_policy: "source_to_target_only",
                 allowed_ports: []
             },
             {
-                id: "link-lab-wg",
-                source_network_id: "lab-lan",
+                id: "link-office-wg",
+                source_network_id: "office-lan",
                 target_network_id: "wg-overlay",
                 connection_type: "wireguard_tunnel",
                 routing_mode: "routed",
@@ -75,10 +75,10 @@ describe('Network Topology & Inter-Network Routing Component', () => {
         const elem = document.getElementById('topo-elem');
         await elem.loadData();
 
-        expect(elem.innerHTML).toContain('192.168.1.0/24');
-        expect(elem.innerHTML).toContain('192.168.5.0/24');
+        expect(elem.innerHTML).toContain('10.0.1.0/24');
+        expect(elem.innerHTML).toContain('198.51.100.0/24');
         expect(elem.innerHTML).toContain('10.42.0.0/24');
-        expect(elem.innerHTML).toContain('172.26.0.0/20');
+        expect(elem.innerHTML).toContain('10.100.0.0/16');
         expect(elem.innerHTML).toContain('Physical WAN Uplink');
         expect(elem.innerHTML).toContain('WireGuard Tunnel');
         expect(elem.innerHTML).toContain('NAT / Masquerade');
@@ -127,8 +127,8 @@ describe('Network Topology & Inter-Network Routing Component', () => {
         global.fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'success' }) });
         global.fetch.mockResolvedValueOnce({ ok: true, json: async () => mockTopologyData });
 
-        await elem.deleteLink('link-lab-home');
-        expect(global.fetch).toHaveBeenCalledWith('/api/network/topology/links/link-lab-home', expect.objectContaining({
+        await elem.deleteLink('link-office-wan');
+        expect(global.fetch).toHaveBeenCalledWith('/api/network/topology/links/link-office-wan', expect.objectContaining({
             method: 'DELETE'
         }));
     });

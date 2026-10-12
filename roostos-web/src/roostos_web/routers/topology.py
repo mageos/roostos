@@ -1,5 +1,6 @@
 """FastAPI router for Network Topology visualization and inter-network link routing."""
 
+import ipaddress
 from typing import Any, Dict, List, Optional
 import uuid
 from fastapi import APIRouter, Depends
@@ -45,21 +46,93 @@ class UpsertLinkRequest(BaseModel):
     description: Optional[str] = None
 
 
-def _default_networks() -> List[Network]:
-    return [
-        Network(id="lab-lan", name="RoostOS Lab Network", subnet="192.168.1.0/24", gateway_ip="192.168.1.1", network_type="lan", interface="br-lan", zone_id="lab"),
-        Network(id="home-lan", name="Upstream Home Network", subnet="192.168.5.0/24", gateway_ip="192.168.5.1", network_type="wan_upstream", interface="eth0", zone_id="home"),
-        Network(id="wg-overlay", name="WireGuard Overlay Hub", subnet="10.42.0.0/24", gateway_ip="10.42.0.1", network_type="vpn_overlay", interface="wg-edge", zone_id="vpn"),
-        Network(id="vps-vpc", name="Cloud VPS Private VPC", subnet="172.26.0.0/20", gateway_ip="172.26.2.49", network_type="cloud_vpc", interface="vps-eth0", zone_id="vps"),
-    ]
+def _discover_topology_networks(config: Any) -> List[Network]:
+    """Dynamically discovers subnets from configured bridges, WAN interfaces, and edge tunnels."""
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    networks: List[Network] = []
+    seen = set()
+
+    for n in (getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or []):
+        networks.append(n)
+        seen.add(n.subnet)
+
+    for b in (getattr(inner_cfg, "bridges", []) or getattr(net_cfg, "bridges", []) or []):
+        if getattr(b, "ip", None):
+            try:
+                iface = ipaddress.ip_interface(b.ip)
+                sub = str(iface.network)
+                if sub not in seen:
+                    networks.append(Network(
+                        id=f"net-{b.name}", name=f"Local LAN ({b.name})", subnet=sub,
+                        gateway_ip=str(iface.ip), network_type="lan", interface=b.name, zone_id="lan"
+                    ))
+                    seen.add(sub)
+            except Exception:
+                pass
+
+    for i in (getattr(inner_cfg, "interfaces", []) or getattr(net_cfg, "interfaces", []) or []):
+        role = getattr(i, "network", None) or getattr(i, "role", None)
+        if role == "wan":
+            sub = "0.0.0.0/0"
+            gw = getattr(i, "gateway", None)
+            if getattr(i, "ip", None):
+                try:
+                    sub = str(ipaddress.ip_interface(i.ip).network)
+                except Exception:
+                    pass
+            if sub not in seen:
+                networks.append(Network(
+                    id=f"net-{i.name}", name=f"WAN Uplink ({i.name})", subnet=sub,
+                    gateway_ip=gw, network_type="wan_upstream", interface=i.name, zone_id="wan"
+                ))
+                seen.add(sub)
+
+    for gw in (getattr(inner_cfg, "edge_gateways", []) or getattr(net_cfg, "edge_gateways", []) or []):
+        if getattr(gw, "tunnel_ip_gateway", None):
+            sub = "10.42.0.0/24"
+            if sub not in seen:
+                networks.append(Network(
+                    id=f"net-{gw.id}", name="WireGuard Overlay Hub", subnet=sub,
+                    gateway_ip=gw.tunnel_ip_gateway.split("/")[0], network_type="vpn_overlay",
+                    interface="wg-edge", zone_id="vpn"
+                ))
+                seen.add(sub)
+
+    if not networks:
+        networks = [
+            Network(id="default-lan", name="Primary LAN", subnet="192.168.1.0/24", gateway_ip="192.168.1.1", network_type="lan", interface="br-lan", zone_id="lan"),
+            Network(id="default-wan", name="Internet / WAN", subnet="0.0.0.0/0", network_type="wan_upstream", interface="eth0", zone_id="wan"),
+        ]
+    return networks
 
 
-def _default_links() -> List[NetworkLink]:
-    return [
-        NetworkLink(id="link-lab-home", source_network_id="lab-lan", target_network_id="home-lan", connection_type="physical_wan", routing_mode="nat_masquerade", firewall_policy="source_to_target_only", description="Lab WAN uplink through parent home router with stateful conntrack", status="active"),
-        NetworkLink(id="link-lab-wg", source_network_id="lab-lan", target_network_id="wg-overlay", connection_type="wireguard_tunnel", routing_mode="routed", firewall_policy="bidirectional_allow", description="Encrypted site-to-site mesh tunnel linking Lab to VPS Hub", status="active"),
-        NetworkLink(id="link-wg-vps", source_network_id="wg-overlay", target_network_id="vps-vpc", connection_type="vpc_peering", routing_mode="routed", firewall_policy="restricted", allowed_ports=["80", "443", "22"], description="Forwarded reverse-proxy and ingress routing to VPS cloud internal network", status="active"),
-    ]
+def _discover_topology_links(config: Any, networks: List[Network]) -> List[NetworkLink]:
+    """Retrieves saved links or synthesizes standard default WAN uplink."""
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    saved = getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or []
+    if saved:
+        return list(saved)
+
+    lan_net = next((n for n in networks if n.network_type == "lan"), None)
+    wan_net = next((n for n in networks if n.network_type == "wan_upstream"), None)
+    wg_net = next((n for n in networks if n.network_type == "vpn_overlay"), None)
+
+    defaults: List[NetworkLink] = []
+    if lan_net and wan_net:
+        defaults.append(NetworkLink(
+            id=f"link-{lan_net.id}-{wan_net.id}", source_network_id=lan_net.id, target_network_id=wan_net.id,
+            connection_type="physical_wan", routing_mode="nat_masquerade", firewall_policy="source_to_target_only",
+            description="Outbound internet access with stateful NAT masquerade", status="active"
+        ))
+    if lan_net and wg_net:
+        defaults.append(NetworkLink(
+            id=f"link-{lan_net.id}-{wg_net.id}", source_network_id=lan_net.id, target_network_id=wg_net.id,
+            connection_type="wireguard_tunnel", routing_mode="routed", firewall_policy="bidirectional_allow",
+            description="Encrypted WireGuard mesh tunnel", status="active"
+        ))
+    return defaults
 
 
 @router.get("", response_model=TopologyResponse)
@@ -67,25 +140,14 @@ async def get_network_topology(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> TopologyResponse:
-    """Retrieves full topology model including subnets, links, and visual graph coordinates."""
+    """Retrieves full topology model dynamically discovering subnets and routing links."""
     config = repo.get_config()
     net_cfg = getattr(config, "network", None)
-    inner_cfg = getattr(net_cfg, "network", None) if net_cfg else None
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
 
-    raw_nets = getattr(inner_cfg, "networks", None) if inner_cfg else None
-    if not raw_nets or not isinstance(raw_nets, list):
-        raw_nets = getattr(net_cfg, "networks", None) if net_cfg else None
-    networks: List[Network] = list(raw_nets) if (raw_nets and isinstance(raw_nets, list)) else _default_networks()
-
-    raw_links = getattr(inner_cfg, "links", None) if inner_cfg else None
-    if not raw_links or not isinstance(raw_links, list):
-        raw_links = getattr(net_cfg, "links", None) if net_cfg else None
-    links: List[NetworkLink] = list(raw_links) if (raw_links and isinstance(raw_links, list)) else _default_links()
-
-    raw_zones = getattr(inner_cfg, "zones", None) if inner_cfg else None
-    if not raw_zones or not isinstance(raw_zones, list):
-        raw_zones = getattr(net_cfg, "zones", None) if net_cfg else None
-    zones: List[ZoneConfig] = list(raw_zones) if (raw_zones and isinstance(raw_zones, list)) else []
+    networks = _discover_topology_networks(config)
+    links = _discover_topology_links(config, networks)
+    zones = list(getattr(inner_cfg, "zones", []) or getattr(net_cfg, "zones", []) or [])
 
     visual_nodes = [
         {"id": n.id, "name": n.name, "subnet": n.subnet, "gateway_ip": n.gateway_ip, "network_type": n.network_type, "interface": n.interface or "unassigned", "zone_id": n.zone_id or "lan"}
@@ -108,7 +170,7 @@ async def upsert_network_subnet(
     config = repo.get_config()
     net_cfg = getattr(config, "network", None)
     inner_cfg = getattr(net_cfg, "network", None) or net_cfg
-    networks = list(getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or []) or _default_networks()
+    networks = list(getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or [])
 
     target_id = payload.id or f"net-{uuid.uuid4().hex[:6]}"
     existing = next((n for n in networks if n.id == target_id), None)
@@ -130,14 +192,10 @@ async def upsert_network_subnet(
         )
         networks.append(saved)
 
-    if hasattr(inner_cfg, "networks"):
-        inner_cfg.networks = networks
-    if hasattr(net_cfg, "networks"):
-        net_cfg.networks = networks
-    try:
-        repo.save_network_config(net_cfg)
-    except Exception as e:
-        print(f"Warning: Failed to save subnet: {e}")
+    if hasattr(inner_cfg, "networks"): inner_cfg.networks = networks
+    if hasattr(net_cfg, "networks"): net_cfg.networks = networks
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to save subnet: {e}")
     return saved
 
 
@@ -157,18 +215,12 @@ async def delete_network_subnet(
     new_nets = [n for n in networks if n.id != network_id]
     new_links = [l for l in links if l.source_network_id != network_id and l.target_network_id != network_id]
 
-    if hasattr(inner_cfg, "networks"):
-        inner_cfg.networks = new_nets
-    if hasattr(net_cfg, "networks"):
-        net_cfg.networks = new_nets
-    if hasattr(inner_cfg, "links"):
-        inner_cfg.links = new_links
-    if hasattr(net_cfg, "links"):
-        net_cfg.links = new_links
-    try:
-        repo.save_network_config(net_cfg)
-    except Exception as e:
-        print(f"Warning: Failed to delete subnet: {e}")
+    if hasattr(inner_cfg, "networks"): inner_cfg.networks = new_nets
+    if hasattr(net_cfg, "networks"): net_cfg.networks = new_nets
+    if hasattr(inner_cfg, "links"): inner_cfg.links = new_links
+    if hasattr(net_cfg, "links"): net_cfg.links = new_links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to delete subnet: {e}")
     return {"status": "success", "message": f"Subnet '{network_id}' removed."}
 
 
@@ -182,7 +234,7 @@ async def upsert_network_link(
     config = repo.get_config()
     net_cfg = getattr(config, "network", None)
     inner_cfg = getattr(net_cfg, "network", None) or net_cfg
-    links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or []) or _default_links()
+    links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or [])
 
     target_id = payload.id or f"link-{uuid.uuid4().hex[:6]}"
     existing = next((l for l in links if l.id == target_id), None)
@@ -206,14 +258,10 @@ async def upsert_network_link(
         )
         links.append(saved)
 
-    if hasattr(inner_cfg, "links"):
-        inner_cfg.links = links
-    if hasattr(net_cfg, "links"):
-        net_cfg.links = links
-    try:
-        repo.save_network_config(net_cfg)
-    except Exception as e:
-        print(f"Warning: Failed to save link: {e}")
+    if hasattr(inner_cfg, "links"): inner_cfg.links = links
+    if hasattr(net_cfg, "links"): net_cfg.links = links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to save link: {e}")
     return saved
 
 
@@ -230,12 +278,8 @@ async def delete_network_link(
     links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or [])
 
     new_links = [l for l in links if l.id != link_id]
-    if hasattr(inner_cfg, "links"):
-        inner_cfg.links = new_links
-    if hasattr(net_cfg, "links"):
-        net_cfg.links = new_links
-    try:
-        repo.save_network_config(net_cfg)
-    except Exception as e:
-        print(f"Warning: Failed to delete link: {e}")
+    if hasattr(inner_cfg, "links"): inner_cfg.links = new_links
+    if hasattr(net_cfg, "links"): net_cfg.links = new_links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to delete link: {e}")
     return {"status": "success", "message": f"Link '{link_id}' deleted."}
