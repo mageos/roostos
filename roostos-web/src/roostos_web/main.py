@@ -13,7 +13,7 @@ from roostos_sdk.client import RoostClient
 from roostos_web.routers import (
     auth, system, devices, network, schedules, plugins, diagnostics,
     config, certificates, cluster, health, events, identity, setup, edge, edge_peers, catalog,
-    telemetry, alerts, updates, dns
+    telemetry, alerts, updates, dns, topology
 )
 from roostos_web.services.events import event_publisher
 from roostos_web import __version__
@@ -113,6 +113,7 @@ def create_app(
         app_instance.include_router(auth.router)
         app_instance.include_router(system.router)
         app_instance.include_router(dns.router)
+        app_instance.include_router(topology.router)
         app_instance.include_router(identity.router)
         app_instance.include_router(cluster.router)
         app_instance.include_router(health.router)

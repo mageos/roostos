@@ -9,6 +9,7 @@ const renderNetworkViewTemplate = () => html`
         <!-- Sub-Tabs Navigation -->
         <div class="sub-tab-nav" id="network-subtabs-bar">
             <button class="sub-tab-btn active" data-subtab="interfaces">Interfaces & WAN</button>
+            <button class="sub-tab-btn" data-subtab="topology">Topology & Routing</button>
             <button class="sub-tab-btn" data-subtab="bridges">Bridges & VLANs</button>
             <button class="sub-tab-btn" data-subtab="zones">Network Zones</button>
             <button class="sub-tab-btn" data-subtab="wifi">Wi-Fi Access Points</button>
@@ -20,6 +21,9 @@ const renderNetworkViewTemplate = () => html`
         <div class="sub-tab-content-container">
             <div class="sub-tab-pane active" id="pane-interfaces">
                 <roost-network-interfaces id="net-interfaces-comp"></roost-network-interfaces>
+            </div>
+            <div class="sub-tab-pane" id="pane-topology" style="display: none;">
+                <roost-network-topology id="net-topology-comp"></roost-network-topology>
             </div>
             <div class="sub-tab-pane" id="pane-bridges" style="display: none;">
                 <roost-network-bridges id="net-bridges-comp"></roost-network-bridges>
@@ -143,7 +147,7 @@ export class NetworkViewComponent extends HTMLElement {
             }
         });
 
-        const panes = ["interfaces", "bridges", "zones", "wifi", "dhcp", "qos"];
+        const panes = ["interfaces", "topology", "bridges", "zones", "wifi", "dhcp", "qos"];
         panes.forEach(name => {
             const pane = this.querySelector(`#pane-${name}`);
             if (pane) {

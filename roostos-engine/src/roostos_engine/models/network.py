@@ -84,6 +84,8 @@ class NetworkSettings(BaseModel):
     gateways: List[NetworkGateway] = Field(default_factory=list)
     qos: Optional[QoSConfig] = Field(default_factory=QoSConfig)
     edge_gateways: List[EdgeGatewayConfig] = Field(default_factory=list)
+    networks: List[Any] = Field(default_factory=list)
+    links: List[Any] = Field(default_factory=list)
 
 class WifiRadio(BaseModel):
     interface: str
