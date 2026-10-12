@@ -14,6 +14,8 @@ from cryptography.x509.oid import NameOID, ExtensionOID
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 
+from roostos_engine.acme_service import ACMEService
+
 class CertificateManager:
     def __init__(self, cert_dir: str = "/etc/roostos/certs"):
         self.cert_dir = cert_dir
@@ -22,6 +24,7 @@ class CertificateManager:
         self.plugins_cert_dir = os.path.join(cert_dir, "plugins")
         self.services_cert_dir = os.path.join(cert_dir, "services")
         self.server_cert_dir = os.path.join(cert_dir, "server")
+        self.acme = ACMEService(cert_dir=cert_dir)
 
         try:
             os.makedirs(self.cert_dir, exist_ok=True)
@@ -229,6 +232,11 @@ class CertificateManager:
         except Exception as e:
             return {"valid": False, "error": str(e)}
 
+    def get_root_ca_pem(self) -> str:
+        """Returns the Root CA certificate in PEM format."""
+        ca_cert, _ = self.ensure_root_ca()
+        return ca_cert.public_bytes(serialization.Encoding.PEM).decode("utf-8")
+
     def get_cert_status(self) -> Dict[str, Any]:
         """Returns status of Root CA, HTTPS server cert, service certs, and plugin certs."""
         ca_cert, _ = self.ensure_root_ca()
@@ -240,7 +248,8 @@ class CertificateManager:
             },
             "server_cert": None,
             "services": [],
-            "plugins": []
+            "plugins": [],
+            "domains": [d.model_dump() for d in self.acme.list_certificates()],
         }
 
         server_crt_path = os.path.join(self.server_cert_dir, "server.crt")

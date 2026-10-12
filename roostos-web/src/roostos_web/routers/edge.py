@@ -13,13 +13,14 @@ from roostos_engine.models.edge import (
     IngressRoutePayload, UpdateEdgeEndpointRequest,
 )
 from roostos_engine.edge_manager import EdgeManager
+from roostos_engine.cert_manager import CertificateManager
+from roostos_engine.models.certificates import ChallengeType
 from roostos_engine.repository import ConfigRepository
 from roostos_web.auth import get_current_admin, get_current_user, UserSession
 from roostos_web.services.base import get_repository
 from roostos_web.di import Injected
 
 router = APIRouter(prefix="/api/edge", tags=["edge"])
-
 
 def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig) -> None:
     """Helper to persist edge gateway record in network config."""
@@ -32,7 +33,6 @@ def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig
     except Exception as e:
         print(f"Warning: Failed to save edge gateway: {e}")
 
-
 @router.post("/token", response_model=EdgeBootstrapToken)
 async def generate_bootstrap_token(
     payload: GenerateTokenRequest,
@@ -44,7 +44,6 @@ async def generate_bootstrap_token(
         vps_public_ip=vps_ip, listen_port=payload.port,
         ttl_minutes=payload.ttl_minutes, use_https=payload.use_https,
     )
-
 
 @router.post("/enroll", response_model=EdgeEnrollmentResponse)
 async def enroll_home_server(
@@ -96,7 +95,6 @@ async def enroll_home_server(
         allowed_ips=["10.42.0.0/24"], persistent_keepalive=25,
         message="Edge Gateway successfully paired with home server.",
     )
-
 
 @router.post("/connect", response_model=EdgeGatewayConfig)
 async def connect_to_edge_gateway(
@@ -174,7 +172,6 @@ async def connect_to_edge_gateway(
     _save_edge_gateway_record(repo, edge_gw)
     return edge_gw
 
-
 @router.put("/endpoint", response_model=EdgeGatewayConfig)
 async def update_edge_endpoint(
     payload: UpdateEdgeEndpointRequest,
@@ -201,7 +198,6 @@ async def update_edge_endpoint(
     _save_edge_gateway_record(repo, edge_gw)
     return edge_gw
 
-
 def _get_active_gateways(config: Any) -> List[EdgeGatewayConfig]:
     gateways = list(getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", []))
     if not gateways:
@@ -216,7 +212,6 @@ def _get_active_gateways(config: Any) -> List[EdgeGatewayConfig]:
                 )]
     return gateways
 
-
 @router.get("/status")
 async def get_edge_status(
     current_user: UserSession = Depends(get_current_user),
@@ -226,7 +221,6 @@ async def get_edge_status(
     config = repo.get_config()
     gateways = _get_active_gateways(config)
     return {"linked": bool(gateways), "gateways": [gw.model_dump() for gw in gateways]}
-
 
 @router.get("/routes", response_model=List[IngressRoute])
 async def list_ingress_routes(
@@ -238,21 +232,31 @@ async def list_ingress_routes(
     gateways = _get_active_gateways(config)
     return [route for gw in gateways for route in gw.ingress_routes]
 
-
 @router.post("/routes", response_model=IngressRoute)
 async def create_ingress_route(
     payload: IngressRoutePayload,
     current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
+    cert_mgr: CertificateManager = Injected(CertificateManager),
 ) -> IngressRoute:
-    """Adds a new ingress reverse proxy route."""
+    """Adds a new ingress reverse proxy route and provisions SSL."""
     config = repo.get_config()
     edge_gateways = _get_active_gateways(config)
     if not edge_gateways:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No Edge Gateway is linked. Connect an Edge Gateway first.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No Edge Gateway is linked.")
+
+    ssl_status = "disabled"
+    if payload.ssl_enabled:
+        ssl_status = "pending"
+        try:
+            cert_mgr.acme.request_certificate(
+                domain=payload.domain.strip().lower(),
+                challenge_type=ChallengeType.HTTP_01,
+                auto_renew=True,
+            )
+            ssl_status = "valid"
+        except Exception:
+            pass
 
     new_route = IngressRoute(
         id=f"route-{uuid.uuid4().hex[:6]}",
@@ -260,12 +264,12 @@ async def create_ingress_route(
         target_ip=payload.target_ip.strip(),
         target_port=payload.target_port,
         ssl_enabled=payload.ssl_enabled,
+        ssl_status=ssl_status,
         edge_gateway_id=edge_gateways[0].id,
     )
     edge_gateways[0].ingress_routes.append(new_route)
     _save_edge_gateway_record(repo, edge_gateways[0])
     return new_route
-
 
 @router.delete("/routes/{route_id}")
 async def delete_ingress_route(
@@ -279,7 +283,6 @@ async def delete_ingress_route(
         gw.ingress_routes = [r for r in gw.ingress_routes if r.id != route_id]
         _save_edge_gateway_record(repo, gw)
     return {"status": "success", "message": f"Route '{route_id}' deleted."}
-
 
 @router.post("/lockdown")
 async def apply_firewall_lockdown(

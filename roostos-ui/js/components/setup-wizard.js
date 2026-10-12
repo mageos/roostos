@@ -41,7 +41,7 @@ window.setupWizard = {
 
         card.innerHTML = `
             <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 20px;">
-                <span class="logo-dot" style="width: 14px; height: 14px; background: #6366f1; border-radius: 50%; box-shadow: 0 0 10px #6366f1;"></span>
+                <img src="favicon.svg" alt="RoostOS Logo" class="sidebar-logo-icon" style="width: 32px; height: 32px;">
                 <h2 style="margin: 0; font-size: 22px; font-weight: 600;">Welcome to RoostOS Initial Setup</h2>
             </div>
             

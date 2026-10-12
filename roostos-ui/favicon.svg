@@ -1,0 +1,81 @@
+<svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="roost-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#090d16"/>
+    </linearGradient>
+    <linearGradient id="roost-border" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="roost-roof-l" x1="6" y1="5" x2="16" y2="17" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#0284c7" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="roost-roof-r" x1="26" y1="5" x2="16" y2="17" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0ea5e9" stop-opacity="0.20"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="roost-base-l" x1="6" y1="13" x2="16" y2="25" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0284c7" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="roost-base-r" x1="26" y1="13" x2="16" y2="25" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.15"/>
+      <stop offset="100%" stop-color="#1e1b4b" stop-opacity="0.05"/>
+    </linearGradient>
+    <linearGradient id="roost-edge-grad" x1="6" y1="5" x2="26" y2="25" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#3b82f6"/>
+    </linearGradient>
+    <radialGradient id="roost-core-glow" cx="16" cy="17" r="8" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Container squircle badge -->
+  <rect width="32" height="32" rx="7.5" fill="url(#roost-bg)"/>
+  <rect x="0.5" y="0.5" width="31" height="31" rx="7" stroke="url(#roost-border)" stroke-width="1"/>
+
+  <!-- Ambient Gateway Core Glow -->
+  <circle cx="16" cy="17" r="8" fill="url(#roost-core-glow)"/>
+
+  <!-- Facet fills -->
+  <polygon points="16,5 6,13 16,17" fill="url(#roost-roof-l)"/>
+  <polygon points="16,5 26,13 16,17" fill="url(#roost-roof-r)"/>
+  <polygon points="6,13 8,25 16,17" fill="url(#roost-base-l)"/>
+  <polygon points="26,13 24,25 16,17" fill="url(#roost-base-r)"/>
+  <polygon points="8,25 24,25 16,17" fill="#1e293b" fill-opacity="0.25"/>
+
+  <!-- Mesh Edges -->
+  <!-- Outer house outline -->
+  <line x1="16" y1="5" x2="6" y2="13" stroke="url(#roost-edge-grad)" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="16" y1="5" x2="26" y2="13" stroke="url(#roost-edge-grad)" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="6" y1="13" x2="8" y2="25" stroke="url(#roost-edge-grad)" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="26" y1="13" x2="24" y2="25" stroke="url(#roost-edge-grad)" stroke-width="1.8" stroke-linecap="round"/>
+  <line x1="8" y1="25" x2="24" y2="25" stroke="url(#roost-edge-grad)" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Internal Gateway radiating links -->
+  <line x1="16" y1="5" x2="16" y2="17" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round"/>
+  <line x1="6" y1="13" x2="16" y2="17" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" stroke-opacity="0.85"/>
+  <line x1="26" y1="13" x2="16" y2="17" stroke="#38bdf8" stroke-width="1.4" stroke-linecap="round" stroke-opacity="0.85"/>
+  <line x1="8" y1="25" x2="16" y2="17" stroke="#3b82f6" stroke-width="1.4" stroke-linecap="round" stroke-opacity="0.85"/>
+  <line x1="24" y1="25" x2="16" y2="17" stroke="#3b82f6" stroke-width="1.4" stroke-linecap="round" stroke-opacity="0.85"/>
+
+  <!-- Peripheral Vertices / Nodes -->
+  <circle cx="16" cy="5" r="2.2" fill="#38bdf8"/>
+  <circle cx="16" cy="5" r="0.8" fill="#ffffff"/>
+
+  <circle cx="6" cy="13" r="1.8" fill="#38bdf8"/>
+  <circle cx="26" cy="13" r="1.8" fill="#38bdf8"/>
+
+  <circle cx="8" cy="25" r="1.8" fill="#60a5fa"/>
+  <circle cx="24" cy="25" r="1.8" fill="#60a5fa"/>
+
+  <!-- Central Gateway Node (Pulsing Hub) -->
+  <circle cx="16" cy="17" r="3.2" fill="#06b6d4"/>
+  <circle cx="16" cy="17" r="2.2" fill="#22d3ee"/>
+  <circle cx="16" cy="17" r="1.1" fill="#ffffff"/>
+</svg>

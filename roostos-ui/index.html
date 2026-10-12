@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RoostOS Router Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="alternate icon" href="favicon.ico">
     <link rel="stylesheet" href="index.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +16,7 @@
         <!-- 1. Left Sidebar Navigation -->
         <aside class="app-sidebar">
             <div class="sidebar-logo">
-                <span class="logo-dot"></span>
+                <img src="favicon.svg" alt="RoostOS Logo" class="sidebar-logo-icon">
                 <h1>RoostOS</h1>
             </div>
             
@@ -43,6 +45,7 @@
                         <button class="nav-item" id="nav-firewall" onclick="switchView('firewall')">Firewall</button>
                         <button class="nav-item" id="nav-parental" onclick="switchView('parental')">Parental Controls</button>
                         <button class="nav-item" id="nav-dns" onclick="switchView('dns')">DNS Server</button>
+                        <button class="nav-item" id="nav-certificates" onclick="switchView('certificates')">Certificates & SSL</button>
                     </div>
                 </div>
                 
@@ -78,14 +81,18 @@
                 <button class="nav-item" onclick="logout()" style="color: var(--accent-red); background: rgba(239, 68, 68, 0.05);">Logout</button>
             </div>
         </aside>
+        <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
         <!-- 2. Main Panel View Content -->
         <main class="main-content">
             <header class="app-header">
-                <div class="header-breadcrumb">
-                    <span class="breadcrumb-category" id="breadcrumb-category">Overview</span>
-                    <span class="breadcrumb-separator">/</span>
-                    <span class="breadcrumb-title" id="view-title">Status Dashboard</span>
+                <div style="display: flex; align-items: center;">
+                    <button class="mobile-sidebar-toggle" id="mobile-sidebar-toggle-btn" aria-label="Toggle navigation">☰</button>
+                    <div class="header-breadcrumb">
+                        <span class="breadcrumb-category" id="breadcrumb-category">Overview</span>
+                        <span class="breadcrumb-separator">/</span>
+                        <span class="breadcrumb-title" id="view-title">Status Dashboard</span>
+                    </div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 16px;">
                     <div class="auto-refresh-control" style="display: flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.03); border: 1px solid var(--card-border); border-radius: 20px; padding: 2px 8px;">
@@ -142,6 +149,7 @@
     <script src="js/components/app-catalog.js" type="module"></script>
     <script src="js/components/cluster-management.js" type="module"></script>
     <script src="js/components/dns-settings.js" type="module"></script>
+    <script src="js/components/certificates-management.js" type="module"></script>
     <script src="js/components/alerts-drawer.js" type="module"></script>
     <script src="js/components/setup-wizard.js"></script>
     <script src="app.js"></script>

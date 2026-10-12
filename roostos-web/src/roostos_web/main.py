@@ -12,7 +12,7 @@ from roostos_sdk.client import RoostClient
 
 from roostos_web.routers import (
     auth, system, devices, network, schedules, plugins, diagnostics,
-    config, certificates, cluster, health, events, identity, setup, edge, catalog,
+    config, certificates, cluster, health, events, identity, setup, edge, edge_peers, catalog,
     telemetry, alerts, updates, dns
 )
 from roostos_web.services.events import event_publisher
@@ -93,14 +93,19 @@ def create_app(
         allow_headers=["*"],
     )
 
+    # Public ACME HTTP-01 challenge responder for Let's Encrypt validation
+    app_instance.include_router(certificates.acme_challenge_router)
+
     if active_mode == "edge_gateway":
         # Limited mode: Minimal attack surface for VPS Edge Gateway
         app_instance.include_router(edge.router)
+        app_instance.include_router(edge_peers.router)
         app_instance.include_router(health.router)
     else:
         # Full Router mode: Mount all management subsystems
         app_instance.include_router(setup.router)
         app_instance.include_router(edge.router)
+        app_instance.include_router(edge_peers.router)
         app_instance.include_router(catalog.router)
         app_instance.include_router(telemetry.router)
         app_instance.include_router(alerts.router)
