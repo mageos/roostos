@@ -9,8 +9,8 @@ const renderInterfacesTemplate = (interfacesCount, ifaceRowsHtml, wanConfigHtml)
         <div class="card" style="margin-bottom: 20px;">
             <div class="card-header table-action-bar">
                 <div>
-                    <h3>Physical Interfaces & Ports (${interfacesCount})</h3>
-                    <p class="text-secondary" style="font-size:12px;">Hardware ethernet and wireless controllers</p>
+                    <h3>Network Interfaces & Ports (${interfacesCount})</h3>
+                    <p class="text-secondary" style="font-size:12px;">Hardware ethernet, bridges, and WireGuard tunnels</p>
                 </div>
             </div>
 
@@ -54,15 +54,22 @@ const renderIfaceRowTemplate = (iface) => {
     const statusBadge = isUp
         ? html`<span class="badge badge-success">UP</span>`
         : html`<span class="badge badge-danger">DOWN</span>`;
+    const typeBadge = iface.name.startsWith("wg")
+        ? html`<span class="badge badge-info" style="margin-left: 6px; font-size: 10px;">WireGuard</span>`
+        : (iface.name.startsWith("br")
+            ? html`<span class="badge badge-primary" style="margin-left: 6px; font-size: 10px;">Bridge</span>`
+            : (iface.name.startsWith("docker")
+                ? html`<span class="badge badge-warning" style="margin-left: 6px; font-size: 10px;">Container</span>`
+                : html`<span class="badge badge-secondary" style="margin-left: 6px; font-size: 10px;">Physical</span>`));
     return html`
         <tr id="iface-row-${iface.name}">
-            <td><strong><code>${iface.name}</code></strong></td>
+            <td><strong><code>${iface.name}</code></strong> ${typeBadge}</td>
             <td>${statusBadge}</td>
             <td><code>${iface.mac || iface.hwaddr || "-"}</code></td>
             <td>${iface.ip ? html`<code>${iface.ip}</code>` : "<em>Unassigned</em>"}</td>
             <td>${iface.mtu || 1500}</td>
             <td><span class="badge badge-secondary">${iface.speed || "1000 Mbps"} ${iface.duplex || "Full"}</span></td>
-            <td><span style="font-family: monospace; font-size: 11px;">Rx: ${window.formatSpeed(iface.rx_rate || 0)} | Tx: ${window.formatSpeed(iface.tx_rate || 0)}</span></td>
+            <td><span style="font-family: monospace; font-size: 11px;">Rx: ${window.formatSpeed ? window.formatSpeed(iface.rx_rate || 0) : (iface.rx_rate || 0)} | Tx: ${window.formatSpeed ? window.formatSpeed(iface.tx_rate || 0) : (iface.tx_rate || 0)}</span></td>
         </tr>
     `;
 };

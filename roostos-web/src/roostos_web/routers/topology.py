@@ -11,6 +11,7 @@ from roostos_engine.models.network import ZoneConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_web.auth import get_current_admin, get_current_parent, UserSession
 from roostos_web.di import Injected
+from roostos_web.services.network_discovery import discover_live_system_subnets
 
 router = APIRouter(prefix="/api/network/topology", tags=["Topology"])
 
@@ -47,68 +48,70 @@ class UpsertLinkRequest(BaseModel):
 
 
 def _discover_topology_networks(config: Any) -> List[Network]:
-    """Dynamically discovers subnets from configured bridges, WAN interfaces, and edge tunnels."""
+    """Discovers subnets from config and live kernel interfaces (bridges, WAN, WireGuard)."""
     net_cfg = getattr(config, "network", None)
     inner_cfg = getattr(net_cfg, "network", None) or net_cfg
     networks: List[Network] = []
     seen = set()
 
-    for n in (getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or []):
-        networks.append(n)
-        seen.add(n.subnet)
+    def add_net(n: Network):
+        if n.subnet not in seen and n.id not in seen:
+            networks.append(n)
+            seen.add(n.subnet)
+            seen.add(n.id)
 
+    # 1. Configured custom subnets
+    for n in (getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or []):
+        add_net(n)
+
+    # 2. Configured bridges
     for b in (getattr(inner_cfg, "bridges", []) or getattr(net_cfg, "bridges", []) or []):
         if getattr(b, "ip", None):
             try:
                 iface = ipaddress.ip_interface(b.ip)
-                sub = str(iface.network)
-                if sub not in seen:
-                    networks.append(Network(
-                        id=f"net-{b.name}", name=f"Local LAN ({b.name})", subnet=sub,
-                        gateway_ip=str(iface.ip), network_type="lan", interface=b.name, zone_id="lan"
-                    ))
-                    seen.add(sub)
+                add_net(Network(
+                    id=f"net-{b.name}", name=f"Local LAN ({b.name})", subnet=str(iface.network),
+                    gateway_ip=str(iface.ip), network_type="lan", interface=b.name, zone_id="lan"
+                ))
             except Exception:
                 pass
 
+    # 3. Configured WAN interfaces
     for i in (getattr(inner_cfg, "interfaces", []) or getattr(net_cfg, "interfaces", []) or []):
-        role = getattr(i, "network", None) or getattr(i, "role", None)
-        if role == "wan":
+        if (getattr(i, "network", None) or getattr(i, "role", None)) == "wan":
             sub = "0.0.0.0/0"
-            gw = getattr(i, "gateway", None)
             if getattr(i, "ip", None):
-                try:
-                    sub = str(ipaddress.ip_interface(i.ip).network)
-                except Exception:
-                    pass
-            if sub not in seen:
-                networks.append(Network(
-                    id=f"net-{i.name}", name=f"WAN Uplink ({i.name})", subnet=sub,
-                    gateway_ip=gw, network_type="wan_upstream", interface=i.name, zone_id="wan"
-                ))
-                seen.add(sub)
+                try: sub = str(ipaddress.ip_interface(i.ip).network)
+                except Exception: pass
+            add_net(Network(
+                id=f"net-{i.name}", name=f"WAN Uplink ({i.name})", subnet=sub,
+                gateway_ip=getattr(i, "gateway", None), network_type="wan_upstream",
+                interface=i.name, zone_id="wan"
+            ))
 
+    # 4. Configured WireGuard Edge Gateways
     for gw in (getattr(inner_cfg, "edge_gateways", []) or getattr(net_cfg, "edge_gateways", []) or []):
         if getattr(gw, "tunnel_ip_gateway", None):
-            sub = "10.42.0.0/24"
-            if sub not in seen:
-                networks.append(Network(
-                    id=f"net-{gw.id}", name="WireGuard Overlay Hub", subnet=sub,
-                    gateway_ip=gw.tunnel_ip_gateway.split("/")[0], network_type="vpn_overlay",
-                    interface="wg-edge", zone_id="vpn"
-                ))
-                seen.add(sub)
+            add_net(Network(
+                id=f"net-{gw.id}", name="WireGuard Overlay Hub", subnet="10.42.0.0/24",
+                gateway_ip=gw.tunnel_ip_gateway.split("/")[0], network_type="vpn_overlay",
+                interface="wg-edge", zone_id="vpn"
+            ))
 
+    # 5. Live kernel interface discovery (br0, wg-edge, eth0, docker0)
+    for ln in discover_live_system_subnets():
+        add_net(ln)
+
+    # 6. Fallback if empty (e.g. testing container without ip stack)
     if not networks:
-        networks = [
-            Network(id="default-lan", name="Primary LAN", subnet="192.168.1.0/24", gateway_ip="192.168.1.1", network_type="lan", interface="br-lan", zone_id="lan"),
-            Network(id="default-wan", name="Internet / WAN", subnet="0.0.0.0/0", network_type="wan_upstream", interface="eth0", zone_id="wan"),
-        ]
+        add_net(Network(id="default-lan", name="Primary LAN", subnet="192.168.1.0/24", gateway_ip="192.168.1.1", network_type="lan", interface="br-lan", zone_id="lan"))
+        add_net(Network(id="default-wan", name="Internet / WAN", subnet="0.0.0.0/0", network_type="wan_upstream", interface="eth0", zone_id="wan"))
+
     return networks
 
 
 def _discover_topology_links(config: Any, networks: List[Network]) -> List[NetworkLink]:
-    """Retrieves saved links or synthesizes standard default WAN uplink."""
+    """Retrieves saved links or synthesizes standard default WAN and WireGuard tunnels."""
     net_cfg = getattr(config, "network", None)
     inner_cfg = getattr(net_cfg, "network", None) or net_cfg
     saved = getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or []

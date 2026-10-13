@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from roostos_web.main import create_app
 from roostos_engine.repository import ConfigRepository
@@ -54,17 +54,18 @@ def mock_repo():
 
 @pytest.fixture
 def client(mock_repo):
-    app = create_app()
-    from roostos_web.auth import get_current_parent, get_current_admin, UserSession
+    with patch("roostos_web.routers.topology.discover_live_system_subnets", return_value=[]):
+        app = create_app()
+        from roostos_web.auth import get_current_parent, get_current_admin, UserSession
 
-    mock_user = UserSession(username="admin", role="admin")
-    app.dependency_overrides[get_current_parent] = lambda: mock_user
-    app.dependency_overrides[get_current_admin] = lambda: mock_user
+        mock_user = UserSession(username="admin", role="admin")
+        app.dependency_overrides[get_current_parent] = lambda: mock_user
+        app.dependency_overrides[get_current_admin] = lambda: mock_user
 
-    injector = get_injector()
-    injector.binder.bind(ConfigRepository, to=mock_repo)
+        injector = get_injector()
+        injector.binder.bind(ConfigRepository, to=mock_repo)
 
-    return TestClient(app)
+        yield TestClient(app)
 
 
 def test_get_topology(client):
@@ -111,3 +112,36 @@ def test_upsert_subnet_and_link(client, mock_repo):
     del_res = client.delete("/api/network/topology/links/link-office-cloud")
     assert del_res.status_code == 200
     assert del_res.json()["status"] == "success"
+
+
+def test_live_subnet_discovery(client):
+    live_nets = [
+        Network(
+            id="net-wg-edge",
+            name="WireGuard Hub (wg-edge)",
+            subnet="10.42.0.0/24",
+            gateway_ip="10.42.0.1",
+            network_type="vpn_overlay",
+            interface="wg-edge",
+            zone_id="vpn"
+        ),
+        Network(
+            id="net-br0",
+            name="Local LAN (br0)",
+            subnet="192.168.1.0/24",
+            gateway_ip="192.168.1.1",
+            network_type="lan",
+            interface="br0",
+            zone_id="lan"
+        ),
+    ]
+    with patch("roostos_web.routers.topology.discover_live_system_subnets", return_value=live_nets):
+        res = client.get("/api/network/topology")
+        assert res.status_code == 200
+        data = res.json()
+        subnets = [n["subnet"] for n in data["networks"]]
+        assert "10.42.0.0/24" in subnets
+        assert "192.168.1.0/24" in subnets
+        # Verify synthesized WireGuard link
+        link_types = [l["connection_type"] for l in data["links"]]
+        assert "wireguard_tunnel" in link_types or "physical_wan" in link_types

@@ -16,98 +16,9 @@ from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_admin, UserSession
 from roostos_web.services import NetworkService
 from roostos_web.di import Injected
+from roostos_web.services.network_discovery import get_live_interface_stats
 
 router = APIRouter(tags=["network"])
-
-
-def _get_live_interface_stats() -> Dict[str, Dict[str, Any]]:
-    stats: Dict[str, Dict[str, Any]] = {}
-    net_dir = "/sys/class/net"
-    if not os.path.exists(net_dir):
-        return stats
-
-    ip_map: Dict[str, str] = {}
-    if shutil.which("ip"):
-        try:
-            res = subprocess.run(["ip", "-j", "addr", "show"], capture_output=True, text=True, timeout=1)
-            if res.returncode == 0:
-                for item in json.loads(res.stdout):
-                    ifname = item.get("ifname", "")
-                    for addr in item.get("addr_info", []):
-                        if addr.get("family") == "inet":
-                            ip_map[ifname] = f"{addr.get('local')}/{addr.get('prefixlen')}"
-                            break
-        except Exception:
-            pass
-
-    try:
-        entries = os.listdir(net_dir)
-    except Exception:
-        return stats
-
-    for name in entries:
-        if name == "lo" or name.startswith(("veth", "docker", "virbr", "tap", "tun", "wg")):
-            continue
-        dev_path = os.path.join(net_dir, name)
-
-        mac: Optional[str] = None
-        addr_file = os.path.join(dev_path, "address")
-        if os.path.exists(addr_file):
-            try:
-                with open(addr_file, "r") as f:
-                    mac = f.read().strip().lower()
-            except Exception:
-                pass
-
-        status = "unknown"
-        oper_file = os.path.join(dev_path, "operstate")
-        if os.path.exists(oper_file):
-            try:
-                with open(oper_file, "r") as f:
-                    status = f.read().strip()
-            except Exception:
-                pass
-
-        mtu = 1500
-        mtu_file = os.path.join(dev_path, "mtu")
-        if os.path.exists(mtu_file):
-            try:
-                with open(mtu_file, "r") as f:
-                    mtu = int(f.read().strip())
-            except Exception:
-                pass
-
-        speed = "Unknown"
-        speed_file = os.path.join(dev_path, "speed")
-        if os.path.exists(speed_file):
-            try:
-                with open(speed_file, "r") as f:
-                    sp = f.read().strip()
-                    if sp.isdigit() and int(sp) > 0:
-                        speed = f"{sp} Mbps"
-            except Exception:
-                pass
-
-        duplex = "Unknown"
-        duplex_file = os.path.join(dev_path, "duplex")
-        if os.path.exists(duplex_file):
-            try:
-                with open(duplex_file, "r") as f:
-                    dp = f.read().strip()
-                    if dp:
-                        duplex = dp.capitalize()
-            except Exception:
-                pass
-
-        stats[name] = {
-            "mac": mac,
-            "status": status,
-            "mtu": mtu,
-            "speed": speed,
-            "duplex": duplex,
-            "ip": ip_map.get(name, ""),
-        }
-    return stats
 
 
 @router.get("/api/network")
@@ -120,7 +31,7 @@ async def get_network_config(
     vpns = network_service.get_vpns()
     net_data = config.network.model_dump(exclude_none=True, by_alias=True) if config.network else {}
 
-    live_stats = _get_live_interface_stats()
+    live_stats = get_live_interface_stats()
     if live_stats:
         interfaces = net_data.setdefault("interfaces", [])
         seen_names = set()
@@ -138,16 +49,26 @@ async def get_network_config(
                     iface["ip"] = st["ip"]
 
         for name, st in live_stats.items():
-            if name not in seen_names and not name.startswith("br"):
+            if name not in seen_names:
+                iface_type = st.get("iface_type", "physical")
+                role = "unassigned"
+                if iface_type == "wireguard":
+                    role = "vpn"
+                elif iface_type == "bridge":
+                    role = "lan"
+                elif iface_type == "container":
+                    role = "container"
+
                 interfaces.append({
                     "name": name,
-                    "role": "unassigned",
+                    "role": role,
                     "status": st.get("status", "unknown"),
                     "mac": st.get("mac"),
                     "mtu": st.get("mtu", 1500),
                     "speed": st.get("speed", "Unknown"),
                     "duplex": st.get("duplex", "Unknown"),
                     "ip": st.get("ip", ""),
+                    "iface_type": iface_type,
                 })
 
     return {

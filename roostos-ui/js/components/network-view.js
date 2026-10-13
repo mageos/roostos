@@ -55,9 +55,11 @@ export class NetworkViewComponent extends HTMLElement {
     }
 
     render() {
+        const currentSubtab = this.activeSubtab || "interfaces";
         this.innerHTML = renderNetworkViewTemplate();
         this.bindSubtabs();
         this.bindChildEvents();
+        this.switchSubtab(currentSubtab);
         this.populateChildData();
     }
 
@@ -125,6 +127,11 @@ export class NetworkViewComponent extends HTMLElement {
             };
             dhcpComp.setData(reservations, window.activeLeases || [], dhcpConfig);
         }
+
+        const topoComp = this.querySelector("#net-topology-comp");
+        if (topoComp && typeof topoComp.loadData === "function") {
+            topoComp.loadData();
+        }
     }
 
     bindSubtabs() {
@@ -156,6 +163,13 @@ export class NetworkViewComponent extends HTMLElement {
                 else pane.classList.remove("active");
             }
         });
+
+        if (subtabName === "topology") {
+            const topoComp = this.querySelector("#net-topology-comp");
+            if (topoComp && typeof topoComp.loadData === "function") {
+                topoComp.loadData();
+            }
+        }
     }
 
     bindChildEvents() {
