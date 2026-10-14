@@ -138,6 +138,20 @@ async def get_current_user(
     )
     actual_token = token or roostos_token
     if not actual_token:
+        try:
+            from roostos_web.di import get_injector
+            from roostos_engine.models.providers import ProvidersSettings
+            settings = get_injector().get(ProvidersSettings)
+            if getattr(settings, "auto_auth", False):
+                return UserSession(
+                    username="admin",
+                    role="admin",
+                    authority="local",
+                    person="dad",
+                    scopes=["admin", "root", "write", "read"]
+                )
+        except Exception:
+            pass
         if os.environ.get("ROOSTOS_MOCK") == "1" or os.environ.get("ROOSTOS_DEV_MOCK") == "1":
             return UserSession(
                 username="admin",

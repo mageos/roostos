@@ -131,3 +131,86 @@ def test_mock_endpoints_with_auto_mock_auth(mock_environment):
     resp_shields = client.get("/api/v1/protection/shields")
     assert resp_shields.status_code == 200
     assert resp_shields.json()["ad_blocking_enabled"] is True
+
+
+def test_load_container_config_file_direct():
+    from roostos_engine.di import load_providers_settings
+    settings = load_providers_settings(providers_config_path="config/mock_container.yaml")
+    assert settings.auth_provider == "mock"
+    assert settings.config_repository == "memory"
+    assert settings.system_client == "mock"
+    assert settings.cert_manager == "mock"
+    assert settings.firewall_manager == "mock"
+    assert settings.data_seeder == "concept1"
+    assert settings.auto_auth is True
+    assert "exploratory UI" in (settings.description or "")
+
+
+def test_load_container_config_presets():
+    from roostos_engine.di import load_providers_settings
+    mock_settings = load_providers_settings(providers_config_path="mock")
+    assert mock_settings.config_repository == "memory"
+    assert mock_settings.system_client == "mock"
+    assert mock_settings.data_seeder == "concept1"
+
+    prod_settings = load_providers_settings(providers_config_path="prod")
+    assert prod_settings.config_repository == "staging"
+    assert prod_settings.system_client == "dbus"
+    assert prod_settings.auto_auth is False
+
+
+def test_data_seeder_empty_vs_concept1():
+    from roostos_engine.models.providers import ProvidersSettings
+    # Empty seeder produces no preloaded people or devices
+    empty_injector = create_mock_web_injector(
+        providers_settings=ProvidersSettings(
+            config_repository="memory",
+            system_client="mock",
+            cert_manager="mock",
+            data_seeder="empty",
+        )
+    )
+    repo_empty = empty_injector.get(ConfigRepository)
+    cfg_empty = repo_empty.get_config()
+    assert len(cfg_empty.people) == 0
+    assert len(cfg_empty.devices) == 0
+
+    # Concept1 seeder populates household personas and devices
+    concept1_injector = create_mock_web_injector(
+        providers_settings=ProvidersSettings(
+            config_repository="memory",
+            system_client="mock",
+            cert_manager="mock",
+            data_seeder="concept1",
+        )
+    )
+    repo_concept1 = concept1_injector.get(ConfigRepository)
+    cfg_concept1 = repo_concept1.get_config()
+    assert len(cfg_concept1.people) >= 4
+    assert len(cfg_concept1.devices) >= 3
+
+
+def test_mock_server_and_main_cli_parsers():
+    from roostos_web.mock_server import build_parser as build_mock_parser
+    from roostos_web.main import build_parser as build_main_parser
+
+    mock_parser = build_mock_parser()
+    mock_args = mock_parser.parse_args([
+        "--container-config", "config/mock_container.yaml",
+        "--port", "8888",
+        "--reload"
+    ])
+    assert mock_args.container_config == "config/mock_container.yaml"
+    assert mock_args.port == 8888
+    assert mock_args.reload is True
+
+    main_parser = build_main_parser()
+    main_args = main_parser.parse_args([
+        "--container-config", "mock",
+        "--mock",
+        "--port", "8000"
+    ])
+    assert main_args.container_config == "mock"
+    assert main_args.mock is True
+    assert main_args.port == 8000
+

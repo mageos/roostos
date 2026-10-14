@@ -1,0 +1,16 @@
+# RoostOS Exploratory UI Testing Container Configuration
+# Controls dependency injection bindings and services loaded into the container.
+#
+# Launch with:
+#   python -m roostos_web.main --container-config config/mock_container.yaml
+#   python -m roostos_web.mock_server
+
+container:
+  description: "Mock DI container profile for exploratory UI development and testing"
+  auth_provider: "mock"
+  config_repository: "memory"
+  system_client: "mock"
+  cert_manager: "mock"
+  firewall_manager: "mock"
+  data_seeder: "concept1"
+  auto_auth: true

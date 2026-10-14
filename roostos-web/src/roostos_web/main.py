@@ -154,10 +154,12 @@ from roostos_web.di import create_web_injector, set_injector
 from roostos_engine.di import load_providers_settings
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
+    """Builds and returns the argument parser for roostos_web."""
     parser = argparse.ArgumentParser(description="RoostOS Web API & UI Service")
     parser.add_argument("--config-dir", default=os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos"), help="Directory containing RoostOS configuration files")
-    parser.add_argument("--providers-config", default=os.environ.get("ROOSTOS_PROVIDERS_CONFIG"), help="Path to custom providers.yaml")
+    parser.add_argument("--container-config", default=os.environ.get("ROOSTOS_CONTAINER_CONFIG"), help="Path to container configuration YAML or preset ('mock', 'prod')")
+    parser.add_argument("--providers-config", default=os.environ.get("ROOSTOS_PROVIDERS_CONFIG"), help="Legacy alias for --container-config")
     parser.add_argument("--auth-provider", default=os.environ.get("ROOSTOS_AUTH_PROVIDER"), help="Override auth provider: 'pam', 'mock', 'ldap'")
     parser.add_argument("--config-repo", default=os.environ.get("ROOSTOS_CONFIG_REPO"), help="Override repository: 'staging', 'yaml', 'memory'")
     parser.add_argument("--system-client", default=os.environ.get("ROOSTOS_SYSTEM_CLIENT"), help="Override system client: 'dbus', 'mock'")
@@ -169,27 +171,16 @@ def main() -> None:
     parser.add_argument("--api-only", "--no-ui", dest="no_ui", action="store_true", default=False, help="Disable hosting the static Web UI, running API only")
     parser.add_argument("--mock", "--dev", dest="mock", action="store_true", default=False, help="Launch standalone mock backend with seeded in-memory state and mock client for UI testing")
     parser.add_argument("--reload", action="store_true", default=False, help="Enable auto-reload on code changes")
+    return parser
 
+
+def main() -> None:
+    parser = build_parser()
     args = parser.parse_args()
 
-    # Configure environmental overrides
-    if args.mock or os.environ.get("ROOSTOS_MOCK") == "1":
-        os.environ["ROOSTOS_MOCK"] = "1"
-        os.environ["ROOSTOS_MOCK_AUTH"] = "1"
-        args.auth_provider = args.auth_provider or "mock"
-        args.config_repo = args.config_repo or "memory"
-        args.system_client = args.system_client or "mock"
-        args.cert_manager = args.cert_manager or "mock"
-        args.firewall_manager = args.firewall_manager or "mock"
-        if not args.config_dir or args.config_dir == "/etc/roostos":
-            import tempfile
-            mock_dir = os.path.join(tempfile.gettempdir(), "roostos-ui-mock")
-            os.makedirs(mock_dir, exist_ok=True)
-            args.config_dir = mock_dir
-            os.environ["ROOSTOS_CONFIG_DIR"] = mock_dir
-
-    if args.config_dir:
-        os.environ["ROOSTOS_CONFIG_DIR"] = args.config_dir
+    container_config_target = args.container_config or args.providers_config
+    if args.mock and not container_config_target:
+        container_config_target = "mock"
 
     overrides = {
         "auth_provider": args.auth_provider,
@@ -201,9 +192,31 @@ def main() -> None:
 
     providers_settings = load_providers_settings(
         config_dir=args.config_dir,
-        providers_config_path=args.providers_config,
+        providers_config_path=container_config_target,
         overrides=overrides
     )
+
+    is_mock = (
+        args.mock
+        or providers_settings.auth_provider == "mock"
+        or providers_settings.system_client == "mock"
+        or providers_settings.auto_auth
+    )
+
+    if is_mock:
+        os.environ["ROOSTOS_MOCK"] = "1"
+        if providers_settings.auto_auth or args.mock:
+            os.environ["ROOSTOS_MOCK_AUTH"] = "1"
+            os.environ["ROOSTOS_DEV_MOCK"] = "1"
+        if not args.config_dir or args.config_dir == "/etc/roostos":
+            import tempfile
+            mock_dir = os.path.join(tempfile.gettempdir(), "roostos-ui-mock")
+            os.makedirs(mock_dir, exist_ok=True)
+            args.config_dir = mock_dir
+            os.environ["ROOSTOS_CONFIG_DIR"] = mock_dir
+
+    if args.config_dir:
+        os.environ["ROOSTOS_CONFIG_DIR"] = args.config_dir
 
     injector = create_web_injector(
         config_dir=args.config_dir,
@@ -217,17 +230,19 @@ def main() -> None:
         config_dir=args.config_dir,
     )
 
-    if args.mock or os.environ.get("ROOSTOS_MOCK") == "1":
-        print("=" * 60)
-        print("  🚀 RoostOS UI Test Server (Mock Mode Active)")
-        print(f"  🌐 Web UI:    http://{args.host}:{args.port}/")
-        print(f"  📚 API Docs:  http://{args.host}:{args.port}/docs")
-        print("  🔑 Auth:      Mock Mode (Instant Admin Access)")
-        print("  💾 State:     In-Memory Seed Data (Dad, Mom, Alice, Bob)")
-        print("=" * 60)
+    if is_mock:
+        print("=" * 64)
+        print("  🚀 RoostOS UI Test Server (Mock Container Active)")
+        if providers_settings.description:
+            print(f"  📋 Profile:    {providers_settings.description}")
+        print(f"  🌐 Web UI:     http://{args.host}:{args.port}/")
+        print(f"  📚 API Docs:   http://{args.host}:{args.port}/docs")
+        print(f"  🔑 Auth:       {'Auto-Login (Admin)' if providers_settings.auto_auth else 'Mock (User: admin, Pass: password)'}")
+        print(f"  💾 Data Store: In-Memory ({providers_settings.data_seeder} seed)")
+        print("=" * 64)
     else:
         print(
-            f"RoostOS Web initialized with providers: auth='{providers_settings.auth_provider}', "
+            f"RoostOS Web initialized with container profile: auth='{providers_settings.auth_provider}', "
             f"repo='{providers_settings.config_repository}', client='{providers_settings.system_client}', "
             f"mode='{app_to_run.state.mode}', ui={not app_to_run.state.no_ui}"
         )

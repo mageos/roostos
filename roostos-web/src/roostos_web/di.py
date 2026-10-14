@@ -127,15 +127,19 @@ def create_web_injector(
 
 def create_mock_web_injector(
     config_dir: str = "/tmp/roostos-mock",
-    dbus_client: Optional[RoostClient] = None
+    dbus_client: Optional[RoostClient] = None,
+    providers_settings: Optional[ProvidersSettings] = None,
 ) -> Injector:
     """Convenience factory creating a fully mocked, in-memory DI container."""
-    settings = ProvidersSettings(
+    settings = providers_settings or ProvidersSettings(
+        description="Default Mock Container",
         auth_provider="mock",
         config_repository="memory",
         system_client="mock",
         cert_manager="mock",
-        firewall_manager="mock"
+        firewall_manager="mock",
+        data_seeder="concept1",
+        auto_auth=True,
     )
     from roostos_sdk.mock_client import MockRoostClient
     client = dbus_client or MockRoostClient()

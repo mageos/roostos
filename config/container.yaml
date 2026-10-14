@@ -1,0 +1,12 @@
+# RoostOS Standard Production Container Configuration
+# Controls dependency injection bindings and services loaded into the container.
+
+container:
+  description: "Standard production RoostOS container profile with PAM authentication and D-Bus IPC"
+  auth_provider: "pam"
+  config_repository: "staging"
+  system_client: "dbus"
+  cert_manager: "standard"
+  firewall_manager: "nftables"
+  data_seeder: "none"
+  auto_auth: false

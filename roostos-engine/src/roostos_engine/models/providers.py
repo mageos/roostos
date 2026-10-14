@@ -1,4 +1,4 @@
-"""Pydantic model definitions for dependency injection provider bindings."""
+"""Pydantic model definitions for dependency injection container provider bindings."""
 
 from typing import Optional
 from pydantic import BaseModel, Field
@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 
 class ProvidersSettings(BaseModel):
     """Configuration settings determining which implementations are bound in the DI container."""
+    description: Optional[str] = Field(
+        default=None,
+        description="Human-readable description of this container configuration profile"
+    )
     auth_provider: str = Field(
         default="pam",
         description="Authentication provider implementation ('pam', 'mock', 'ldap', 'centralized', 'multi_authority')"
@@ -26,8 +30,25 @@ class ProvidersSettings(BaseModel):
         default="nftables",
         description="Firewall manager implementation ('nftables', 'mock')"
     )
+    data_seeder: str = Field(
+        default="concept1",
+        description="Seed data strategy for in-memory repositories ('concept1', 'empty', or directory path)"
+    )
+    auto_auth: bool = Field(
+        default=False,
+        description="Automatically grant admin session to unauthenticated requests for exploratory UI testing"
+    )
+
+
+# Alias ContainerConfig to ProvidersSettings for expressive container configuration files
+ContainerConfig = ProvidersSettings
 
 
 class ProvidersConfigFile(BaseModel):
-    """Schema for /etc/roostos/providers.yaml."""
-    providers: ProvidersSettings = Field(default_factory=ProvidersSettings)
+    """Schema for /etc/roostos/providers.yaml or custom container YAML files."""
+    providers: Optional[ProvidersSettings] = None
+    container: Optional[ContainerConfig] = None
+    description: Optional[str] = None
+
+
+ContainerConfigFile = ProvidersConfigFile

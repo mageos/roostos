@@ -20,24 +20,55 @@ def load_providers_settings(
     providers_config_path: Optional[str] = None,
     overrides: Optional[Dict[str, Any]] = None
 ) -> ProvidersSettings:
-    """Loads ProvidersSettings from providers.yaml, applying environment and CLI overrides."""
+    """Loads ProvidersSettings from container.yaml/providers.yaml, applying environment and CLI overrides."""
     settings_dict: Dict[str, Any] = {}
+    target_file = None
+
+    # Check for preset shortcuts like 'mock' or 'prod'
+    if providers_config_path in ("mock", "mock_container"):
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        candidate = os.path.join(repo_root, "config", "mock_container.yaml")
+        if os.path.exists(candidate):
+            target_file = candidate
+        else:
+            settings_dict.update({
+                "auth_provider": "mock",
+                "config_repository": "memory",
+                "system_client": "mock",
+                "cert_manager": "mock",
+                "firewall_manager": "mock",
+                "data_seeder": "concept1",
+                "auto_auth": True,
+            })
+    elif providers_config_path in ("prod", "production"):
+        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        candidate = os.path.join(repo_root, "config", "container.yaml")
+        if os.path.exists(candidate):
+            target_file = candidate
+    else:
+        target_file = providers_config_path or os.environ.get(
+            "ROOSTOS_CONTAINER_CONFIG",
+            os.environ.get(
+                "ROOSTOS_PROVIDERS_CONFIG",
+                os.path.join(config_dir, "container.yaml")
+                if os.path.exists(os.path.join(config_dir, "container.yaml"))
+                else os.path.join(config_dir, "providers.yaml")
+            )
+        )
 
     # 1. Load from file if present
-    target_file = providers_config_path or os.environ.get(
-        "ROOSTOS_PROVIDERS_CONFIG",
-        os.path.join(config_dir, "providers.yaml")
-    )
-    if os.path.exists(target_file):
+    if target_file and os.path.exists(target_file):
         try:
             with open(target_file, "r") as f:
                 content = yaml.safe_load(f) or {}
-                if "providers" in content and isinstance(content["providers"], dict):
+                if "container" in content and isinstance(content["container"], dict):
+                    settings_dict.update(content["container"])
+                elif "providers" in content and isinstance(content["providers"], dict):
                     settings_dict.update(content["providers"])
                 elif isinstance(content, dict):
                     settings_dict.update(content)
         except Exception as e:
-            print(f"Warning: Failed to parse providers config file '{target_file}': {e}")
+            print(f"Warning: Failed to parse container config file '{target_file}': {e}")
 
     # 2. Apply environment variable overrides
     env_mappings = {
@@ -46,6 +77,7 @@ def load_providers_settings(
         "ROOSTOS_SYSTEM_CLIENT": "system_client",
         "ROOSTOS_CERT_MANAGER": "cert_manager",
         "ROOSTOS_FIREWALL_MANAGER": "firewall_manager",
+        "ROOSTOS_DATA_SEEDER": "data_seeder",
     }
     for env_key, setting_key in env_mappings.items():
         val = os.environ.get(env_key)
@@ -99,8 +131,15 @@ class EngineDIModule(Module):
         elif repo_impl in ("yaml", "file", "direct"):
             repo_instance = YAMLConfigRepository(self.config_dir)
         elif repo_impl in ("memory", "inmemory", "mock"):
-            from roostos_engine.mock_data import create_mock_config
-            repo_instance = InMemoryConfigRepository(initial_config=create_mock_config())
+            seeder = getattr(self.providers_settings, "data_seeder", "concept1").lower()
+            if seeder in ("empty", "none", "clean"):
+                repo_instance = InMemoryConfigRepository()
+            elif os.path.exists(seeder):
+                from roostos_engine.config import load_config_directory
+                repo_instance = InMemoryConfigRepository(initial_config=load_config_directory(seeder))
+            else:
+                from roostos_engine.mock_data import create_mock_config
+                repo_instance = InMemoryConfigRepository(initial_config=create_mock_config())
         else:
             repo_instance = StagingConfigRepository(self.config_dir, self.staged_dir)
 
