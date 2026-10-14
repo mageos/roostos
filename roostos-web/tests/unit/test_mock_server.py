@@ -141,6 +141,9 @@ def test_load_container_config_file_direct():
     assert settings.system_client == "mock"
     assert settings.cert_manager == "mock"
     assert settings.firewall_manager == "mock"
+    assert settings.dhcp_manager == "mock"
+    assert settings.dns_manager == "mock"
+    assert settings.network_manager == "mock"
     assert settings.data_seeder == "concept1"
     assert settings.auto_auth is True
     assert "exploratory UI" in (settings.description or "")
@@ -151,11 +154,16 @@ def test_load_container_config_presets():
     mock_settings = load_providers_settings(providers_config_path="mock")
     assert mock_settings.config_repository == "memory"
     assert mock_settings.system_client == "mock"
+    assert mock_settings.dhcp_manager == "mock"
+    assert mock_settings.dns_manager == "mock"
     assert mock_settings.data_seeder == "concept1"
 
     prod_settings = load_providers_settings(providers_config_path="prod")
     assert prod_settings.config_repository == "staging"
     assert prod_settings.system_client == "dbus"
+    assert prod_settings.dhcp_manager == "kea"
+    assert prod_settings.dns_manager == "technitium"
+    assert prod_settings.network_manager == "systemd"
     assert prod_settings.auto_auth is False
 
 

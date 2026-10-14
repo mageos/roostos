@@ -164,7 +164,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config-repo", default=os.environ.get("ROOSTOS_CONFIG_REPO"), help="Override repository: 'staging', 'yaml', 'memory'")
     parser.add_argument("--system-client", default=os.environ.get("ROOSTOS_SYSTEM_CLIENT"), help="Override system client: 'dbus', 'mock'")
     parser.add_argument("--cert-manager", default=os.environ.get("ROOSTOS_CERT_MANAGER"), help="Override certificate manager: 'standard', 'mock'")
-    parser.add_argument("--firewall-manager", default=os.environ.get("ROOSTOS_FIREWALL_MANAGER"), help="Override firewall manager: 'nftables', 'mock'")
+    parser.add_argument("--firewall-manager", default=os.environ.get("ROOSTOS_FIREWALL_MANAGER"), help="Override firewall manager: 'nftables', 'iptables', 'ebpf', 'mock'")
+    parser.add_argument("--dhcp-manager", default=os.environ.get("ROOSTOS_DHCP_MANAGER"), help="Override DHCP manager: 'kea', 'dnsmasq', 'mock'")
+    parser.add_argument("--dns-manager", default=os.environ.get("ROOSTOS_DNS_MANAGER"), help="Override DNS manager: 'local', 'technitium', 'dnsmasq', 'mock'")
+    parser.add_argument("--network-manager", default=os.environ.get("ROOSTOS_NETWORK_MANAGER"), help="Override network manager: 'systemd', 'mock'")
     parser.add_argument("--host", default=os.environ.get("ROOSTOS_HOST", "0.0.0.0"), help="Host IP to bind web server")
     parser.add_argument("--port", type=int, default=int(os.environ.get("ROOSTOS_PORT", os.environ.get("ROOSTOS_WEB_PORT", 8000))), help="Port to bind web server")
     parser.add_argument("--mode", default=os.environ.get("ROOSTOS_MODE"), choices=["full", "edge", "edge_gateway", "api_only", "limited"], help="Server operation mode: 'full', 'edge_gateway', or 'api_only'")
@@ -188,6 +191,9 @@ def main() -> None:
         "system_client": args.system_client,
         "cert_manager": args.cert_manager,
         "firewall_manager": args.firewall_manager,
+        "dhcp_manager": args.dhcp_manager,
+        "dns_manager": args.dns_manager,
+        "network_manager": args.network_manager,
     }
 
     providers_settings = load_providers_settings(

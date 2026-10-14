@@ -12,5 +12,9 @@ container:
   system_client: "mock"
   cert_manager: "mock"
   firewall_manager: "mock"
+  dhcp_manager: "mock"
+  dns_manager: "mock"
+  network_manager: "mock"
   data_seeder: "concept1"
   auto_auth: true
+

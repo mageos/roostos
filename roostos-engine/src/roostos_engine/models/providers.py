@@ -28,7 +28,19 @@ class ProvidersSettings(BaseModel):
     )
     firewall_manager: str = Field(
         default="nftables",
-        description="Firewall manager implementation ('nftables', 'mock')"
+        description="Firewall manager implementation ('nftables', 'iptables', 'ebpf', 'mock')"
+    )
+    dhcp_manager: str = Field(
+        default="kea",
+        description="DHCP server provider implementation ('kea', 'dnsmasq', 'isc-dhcp', 'mock')"
+    )
+    dns_manager: str = Field(
+        default="local",
+        description="DNS resolver and blocking provider implementation ('local', 'technitium', 'dnsmasq', 'mock')"
+    )
+    network_manager: str = Field(
+        default="systemd",
+        description="Network interface and VLAN manager implementation ('systemd', 'networkmanager', 'mock')"
     )
     data_seeder: str = Field(
         default="concept1",

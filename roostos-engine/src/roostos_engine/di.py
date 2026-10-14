@@ -37,6 +37,9 @@ def load_providers_settings(
                 "system_client": "mock",
                 "cert_manager": "mock",
                 "firewall_manager": "mock",
+                "dhcp_manager": "mock",
+                "dns_manager": "mock",
+                "network_manager": "mock",
                 "data_seeder": "concept1",
                 "auto_auth": True,
             })
@@ -77,6 +80,9 @@ def load_providers_settings(
         "ROOSTOS_SYSTEM_CLIENT": "system_client",
         "ROOSTOS_CERT_MANAGER": "cert_manager",
         "ROOSTOS_FIREWALL_MANAGER": "firewall_manager",
+        "ROOSTOS_DHCP_MANAGER": "dhcp_manager",
+        "ROOSTOS_DNS_MANAGER": "dns_manager",
+        "ROOSTOS_NETWORK_MANAGER": "network_manager",
         "ROOSTOS_DATA_SEEDER": "data_seeder",
     }
     for env_key, setting_key in env_mappings.items():

@@ -8,5 +8,8 @@ container:
   system_client: "dbus"
   cert_manager: "standard"
   firewall_manager: "nftables"
+  dhcp_manager: "kea"
+  dns_manager: "technitium"
+  network_manager: "systemd"
   data_seeder: "none"
   auto_auth: false
