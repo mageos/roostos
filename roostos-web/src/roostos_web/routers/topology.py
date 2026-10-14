@@ -1,0 +1,288 @@
+"""FastAPI router for Network Topology visualization and inter-network link routing."""
+
+import ipaddress
+from typing import Any, Dict, List, Optional
+import uuid
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+
+from roostos_engine.models.networks import Network, NetworkLink
+from roostos_engine.models.network import ZoneConfig
+from roostos_engine.repository import ConfigRepository
+from roostos_web.auth import get_current_admin, get_current_parent, UserSession
+from roostos_web.di import Injected
+from roostos_web.services.network_discovery import discover_live_system_subnets
+
+router = APIRouter(prefix="/api/network/topology", tags=["Topology"])
+
+
+class TopologyResponse(BaseModel):
+    networks: List[Network]
+    links: List[NetworkLink]
+    zones: List[ZoneConfig]
+    visual_nodes: List[Dict[str, Any]]
+    visual_edges: List[Dict[str, Any]]
+
+
+class UpsertNetworkRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    subnet: str
+    gateway_ip: Optional[str] = None
+    network_type: str = "lan"
+    interface: Optional[str] = None
+    zone_id: Optional[str] = "lan"
+    isolate: bool = False
+
+
+class UpsertLinkRequest(BaseModel):
+    id: Optional[str] = None
+    source_network_id: str
+    target_network_id: str
+    connection_type: str = "wireguard_tunnel"
+    routing_mode: str = "routed"
+    firewall_policy: str = "source_to_target_only"
+    allowed_ports: List[str] = Field(default_factory=list)
+    gateway_ip: Optional[str] = None
+    description: Optional[str] = None
+
+
+def _discover_topology_networks(config: Any) -> List[Network]:
+    """Discovers subnets from config and live kernel interfaces (bridges, WAN, WireGuard)."""
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    networks: List[Network] = []
+    seen = set()
+
+    def add_net(n: Network):
+        if n.subnet not in seen and n.id not in seen:
+            networks.append(n)
+            seen.add(n.subnet)
+            seen.add(n.id)
+
+    # 1. Configured custom subnets
+    for n in (getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or []):
+        add_net(n)
+
+    # 2. Configured bridges
+    for b in (getattr(inner_cfg, "bridges", []) or getattr(net_cfg, "bridges", []) or []):
+        if getattr(b, "ip", None):
+            try:
+                iface = ipaddress.ip_interface(b.ip)
+                add_net(Network(
+                    id=f"net-{b.name}", name=f"Local LAN ({b.name})", subnet=str(iface.network),
+                    gateway_ip=str(iface.ip), network_type="lan", interface=b.name, zone_id="lan"
+                ))
+            except Exception:
+                pass
+
+    # 3. Configured WAN interfaces
+    for i in (getattr(inner_cfg, "interfaces", []) or getattr(net_cfg, "interfaces", []) or []):
+        if (getattr(i, "network", None) or getattr(i, "role", None)) == "wan":
+            sub = "0.0.0.0/0"
+            if getattr(i, "ip", None):
+                try: sub = str(ipaddress.ip_interface(i.ip).network)
+                except Exception: pass
+            add_net(Network(
+                id=f"net-{i.name}", name=f"WAN Uplink ({i.name})", subnet=sub,
+                gateway_ip=getattr(i, "gateway", None), network_type="wan_upstream",
+                interface=i.name, zone_id="wan"
+            ))
+
+    # 4. Configured WireGuard Edge Gateways
+    for gw in (getattr(inner_cfg, "edge_gateways", []) or getattr(net_cfg, "edge_gateways", []) or []):
+        if getattr(gw, "tunnel_ip_gateway", None):
+            add_net(Network(
+                id=f"net-{gw.id}", name="WireGuard Overlay Hub", subnet="10.42.0.0/24",
+                gateway_ip=gw.tunnel_ip_gateway.split("/")[0], network_type="vpn_overlay",
+                interface="wg-edge", zone_id="vpn"
+            ))
+
+    # 5. Live kernel interface discovery (br0, wg-edge, eth0, docker0)
+    for ln in discover_live_system_subnets():
+        add_net(ln)
+
+    # 6. Fallback if empty (e.g. testing container without ip stack)
+    if not networks:
+        add_net(Network(id="default-lan", name="Primary LAN", subnet="192.168.1.0/24", gateway_ip="192.168.1.1", network_type="lan", interface="br-lan", zone_id="lan"))
+        add_net(Network(id="default-wan", name="Internet / WAN", subnet="0.0.0.0/0", network_type="wan_upstream", interface="eth0", zone_id="wan"))
+
+    return networks
+
+
+def _discover_topology_links(config: Any, networks: List[Network]) -> List[NetworkLink]:
+    """Retrieves saved links or synthesizes standard default WAN and WireGuard tunnels."""
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    saved = getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or []
+    if saved:
+        return list(saved)
+
+    lan_net = next((n for n in networks if n.network_type == "lan"), None)
+    wan_net = next((n for n in networks if n.network_type == "wan_upstream"), None)
+    wg_net = next((n for n in networks if n.network_type == "vpn_overlay"), None)
+
+    defaults: List[NetworkLink] = []
+    if lan_net and wan_net:
+        defaults.append(NetworkLink(
+            id=f"link-{lan_net.id}-{wan_net.id}", source_network_id=lan_net.id, target_network_id=wan_net.id,
+            connection_type="physical_wan", routing_mode="nat_masquerade", firewall_policy="source_to_target_only",
+            description="Outbound internet access with stateful NAT masquerade", status="active"
+        ))
+    if lan_net and wg_net:
+        defaults.append(NetworkLink(
+            id=f"link-{lan_net.id}-{wg_net.id}", source_network_id=lan_net.id, target_network_id=wg_net.id,
+            connection_type="wireguard_tunnel", routing_mode="routed", firewall_policy="bidirectional_allow",
+            description="Encrypted WireGuard mesh tunnel", status="active"
+        ))
+    return defaults
+
+
+@router.get("", response_model=TopologyResponse)
+async def get_network_topology(
+    current_user: UserSession = Depends(get_current_parent),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> TopologyResponse:
+    """Retrieves full topology model dynamically discovering subnets and routing links."""
+    config = repo.get_config()
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+
+    networks = _discover_topology_networks(config)
+    links = _discover_topology_links(config, networks)
+    zones = list(getattr(inner_cfg, "zones", []) or getattr(net_cfg, "zones", []) or [])
+
+    visual_nodes = [
+        {"id": n.id, "name": n.name, "subnet": n.subnet, "gateway_ip": n.gateway_ip, "network_type": n.network_type, "interface": n.interface or "unassigned", "zone_id": n.zone_id or "lan"}
+        for n in networks
+    ]
+    visual_edges = [
+        {"id": l.id, "source": l.source_network_id, "target": l.target_network_id, "connection_type": l.connection_type, "routing_mode": l.routing_mode, "firewall_policy": l.firewall_policy, "allowed_ports": l.allowed_ports, "status": l.status, "description": l.description or ""}
+        for l in links
+    ]
+    return TopologyResponse(networks=networks, links=links, zones=zones, visual_nodes=visual_nodes, visual_edges=visual_edges)
+
+
+@router.post("/subnets", response_model=Network)
+async def upsert_network_subnet(
+    payload: UpsertNetworkRequest,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> Network:
+    """Creates or updates a managed subnet in the topology."""
+    config = repo.get_config()
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    networks = list(getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or [])
+
+    target_id = payload.id or f"net-{uuid.uuid4().hex[:6]}"
+    existing = next((n for n in networks if n.id == target_id), None)
+    if existing:
+        existing.name = payload.name.strip()
+        existing.subnet = payload.subnet.strip()
+        existing.gateway_ip = payload.gateway_ip.strip() if payload.gateway_ip else None
+        existing.network_type = payload.network_type
+        existing.interface = payload.interface
+        existing.zone_id = payload.zone_id
+        existing.isolate = payload.isolate
+        saved = existing
+    else:
+        saved = Network(
+            id=target_id, name=payload.name.strip(), subnet=payload.subnet.strip(),
+            gateway_ip=payload.gateway_ip.strip() if payload.gateway_ip else None,
+            network_type=payload.network_type, interface=payload.interface,
+            zone_id=payload.zone_id, isolate=payload.isolate,
+        )
+        networks.append(saved)
+
+    if hasattr(inner_cfg, "networks"): inner_cfg.networks = networks
+    if hasattr(net_cfg, "networks"): net_cfg.networks = networks
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to save subnet: {e}")
+    return saved
+
+
+@router.delete("/subnets/{network_id}")
+async def delete_network_subnet(
+    network_id: str,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> Dict[str, str]:
+    """Deletes a subnet from the topology and removes connected links."""
+    config = repo.get_config()
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    networks = list(getattr(inner_cfg, "networks", []) or getattr(net_cfg, "networks", []) or [])
+    links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or [])
+
+    new_nets = [n for n in networks if n.id != network_id]
+    new_links = [l for l in links if l.source_network_id != network_id and l.target_network_id != network_id]
+
+    if hasattr(inner_cfg, "networks"): inner_cfg.networks = new_nets
+    if hasattr(net_cfg, "networks"): net_cfg.networks = new_nets
+    if hasattr(inner_cfg, "links"): inner_cfg.links = new_links
+    if hasattr(net_cfg, "links"): net_cfg.links = new_links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to delete subnet: {e}")
+    return {"status": "success", "message": f"Subnet '{network_id}' removed."}
+
+
+@router.post("/links", response_model=NetworkLink)
+async def upsert_network_link(
+    payload: UpsertLinkRequest,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> NetworkLink:
+    """Configures an inter-network routing link with connection type, routing mode, and firewall policy."""
+    config = repo.get_config()
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or [])
+
+    target_id = payload.id or f"link-{uuid.uuid4().hex[:6]}"
+    existing = next((l for l in links if l.id == target_id), None)
+    if existing:
+        existing.source_network_id = payload.source_network_id
+        existing.target_network_id = payload.target_network_id
+        existing.connection_type = payload.connection_type
+        existing.routing_mode = payload.routing_mode
+        existing.firewall_policy = payload.firewall_policy
+        existing.allowed_ports = payload.allowed_ports
+        existing.gateway_ip = payload.gateway_ip
+        existing.description = payload.description
+        saved = existing
+    else:
+        saved = NetworkLink(
+            id=target_id, source_network_id=payload.source_network_id,
+            target_network_id=payload.target_network_id, connection_type=payload.connection_type,
+            routing_mode=payload.routing_mode, firewall_policy=payload.firewall_policy,
+            allowed_ports=payload.allowed_ports, gateway_ip=payload.gateway_ip,
+            description=payload.description, status="active",
+        )
+        links.append(saved)
+
+    if hasattr(inner_cfg, "links"): inner_cfg.links = links
+    if hasattr(net_cfg, "links"): net_cfg.links = links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to save link: {e}")
+    return saved
+
+
+@router.delete("/links/{link_id}")
+async def delete_network_link(
+    link_id: str,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> Dict[str, str]:
+    """Revokes and deletes an inter-network link."""
+    config = repo.get_config()
+    net_cfg = getattr(config, "network", None)
+    inner_cfg = getattr(net_cfg, "network", None) or net_cfg
+    links = list(getattr(inner_cfg, "links", []) or getattr(net_cfg, "links", []) or [])
+
+    new_links = [l for l in links if l.id != link_id]
+    if hasattr(inner_cfg, "links"): inner_cfg.links = new_links
+    if hasattr(net_cfg, "links"): net_cfg.links = new_links
+    try: repo.save_network_config(net_cfg)
+    except Exception as e: print(f"Warning: Failed to delete link: {e}")
+    return {"status": "success", "message": f"Link '{link_id}' deleted."}

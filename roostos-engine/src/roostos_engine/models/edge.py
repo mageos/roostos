@@ -2,6 +2,7 @@
 
 import base64
 import time
+from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
@@ -13,7 +14,35 @@ class IngressRoute(BaseModel):
     target_ip: str
     target_port: int
     ssl_enabled: bool = True
+    ssl_status: str = "pending"  # "valid", "pending", "disabled", "error"
     edge_gateway_id: str = "edge-01"
+
+
+class EdgePeerType(str, Enum):
+    MOBILE = "mobile"
+    SITE = "site"
+    CLIENT = "client"
+
+
+class EdgePeer(BaseModel):
+    """WireGuard client or site peer connected to the Edge Gateway hub."""
+    id: str
+    name: str
+    peer_type: EdgePeerType = EdgePeerType.MOBILE
+    public_key: str
+    assigned_ip: str
+    subnets: List[str] = Field(default_factory=list)
+    route_internet: bool = False
+    created_at: str = ""
+    client_config: Optional[str] = None
+    qr_svg: Optional[str] = None
+
+
+class CreatePeerRequest(BaseModel):
+    name: str
+    peer_type: EdgePeerType = EdgePeerType.MOBILE
+    subnets: List[str] = Field(default_factory=list)
+    route_internet: bool = False
 
 
 class EdgeGatewayConfig(BaseModel):
@@ -29,6 +58,7 @@ class EdgeGatewayConfig(BaseModel):
     status: str = "disconnected"  # "disconnected", "connected", "pending"
     last_handshake: Optional[str] = None
     ingress_routes: List[IngressRoute] = Field(default_factory=list)
+    peers: List[EdgePeer] = Field(default_factory=list)
 
 
 class EdgeBootstrapToken(BaseModel):

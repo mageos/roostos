@@ -20,12 +20,28 @@ class DHCPSettings(BaseModel):
     dns_servers: List[str] = Field(default_factory=list)
 
 
+class NetworkLink(BaseModel):
+    """Represents a directional or bidirectional connection between two subnets."""
+    id: str
+    source_network_id: str
+    target_network_id: str
+    connection_type: str = "wireguard_tunnel"  # "physical_wan", "wireguard_tunnel", "vpc_peering", "direct_bridge", "static_route"
+    routing_mode: str = "routed"  # "nat_masquerade", "routed", "isolated"
+    firewall_policy: str = "source_to_target_only"  # "bidirectional_allow", "source_to_target_only", "restricted", "block"
+    allowed_ports: List[str] = Field(default_factory=list)
+    gateway_ip: Optional[str] = None
+    description: Optional[str] = None
+    status: str = "active"  # "active", "down", "pending"
+
+
 class Network(BaseModel):
-    id: str  # e.g. "lan", "iot", "guest", "management"
-    name: str  # e.g. "Family LAN", "Smart Home IoT"
-    subnet: str  # e.g. "192.168.1.0/24"
+    id: str  # e.g. "lan", "iot", "guest", "management", "cloud_vpc", "wan"
+    name: str  # e.g. "Primary LAN", "Guest Wi-Fi", "Cloud VPC"
+    subnet: str  # e.g. "192.168.1.0/24", "10.0.0.0/24"
     vlan_tag: Optional[int] = None  # e.g. 20, 50
     gateway_ip: Optional[str] = None  # e.g. "192.168.1.1"
+    network_type: str = "lan"  # "lan", "wan_upstream", "vpn_overlay", "cloud_vpc", "dmz", "guest"
+    interface: Optional[str] = None  # e.g. "br-lan", "eth0", "wg-edge"
     dhcp: DHCPSettings = Field(default_factory=DHCPSettings)
     dns_servers: List[str] = Field(default_factory=list)
     wifi_ssids: List[WifiSSIDConfig] = Field(default_factory=list)
@@ -42,5 +58,6 @@ class Network(BaseModel):
 
 class NetworksConfigFile(BaseModel):
     networks: List[Network] = Field(default_factory=list)
+    links: List[NetworkLink] = Field(default_factory=list)
     zones: List[ZoneConfig] = Field(default_factory=list)
     qos: Optional[QoSConfig] = Field(default_factory=QoSConfig)

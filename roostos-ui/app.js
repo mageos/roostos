@@ -140,6 +140,13 @@ window.switchView = function(viewId) {
     const activePane = document.getElementById(`${viewId}-view`);
     if (activePane) activePane.classList.add("active");
 
+    const mobileSidebar = document.querySelector(".app-sidebar");
+    const mobileBackdrop = document.getElementById("sidebar-backdrop");
+    if (mobileSidebar && mobileBackdrop) {
+        mobileSidebar.classList.remove("sidebar-open");
+        mobileBackdrop.classList.remove("active");
+    }
+
     const titleEl = document.getElementById("view-title");
     const categoryEl = document.getElementById("breadcrumb-category");
     const titles = {
@@ -151,6 +158,7 @@ window.switchView = function(viewId) {
         firewall: "Firewall Rules & NAT",
         parental: "Parental Controls & Bedtimes",
         dns: "DNS Resolver Settings",
+        certificates: "SSL Certificates & Automated Let's Encrypt",
         people: "Family Profiles & Operator Logins",
         locations: "Buildings & Rooms",
         devices: "Registered Devices",
@@ -169,6 +177,7 @@ window.switchView = function(viewId) {
         firewall: "Security",
         parental: "Security",
         dns: "Security",
+        certificates: "Security",
         people: "Management",
         locations: "Management",
         devices: "Management",
@@ -765,6 +774,15 @@ function init() {
         `;
         viewContainer.appendChild(dnsPane);
 
+        // Certificates & SSL
+        const certsPane = document.createElement("div");
+        certsPane.id = "certificates-view";
+        certsPane.className = "view-pane";
+        certsPane.innerHTML = `
+            <certificates-management id="certificates-management-elem"></certificates-management>
+        `;
+        viewContainer.appendChild(certsPane);
+
         // People & Users
         const peoplePane = document.createElement("div");
         peoplePane.id = "people-view";
@@ -865,6 +883,20 @@ function init() {
     // 2. Setup theme settings
     window.loadSavedTheme();
     window.initSidebarCollapse();
+
+    const mobileToggle = document.getElementById("mobile-sidebar-toggle-btn");
+    const sidebar = document.querySelector(".app-sidebar");
+    const backdrop = document.getElementById("sidebar-backdrop");
+    if (mobileToggle && sidebar && backdrop) {
+        mobileToggle.onclick = () => {
+            sidebar.classList.toggle("sidebar-open");
+            backdrop.classList.toggle("active");
+        };
+        backdrop.onclick = () => {
+            sidebar.classList.remove("sidebar-open");
+            backdrop.classList.remove("active");
+        };
+    }
 
     // 3. Populate default viewport dashboard info and switch to status view
     window.switchView('status');
