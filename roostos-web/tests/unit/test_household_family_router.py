@@ -175,3 +175,40 @@ def test_protection_threat_feed_and_shields(test_setup):
     shields_resp = client.get("/api/v1/protection/shields", headers=headers)
     assert shields_resp.status_code == 200
     assert shields_resp.json()["ad_blocking_enabled"] is True
+
+
+def test_create_and_delete_family_person(test_setup):
+    client, headers = test_setup
+    create_resp = client.post(
+        "/api/v1/family/people",
+        json={"name": "Grandma", "role": "member", "screentime_limit_minutes": 0, "filter_level": "Standard"},
+        headers=headers,
+    )
+    assert create_resp.status_code == 201
+    created = create_resp.json()
+    assert created["id"] == "grandma"
+    assert created["name"] == "Grandma"
+
+    # Verify present in list
+    list_resp = client.get("/api/v1/family/people", headers=headers)
+    assert any(p["id"] == "grandma" for p in list_resp.json())
+
+    # Delete
+    del_resp = client.delete("/api/v1/family/people/grandma", headers=headers)
+    assert del_resp.status_code == 204
+
+    # Verify absent from list
+    after_del = client.get("/api/v1/family/people", headers=headers)
+    assert not any(p["id"] == "grandma" for p in after_del.json())
+
+
+def test_pause_individual_person(test_setup):
+    client, headers = test_setup
+    pause_resp = client.post("/api/v1/family/people/alice/pause", json={"paused": True}, headers=headers)
+    assert pause_resp.status_code == 200
+    assert pause_resp.json()["action"] == "pause_person"
+
+    resume_resp = client.post("/api/v1/family/people/alice/pause", json={"paused": False}, headers=headers)
+    assert resume_resp.status_code == 200
+    assert resume_resp.json()["action"] == "resume_person"
+

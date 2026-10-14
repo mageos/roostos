@@ -195,15 +195,17 @@ export function renderHouseholdHome(container) {
                 <button class="btn btn-secondary btn-sm" id="btn-view-blocked-feed">View Blocked Requests →</button>
             </div>
         </div>
+
+        <div id="guest-qr-modal-container"></div>
     `;
 
     // Event handlers
     container.querySelector('#qa-pause-kids')?.addEventListener('click', () => {
-        kids.forEach(k => store.toggleBedtime(k.id));
+        store.togglePauseKids(!allKidsPaused);
     });
 
     container.querySelector('#qa-dinner-time')?.addEventListener('click', () => {
-        data.people.forEach(p => store.toggleBedtime(p.id));
+        store.triggerDinnerTime(60);
     });
 
     container.querySelector('#qa-bonus-time')?.addEventListener('click', () => {
@@ -211,8 +213,61 @@ export function renderHouseholdHome(container) {
     });
 
     container.querySelector('#qa-guest-qr')?.addEventListener('click', () => {
-        window.c1SwitchTab('wifi');
+        showGuestWifiModal();
     });
+
+    function showGuestWifiModal() {
+        const guestNet = data.wifiNetworks.find(w => w.ssid.includes('Guest') || w.isolate) || {
+            ssid: 'RoostHome-Guest',
+            password: 'GuestWelcome2026'
+        };
+        const modal = container.querySelector('#guest-qr-modal-container');
+        modal.innerHTML = `
+            <div class="drawer-backdrop" id="guest-qr-backdrop" style="justify-content: center; align-items: center;">
+                <div class="card" style="max-width: 360px; width: 100%; text-align: center; padding: 24px; position: relative;">
+                    <button class="btn btn-ghost btn-sm" id="close-guest-qr-btn" style="position: absolute; top: 14px; right: 14px; font-size: 18px;">✕</button>
+                    <h3 style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">Guest Wi-Fi QR Code</h3>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Scan with phone camera to connect instantly</p>
+                    
+                    <div style="background: #ffffff; padding: 18px; border-radius: var(--radius-md); display: inline-block; border: 1px solid var(--border-subtle); margin-bottom: 16px;">
+                        <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect width="160" height="160" fill="white"/>
+                            <rect x="10" y="10" width="40" height="40" fill="black"/>
+                            <rect x="20" y="20" width="20" height="20" fill="white"/>
+                            <rect x="110" y="10" width="40" height="40" fill="black"/>
+                            <rect x="120" y="20" width="20" height="20" fill="white"/>
+                            <rect x="10" y="110" width="40" height="40" fill="black"/>
+                            <rect x="20" y="120" width="20" height="20" fill="white"/>
+                            <rect x="60" y="20" width="10" height="30" fill="black"/>
+                            <rect x="80" y="10" width="20" height="10" fill="black"/>
+                            <rect x="60" y="70" width="40" height="20" fill="black"/>
+                            <rect x="20" y="70" width="20" height="20" fill="black"/>
+                            <rect x="120" y="70" width="20" height="20" fill="black"/>
+                            <rect x="70" y="110" width="30" height="30" fill="black"/>
+                            <rect x="120" y="110" width="20" height="30" fill="black"/>
+                        </svg>
+                    </div>
+
+                    <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px; text-align: left;">
+                        <div>Network: <strong>${guestNet.ssid}</strong></div>
+                        <div style="margin-top: 4px;">Password: <code id="guest-qr-pass-text">${guestNet.password || 'GuestWelcome2026'}</code></div>
+                    </div>
+
+                    <button class="btn btn-primary" id="btn-copy-guest-pass" style="width: 100%;">📋 Copy Password</button>
+                </div>
+            </div>
+        `;
+
+        modal.querySelector('#close-guest-qr-btn').onclick = () => { modal.innerHTML = ''; };
+        modal.querySelector('#guest-qr-backdrop').onclick = (e) => {
+            if (e.target.id === 'guest-qr-backdrop') modal.innerHTML = '';
+        };
+        modal.querySelector('#btn-copy-guest-pass').onclick = (e) => {
+            navigator.clipboard?.writeText(guestNet.password || 'GuestWelcome2026');
+            e.target.textContent = '✓ Copied!';
+            setTimeout(() => { modal.innerHTML = ''; }, 1200);
+        };
+    }
 
     container.querySelector('#btn-view-all-family')?.addEventListener('click', () => {
         window.c1SwitchTab('family');

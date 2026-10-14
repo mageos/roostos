@@ -37,18 +37,28 @@ class StateStore {
 
     // Family Profiles & Parental Controls
     async addPerson(person) {
+        const personId = person.id || person.name.toLowerCase().replace(/\s+/g, '-').replace(/'/g, '');
         try {
-            await api.request('/api/people', {
-                method: 'POST',
-                body: JSON.stringify({ id: person.id, name: person.name, dns_profile: person.filterLevel })
+            await api.createFamilyPerson({
+                id: personId,
+                name: person.name,
+                role: person.role || 'member',
+                screentime_limit_minutes: Number(person.screentimeLimit) || 120,
+                bedtime: {
+                    start_time: person.bedtimeStart || '21:00',
+                    end_time: person.bedtimeEnd || '06:30',
+                    enabled: true,
+                    active_now: false
+                },
+                filter_level: person.filterLevel || 'Standard'
             });
             await this.syncWithBackend();
         } catch (e) {
-            console.warn('addPerson failed, fallback local:', e);
+            console.warn('createFamilyPerson API failed, fallback local:', e);
             this.data.people.push({
-                id: person.id, name: person.name, role: person.role || 'member',
+                id: personId, name: person.name, role: person.role || 'member',
                 avatar: person.role === 'kid' ? '🧒' : '👤', color: '#3b82f6',
-                screentimeLimit: person.screentimeLimit || 120, screentimeUsed: 0,
+                screentimeLimit: Number(person.screentimeLimit) || 120, screentimeUsed: 0,
                 bedtimeStart: person.bedtimeStart || '21:00', bedtimeEnd: person.bedtimeEnd || '06:30',
                 bedtimeActive: false, filterLevel: person.filterLevel || 'Standard', deviceCount: 0
             });
@@ -61,18 +71,28 @@ class StateStore {
         if (p) {
             Object.assign(p, updates);
             try {
-                await api.request('/api/people', {
-                    method: 'POST',
-                    body: JSON.stringify({ id: p.id, name: p.name, dns_profile: p.filterLevel })
+                await api.updateFamilyPerson(id, {
+                    id: p.id,
+                    name: p.name,
+                    role: p.role,
+                    screentime_limit_minutes: Number(p.screentimeLimit) || 0,
+                    screentime_used_minutes: p.screentimeUsed || 0,
+                    bedtime: {
+                        start_time: p.bedtimeStart || '21:00',
+                        end_time: p.bedtimeEnd || '06:30',
+                        enabled: true,
+                        active_now: p.bedtimeActive || false
+                    },
+                    filter_level: p.filterLevel || 'Standard'
                 });
-            } catch (e) { console.warn('updatePerson API failed:', e); }
+            } catch (e) { console.warn('updateFamilyPerson API failed:', e); }
             this.notify('people');
         }
     }
 
     async deletePerson(id) {
-        try { await api.request(`/api/people/${encodeURIComponent(id)}`, { method: 'DELETE' }); }
-        catch (e) { console.warn('deletePerson API failed:', e); }
+        try { await api.deleteFamilyPerson(id); }
+        catch (e) { console.warn('deleteFamilyPerson API failed:', e); }
         this.data.people = this.data.people.filter(p => p.id !== id);
         this.notify('people');
     }
@@ -104,9 +124,8 @@ class StateStore {
         if (p) {
             p.bedtimeActive = !p.bedtimeActive;
             try {
-                if (p.bedtimeActive) await api.pauseKids(true);
-                else await api.grantScreentimeBonus(personId, 30);
-            } catch (e) { console.warn(e); }
+                await api.pausePerson(personId, p.bedtimeActive);
+            } catch (e) { console.warn('pausePerson API failed:', e); }
             this.notify('people');
         }
     }

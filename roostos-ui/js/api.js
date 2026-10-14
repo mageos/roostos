@@ -52,10 +52,30 @@ export class RoostApiClient {
         return this.request('/api/v1/family/people');
     }
 
+    async createFamilyPerson(personData) {
+        return this.request('/api/v1/family/people', {
+            method: 'POST',
+            body: JSON.stringify(personData)
+        });
+    }
+
     async updateFamilyPerson(personId, personData) {
-        return this.request(`/api/v1/family/people/${personId}`, {
+        return this.request(`/api/v1/family/people/${encodeURIComponent(personId)}`, {
             method: 'PUT',
             body: JSON.stringify(personData)
+        });
+    }
+
+    async deleteFamilyPerson(personId) {
+        return this.request(`/api/v1/family/people/${encodeURIComponent(personId)}`, {
+            method: 'DELETE'
+        });
+    }
+
+    async pausePerson(personId, paused = true) {
+        return this.request(`/api/v1/family/people/${encodeURIComponent(personId)}/pause`, {
+            method: 'POST',
+            body: JSON.stringify({ paused })
         });
     }
 

@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from roostos_engine.config import DevicesConfig
+from roostos_engine.models.devices import PersonConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_user, UserSession
@@ -16,6 +17,8 @@ from roostos_web.schemas.family import (
     ScreentimeBonusRequestDTO,
     DinnerTimeRequestDTO,
     PauseKidsRequestDTO,
+    PausePersonRequestDTO,
+    CreateFamilyPersonRequestDTO,
 )
 from roostos_web.schemas.household import QuickActionResponseDTO
 from roostos_web.services import DeviceService
@@ -107,6 +110,118 @@ async def update_family_person(
         pass
 
     return payload
+
+
+@router.post("/people", response_model=FamilyPersonDTO, status_code=status.HTTP_201_CREATED)
+async def create_family_person(
+    payload: CreateFamilyPersonRequestDTO,
+    current_user: UserSession = Depends(get_current_parent),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> FamilyPersonDTO:
+    """Creates a new household person profile with screentime and bedtime settings."""
+    config = repo.get_config()
+    person_id = payload.id or payload.name.lower().replace(" ", "-").replace("'", "")
+
+    if any(p.id == person_id for p in config.people):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Person profile '{person_id}' already exists"
+        )
+
+    dns_profile = payload.filter_level or ("kids" if payload.role == FamilyRoleEnum.KID else "standard")
+    new_person = PersonConfig(id=person_id, name=payload.name, dns_profile=dns_profile)
+    config.people.append(new_person)
+
+    repo.save_devices_config(DevicesConfig(
+        people=config.people,
+        buildings=config.buildings,
+        rooms=config.rooms,
+        devices=config.devices
+    ))
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass
+
+    bedtime = payload.bedtime or BedtimeScheduleDTO()
+    return FamilyPersonDTO(
+        id=person_id,
+        name=payload.name,
+        role=payload.role,
+        avatar=payload.avatar or "👤",
+        screentime_limit_minutes=payload.screentime_limit_minutes,
+        screentime_used_minutes=0,
+        bonus_minutes_today=0,
+        bedtime=bedtime,
+        filter_level=dns_profile,
+        device_count=0,
+        devices=[],
+    )
+
+
+@router.delete("/people/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_family_person(
+    person_id: str,
+    current_user: UserSession = Depends(get_current_parent),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> None:
+    """Removes a family member profile and unlinks their devices."""
+    config = repo.get_config()
+    person_idx = next((i for i, p in enumerate(config.people) if p.id == person_id), None)
+    if person_idx is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Person '{person_id}' not found")
+
+    config.people.pop(person_idx)
+    for d in config.devices:
+        if d.owner == person_id:
+            d.owner = ""
+
+    repo.save_devices_config(DevicesConfig(
+        people=config.people,
+        buildings=config.buildings,
+        rooms=config.rooms,
+        devices=config.devices
+    ))
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass
+
+
+@router.post("/people/{person_id}/pause", response_model=QuickActionResponseDTO)
+async def toggle_pause_person(
+    person_id: str,
+    payload: PausePersonRequestDTO,
+    current_user: UserSession = Depends(get_current_parent),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> QuickActionResponseDTO:
+    """Pauses or unpauses all devices assigned to an individual family member."""
+    config = repo.get_config()
+    p = next((person for person in config.people if person.id == person_id), None)
+    if not p:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Person '{person_id}' not found")
+
+    owned_devices = [d for d in config.devices if d.owner == person_id]
+    for dev in owned_devices:
+        try:
+            if payload.paused:
+                await dbus.remove_time_extension(dev.mac)
+            else:
+                await dbus.grant_time_extension(dev.mac, 3600)
+        except Exception:
+            pass
+
+    action_name = "pause_person" if payload.paused else "resume_person"
+    msg = f"Paused devices for {p.name}." if payload.paused else f"Resumed devices for {p.name}."
+    return QuickActionResponseDTO(
+        action=action_name,
+        status="success",
+        message=msg,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
 
 
 @router.post("/people/{person_id}/bonus", response_model=QuickActionResponseDTO)
