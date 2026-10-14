@@ -13,6 +13,17 @@ from roostos_engine.repository import (
     InMemoryConfigRepository,
 )
 from roostos_engine.cert_manager import CertificateManager
+from roostos_engine.interfaces import (
+    CertificateProvider,
+    FirewallProvider,
+    MockFirewallProvider,
+    DHCPProvider,
+    MockDHCPProvider,
+    DNSResolverProvider,
+    MockDNSResolverProvider,
+    NetworkProvider,
+    MockNetworkProvider,
+)
 
 
 def load_providers_settings(
@@ -151,7 +162,7 @@ class EngineDIModule(Module):
 
         binder.bind(ConfigRepository, to=repo_instance, scope=singleton)
 
-        # Bind CertificateManager
+        # Bind CertificateManager & CertificateProvider
         cert_impl = self.providers_settings.cert_manager.lower()
         if cert_impl in ("mock", "memory"):
             from roostos_engine.mock_cert_manager import MockCertificateManager
@@ -159,6 +170,47 @@ class EngineDIModule(Module):
         else:
             cert_mgr = CertificateManager(cert_dir=self.cert_dir)
         binder.bind(CertificateManager, to=cert_mgr, scope=singleton)
+        binder.bind(CertificateProvider, to=cert_mgr, scope=singleton)
+
+        # Retrieve current configuration for managers requiring initial config
+        try:
+            initial_cfg = repo_instance.get_config()
+        except Exception:
+            initial_cfg = None
+
+        # Bind FirewallProvider
+        fw_impl = self.providers_settings.firewall_manager.lower()
+        if fw_impl in ("mock", "memory") or initial_cfg is None:
+            fw_mgr = MockFirewallProvider(initial_cfg)
+        else:
+            from roostos_engine.firewall_manager import FirewallManager
+            fw_mgr = FirewallManager(initial_cfg)
+        binder.bind(FirewallProvider, to=fw_mgr, scope=singleton)
+
+        # Bind DHCPProvider
+        dhcp_impl = self.providers_settings.dhcp_manager.lower()
+        if dhcp_impl in ("mock", "memory") or initial_cfg is None:
+            dhcp_mgr = MockDHCPProvider(initial_cfg)
+        else:
+            from roostos_engine.dhcp_manager import DHCPManager
+            dhcp_mgr = DHCPManager(initial_cfg)
+        binder.bind(DHCPProvider, to=dhcp_mgr, scope=singleton)
+
+        # Bind DNSResolverProvider
+        dns_impl = self.providers_settings.dns_manager.lower()
+        if dns_impl in ("mock", "memory") or initial_cfg is None:
+            dns_mgr = MockDNSResolverProvider(initial_cfg)
+        else:
+            dns_mgr = MockDNSResolverProvider(initial_cfg)
+        binder.bind(DNSResolverProvider, to=dns_mgr, scope=singleton)
+
+        # Bind NetworkProvider
+        net_impl = self.providers_settings.network_manager.lower()
+        if net_impl in ("mock", "memory") or initial_cfg is None:
+            net_mgr = MockNetworkProvider(initial_cfg)
+        else:
+            net_mgr = MockNetworkProvider(initial_cfg)
+        binder.bind(NetworkProvider, to=net_mgr, scope=singleton)
 
 
 def create_engine_injector(

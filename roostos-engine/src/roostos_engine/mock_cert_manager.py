@@ -96,8 +96,19 @@ class MockCertificateManager(CertificateManager):
             "-----END CERTIFICATE-----\n"
         )
 
-    def issue_server_cert(self, san_dns: Optional[List[str]] = None, san_ips: Optional[List[str]] = None) -> Dict[str, str]:
-        return {"cert_pem": self.get_root_ca_pem(), "key_pem": "MOCK_KEY_PEM"}
+    def issue_server_cert(
+        self,
+        hostname: str = "roost-router",
+        domain: str = "lan",
+        san_dns: Optional[List[str]] = None,
+        san_ips: Optional[List[str]] = None
+    ) -> Dict[str, str]:
+        return {
+            "cert_pem": self.get_root_ca_pem(),
+            "key_pem": "MOCK_KEY_PEM",
+            "cert_path": f"{self.server_cert_dir}/server.crt",
+            "key_path": f"{self.server_cert_dir}/server.key",
+        }
 
     def issue_service_cert(self, service_name: str, scopes: Optional[List[str]] = None) -> Dict[str, str]:
         return {"cert_pem": self.get_root_ca_pem(), "key_pem": "MOCK_KEY_PEM"}

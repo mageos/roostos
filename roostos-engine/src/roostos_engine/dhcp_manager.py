@@ -51,6 +51,10 @@ class DHCPManager:
             return ", ".join(forwarders)
         return local_ip
 
+    def compile_config(self) -> Dict[str, Any]:
+        """Compiles unified RoostConfig structures for DHCPProvider protocol compliance."""
+        return self.compile_kea_config()
+
     def compile_kea_config(self) -> Dict[str, Any]:
         """Compiles unified RoostConfig structures into Kea DHCP4 JSON structure."""
         

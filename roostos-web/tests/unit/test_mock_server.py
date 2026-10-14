@@ -222,3 +222,34 @@ def test_mock_server_and_main_cli_parsers():
     assert main_args.mock is True
     assert main_args.port == 8000
 
+
+def test_pluggable_provider_protocols_in_di(mock_environment):
+    from roostos_engine.interfaces import (
+        FirewallProvider,
+        DHCPProvider,
+        DNSResolverProvider,
+        CertificateProvider,
+        NetworkProvider,
+    )
+    injector = mock_environment
+
+    fw = injector.get(FirewallProvider)
+    assert isinstance(fw, FirewallProvider)
+    assert "Mock" in fw.compile_ruleset()
+
+    dhcp = injector.get(DHCPProvider)
+    assert isinstance(dhcp, DHCPProvider)
+    assert "Dhcp4" in dhcp.compile_config()
+
+    dns = injector.get(DNSResolverProvider)
+    assert isinstance(dns, DNSResolverProvider)
+    assert dns.get_status()["subsystem"] == "mock"
+
+    cert = injector.get(CertificateProvider)
+    assert isinstance(cert, CertificateProvider)
+
+    net = injector.get(NetworkProvider)
+    assert isinstance(net, NetworkProvider)
+    assert len(net.get_interface_states()) >= 2
+
+
