@@ -59,8 +59,11 @@ class WebDIModule(Module):
         # 2. Bind RoostClient
         if self.dbus_client is not None:
             binder.bind(RoostClient, to=self.dbus_client, scope=singleton)
+        elif self.providers_settings.system_client == "mock":
+            from roostos_sdk.mock_client import MockRoostClient
+            binder.bind(RoostClient, to=MockRoostClient(), scope=singleton)
         else:
-            session_bus = os.environ.get("ROOSTOS_SESSION_BUS") == "1" or self.providers_settings.system_client == "mock"
+            session_bus = os.environ.get("ROOSTOS_SESSION_BUS") == "1"
             client = RoostClient(session=session_bus)
             binder.bind(RoostClient, to=client, scope=singleton)
 
@@ -81,12 +84,15 @@ def get_injector() -> Injector:
     """Returns the global application Injector container."""
     global _app_injector
     if _app_injector is None:
-        config_dir = os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos")
-        providers_settings = load_providers_settings(config_dir)
-        _app_injector = create_web_injector(
-            config_dir=config_dir,
-            providers_settings=providers_settings
-        )
+        if os.environ.get("ROOSTOS_MOCK") == "1" or os.environ.get("ROOSTOS_DEV_MOCK") == "1":
+            _app_injector = create_mock_web_injector()
+        else:
+            config_dir = os.environ.get("ROOSTOS_CONFIG_DIR", "/etc/roostos")
+            providers_settings = load_providers_settings(config_dir)
+            _app_injector = create_web_injector(
+                config_dir=config_dir,
+                providers_settings=providers_settings
+            )
     return _app_injector
 
 
@@ -117,6 +123,29 @@ def create_web_injector(
         dbus_client=dbus_client
     )
     return Injector([engine_module, web_module])
+
+
+def create_mock_web_injector(
+    config_dir: str = "/tmp/roostos-mock",
+    dbus_client: Optional[RoostClient] = None
+) -> Injector:
+    """Convenience factory creating a fully mocked, in-memory DI container."""
+    settings = ProvidersSettings(
+        auth_provider="mock",
+        config_repository="memory",
+        system_client="mock",
+        cert_manager="mock",
+        firewall_manager="mock"
+    )
+    from roostos_sdk.mock_client import MockRoostClient
+    client = dbus_client or MockRoostClient()
+    return create_web_injector(
+        config_dir=config_dir,
+        cert_dir=f"{config_dir}/certs",
+        providers_settings=settings,
+        dbus_client=client
+    )
+
 
 
 def Injected(interface: type[T]) -> Any:

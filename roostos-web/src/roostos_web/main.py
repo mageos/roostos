@@ -25,10 +25,10 @@ from roostos_web.services.base import get_repository, set_repository, get_dbus_c
 async def lifespan(app: FastAPI):
     if getattr(app.state, "mode", "full") != "edge_gateway":
         try:
-            # Validate connection to local D-Bus daemon on startup
             client = await get_dbus_client()
             event_publisher.setup_dbus_listeners(client)
-            print("Connected to RoostOS D-Bus Daemon and initialized SSE event stream.")
+            client_type = "MockRoostClient" if os.environ.get("ROOSTOS_MOCK") == "1" else "RoostOS D-Bus Daemon"
+            print(f"Connected to {client_type} and initialized SSE event stream.")
         except Exception as e:
             print(f"Warning: Could not connect to RoostOS D-Bus daemon: {e}", file=sys.stderr)
     yield
@@ -167,10 +167,27 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=int(os.environ.get("ROOSTOS_PORT", os.environ.get("ROOSTOS_WEB_PORT", 8000))), help="Port to bind web server")
     parser.add_argument("--mode", default=os.environ.get("ROOSTOS_MODE"), choices=["full", "edge", "edge_gateway", "api_only", "limited"], help="Server operation mode: 'full', 'edge_gateway', or 'api_only'")
     parser.add_argument("--api-only", "--no-ui", dest="no_ui", action="store_true", default=False, help="Disable hosting the static Web UI, running API only")
+    parser.add_argument("--mock", "--dev", dest="mock", action="store_true", default=False, help="Launch standalone mock backend with seeded in-memory state and mock client for UI testing")
+    parser.add_argument("--reload", action="store_true", default=False, help="Enable auto-reload on code changes")
 
     args = parser.parse_args()
 
     # Configure environmental overrides
+    if args.mock or os.environ.get("ROOSTOS_MOCK") == "1":
+        os.environ["ROOSTOS_MOCK"] = "1"
+        os.environ["ROOSTOS_MOCK_AUTH"] = "1"
+        args.auth_provider = args.auth_provider or "mock"
+        args.config_repo = args.config_repo or "memory"
+        args.system_client = args.system_client or "mock"
+        args.cert_manager = args.cert_manager or "mock"
+        args.firewall_manager = args.firewall_manager or "mock"
+        if not args.config_dir or args.config_dir == "/etc/roostos":
+            import tempfile
+            mock_dir = os.path.join(tempfile.gettempdir(), "roostos-ui-mock")
+            os.makedirs(mock_dir, exist_ok=True)
+            args.config_dir = mock_dir
+            os.environ["ROOSTOS_CONFIG_DIR"] = mock_dir
+
     if args.config_dir:
         os.environ["ROOSTOS_CONFIG_DIR"] = args.config_dir
 
@@ -200,12 +217,25 @@ def main() -> None:
         config_dir=args.config_dir,
     )
 
-    print(
-        f"RoostOS Web initialized with providers: auth='{providers_settings.auth_provider}', "
-        f"repo='{providers_settings.config_repository}', client='{providers_settings.system_client}', "
-        f"mode='{app_to_run.state.mode}', ui={not app_to_run.state.no_ui}"
-    )
-    uvicorn.run(app_to_run, host=args.host, port=args.port)
+    if args.mock or os.environ.get("ROOSTOS_MOCK") == "1":
+        print("=" * 60)
+        print("  🚀 RoostOS UI Test Server (Mock Mode Active)")
+        print(f"  🌐 Web UI:    http://{args.host}:{args.port}/")
+        print(f"  📚 API Docs:  http://{args.host}:{args.port}/docs")
+        print("  🔑 Auth:      Mock Mode (Instant Admin Access)")
+        print("  💾 State:     In-Memory Seed Data (Dad, Mom, Alice, Bob)")
+        print("=" * 60)
+    else:
+        print(
+            f"RoostOS Web initialized with providers: auth='{providers_settings.auth_provider}', "
+            f"repo='{providers_settings.config_repository}', client='{providers_settings.system_client}', "
+            f"mode='{app_to_run.state.mode}', ui={not app_to_run.state.no_ui}"
+        )
+
+    if args.reload:
+        uvicorn.run("roostos_web.main:app", host=args.host, port=args.port, reload=True)
+    else:
+        uvicorn.run(app_to_run, host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

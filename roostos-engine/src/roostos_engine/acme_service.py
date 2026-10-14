@@ -44,7 +44,7 @@ class ACMEService:
 
         try:
             os.makedirs(self.domains_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def get_settings(self) -> Dict[str, Any]:

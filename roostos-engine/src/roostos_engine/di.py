@@ -99,14 +99,20 @@ class EngineDIModule(Module):
         elif repo_impl in ("yaml", "file", "direct"):
             repo_instance = YAMLConfigRepository(self.config_dir)
         elif repo_impl in ("memory", "inmemory", "mock"):
-            repo_instance = InMemoryConfigRepository()
+            from roostos_engine.mock_data import create_mock_config
+            repo_instance = InMemoryConfigRepository(initial_config=create_mock_config())
         else:
             repo_instance = StagingConfigRepository(self.config_dir, self.staged_dir)
 
         binder.bind(ConfigRepository, to=repo_instance, scope=singleton)
 
         # Bind CertificateManager
-        cert_mgr = CertificateManager(cert_dir=self.cert_dir)
+        cert_impl = self.providers_settings.cert_manager.lower()
+        if cert_impl in ("mock", "memory"):
+            from roostos_engine.mock_cert_manager import MockCertificateManager
+            cert_mgr = MockCertificateManager()
+        else:
+            cert_mgr = CertificateManager(cert_dir=self.cert_dir)
         binder.bind(CertificateManager, to=cert_mgr, scope=singleton)
 
 

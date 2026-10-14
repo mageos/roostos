@@ -42,7 +42,7 @@ class YAMLConfigRepository(ConfigRepository):
         self.config_dir = config_dir
         try:
             os.makedirs(self.config_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def get_config(self) -> RoostConfig:
@@ -94,7 +94,7 @@ class StagingConfigRepository(ConfigRepository):
         self.staged_dir = staged_dir
         try:
             os.makedirs(self.staged_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def get_config(self) -> RoostConfig:
