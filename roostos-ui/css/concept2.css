@@ -1,0 +1,212 @@
+/* Concept 2: Unified Layered Topology Architecture */
+
+/* Interactive Network Topology Diagram */
+.c2-topology-canvas-container {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-sm);
+    position: relative;
+    overflow: hidden;
+}
+
+.c2-topo-graph {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    position: relative;
+    padding: 20px 0;
+}
+
+@media (max-width: 880px) {
+    .c2-topo-graph {
+        flex-direction: column;
+        align-items: stretch;
+    }
+}
+
+.c2-topo-node {
+    flex: 1;
+    background: var(--bg-subtle);
+    border: 2px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.c2-topo-node:hover {
+    transform: translateY(-2px);
+    border-color: var(--brand-primary);
+    box-shadow: var(--shadow-md);
+}
+
+.c2-topo-node.active {
+    border-color: var(--brand-primary);
+    background: var(--brand-subtle);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.c2-node-icon {
+    font-size: 28px;
+    margin-bottom: 6px;
+}
+
+.c2-node-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-main);
+}
+
+.c2-node-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.c2-topo-link {
+    width: 32px;
+    height: 2px;
+    background: var(--border-strong);
+    position: relative;
+    flex-shrink: 0;
+}
+
+@media (max-width: 880px) {
+    .c2-topo-link {
+        width: 2px;
+        height: 20px;
+        margin: 0 auto;
+    }
+}
+
+/* Expert Density Layer Styles */
+.c2-expert-banner {
+    background: #1e1b4b;
+    color: #e0e7ff;
+    padding: 10px 16px;
+    border-radius: var(--radius-md);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-family: var(--font-mono);
+}
+
+.expert-only {
+    display: none;
+}
+
+.expert-active .expert-only {
+    display: table-cell;
+}
+
+div.expert-only.expert-active,
+section.expert-only.expert-active {
+    display: block;
+}
+
+.standard-only {
+    display: block;
+}
+
+.expert-active .standard-only {
+    display: none;
+}
+
+/* Directory Unified Tabs */
+.c2-directory-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.c2-search-input {
+    padding: 8px 14px;
+    font-size: 13px;
+    font-family: inherit;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--text-main);
+    min-width: 240px;
+}
+
+.c2-search-input:focus {
+    outline: none;
+    border-color: var(--brand-primary);
+}
+
+/* Split YAML Code Inspector */
+.c2-yaml-viewer {
+    background: #090d16;
+    color: #38bdf8;
+    padding: 16px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.6;
+    overflow-x: auto;
+    white-space: pre;
+    max-height: 380px;
+}
+
+/* Network Zone & VPN Tunnel Architecture Diagram */
+.zone-diagram-container {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
+    padding: 20px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+}
+
+.zone-diagram-svg {
+    width: 100%;
+    min-width: 820px;
+    height: auto;
+    display: block;
+}
+
+/* Animated WireGuard Tunnel Flow */
+@keyframes tunnelFlowInbound {
+    from { stroke-dashoffset: 24; }
+    to { stroke-dashoffset: 0; }
+}
+
+@keyframes tunnelFlowOutbound {
+    from { stroke-dashoffset: 0; }
+    to { stroke-dashoffset: 24; }
+}
+
+.tunnel-flow-in {
+    stroke-dasharray: 6, 6;
+    animation: tunnelFlowInbound 1.2s linear infinite;
+}
+
+.tunnel-flow-out {
+    stroke-dasharray: 6, 6;
+    animation: tunnelFlowOutbound 1.2s linear infinite;
+}
+
+.diagram-clickable {
+    cursor: pointer;
+    transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.diagram-clickable:hover {
+    filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.4));
+}
+
+.diagram-clickable.selected {
+    filter: drop-shadow(0 0 8px rgba(37, 99, 235, 0.8));
+}

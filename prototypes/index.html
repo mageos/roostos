@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>RoostOS UI Redesign - Prototype & Site Map Explorer</title>
+    
+    <!-- Google Fonts Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- CSS Layers -->
+    <link rel="stylesheet" href="css/base.css">
+    <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/shell.css">
+    <link rel="stylesheet" href="css/concept1.css">
+    <link rel="stylesheet" href="css/concept2.css">
+    <link rel="stylesheet" href="css/mobile.css">
+</head>
+<body>
+    <div class="app-viewport-shell">
+        <!-- Top Prototype Control & Exploration Toolbar -->
+        <header id="explorer-toolbar" class="explorer-toolbar"></header>
+
+        <!-- Dynamic Viewport Stage (Fluid Desktop or Simulated Mobile/Tablet Device) -->
+        <div id="viewport-stage" class="viewport-stage mode-responsive">
+            <div id="roost-app-frame" class="roost-app-frame">
+                <!-- Mounted by explorer-shell.js -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script Module -->
+    <script type="module">
+        import { initExplorerShell } from './js/explorer-shell.js';
+        document.addEventListener('DOMContentLoaded', () => {
+            initExplorerShell();
+        });
+    </script>
+</body>
+</html>

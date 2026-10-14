@@ -1,0 +1,172 @@
+/* Base Design Tokens & Reset for RoostOS Modern UI Prototype */
+:root {
+    --bg-page: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f1f5f9;
+    --bg-elevated: #ffffff;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --text-faint: #94a3b8;
+
+    --brand-primary: #2563eb;
+    --brand-primary-hover: #1d4ed8;
+    --brand-subtle: #eff6ff;
+    --brand-border: #bfdbfe;
+
+    --accent-emerald: #10b981;
+    --accent-emerald-subtle: #ecfdf5;
+    --accent-amber: #f59e0b;
+    --accent-amber-subtle: #fffbeb;
+    --accent-rose: #f43f5e;
+    --accent-rose-subtle: #fff1f2;
+    --accent-indigo: #6366f1;
+    --accent-indigo-subtle: #eef2ff;
+
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 22px;
+    --radius-full: 9999px;
+
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+    --font-sans: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+[data-theme="dark"] {
+    --bg-page: #090d16;
+    --bg-surface: #111726;
+    --bg-subtle: #192237;
+    --bg-elevated: #1e293b;
+    --border-subtle: #243048;
+    --border-strong: #334155;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-faint: #64748b;
+
+    --brand-primary: #3b82f6;
+    --brand-primary-hover: #60a5fa;
+    --brand-subtle: rgba(59, 130, 246, 0.15);
+    --brand-border: rgba(59, 130, 246, 0.3);
+
+    --accent-emerald-subtle: rgba(16, 185, 129, 0.15);
+    --accent-amber-subtle: rgba(245, 158, 11, 0.15);
+    --accent-rose-subtle: rgba(244, 63, 94, 0.15);
+    --accent-indigo-subtle: rgba(99, 102, 241, 0.15);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-page);
+    color: var(--text-main);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* App Shell container */
+.app-viewport-shell {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Main app content wrapper */
+.roost-app {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    position: relative;
+}
+
+/* Standard Header */
+.roost-header {
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+}
+
+.brand-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--text-main);
+    text-decoration: none;
+}
+
+.brand-dot {
+    width: 10px;
+    height: 10px;
+    background: var(--accent-emerald);
+    border-radius: var(--radius-full);
+    box-shadow: 0 0 8px var(--accent-emerald);
+}
+
+.brand-tag {
+    font-size: 11px;
+    padding: 2px 7px;
+    background: var(--brand-subtle);
+    color: var(--brand-primary);
+    border-radius: var(--radius-full);
+    font-weight: 600;
+}
+
+/* Common main area */
+.roost-main {
+    flex: 1;
+    padding: 24px;
+    max-width: 1380px;
+    width: 100%;
+    margin: 0 auto;
+}
+
+/* Card primitives */
+.card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: 20px;
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 20px;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.card-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.card-subtitle {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}

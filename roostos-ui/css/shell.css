@@ -1,0 +1,151 @@
+/* Prototype Explorer Shell & Device Viewport Simulator */
+
+.explorer-toolbar {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    z-index: 999;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.explorer-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.explorer-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.segmented-group {
+    display: inline-flex;
+    background: #1e293b;
+    padding: 3px;
+    border-radius: var(--radius-md);
+    border: 1px solid #334155;
+}
+
+.seg-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    padding: 5px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: inherit;
+}
+
+.seg-btn:hover {
+    color: #ffffff;
+}
+
+.seg-btn.active {
+    background: var(--brand-primary);
+    color: #ffffff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.seg-btn.active.persona-admin {
+    background: #6366f1;
+}
+
+.seg-btn.active.persona-household {
+    background: #10b981;
+}
+
+/* Simulated Viewport Framing */
+.viewport-stage {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 0;
+    background: var(--bg-page);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    min-height: calc(100vh - 52px);
+    overflow-y: auto;
+}
+
+/* Mobile Frame (iPhone 390px) */
+.viewport-stage.mode-mobile {
+    padding: 30px 16px;
+    background: #020617;
+}
+
+.viewport-stage.mode-mobile .roost-app-frame {
+    width: 390px;
+    height: 844px;
+    background: var(--bg-page);
+    border-radius: 46px;
+    border: 10px solid #1e293b;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Tablet Frame (iPad 768px) */
+.viewport-stage.mode-tablet {
+    padding: 30px 16px;
+    background: #020617;
+}
+
+.viewport-stage.mode-tablet .roost-app-frame {
+    width: 768px;
+    height: 1024px;
+    background: var(--bg-page);
+    border-radius: 28px;
+    border: 10px solid #1e293b;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Full Width Desktop (Fluid) */
+.viewport-stage.mode-responsive .roost-app-frame {
+    width: 100%;
+    min-height: calc(100vh - 52px);
+    background: var(--bg-page);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Mobile notch indicator */
+.phone-notch {
+    display: none;
+}
+
+.viewport-stage.mode-mobile .phone-notch {
+    display: block;
+    width: 120px;
+    height: 24px;
+    background: #0f172a;
+    border-radius: 0 0 16px 16px;
+    margin: 0 auto;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}

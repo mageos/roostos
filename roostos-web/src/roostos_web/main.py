@@ -13,7 +13,7 @@ from roostos_sdk.client import RoostClient
 from roostos_web.routers import (
     auth, system, devices, network, schedules, plugins, diagnostics,
     config, certificates, cluster, health, events, identity, setup, edge, edge_peers, catalog,
-    telemetry, alerts, updates, dns, topology
+    telemetry, alerts, updates, dns, topology, dhcp, household, family, protection
 )
 from roostos_web.services.events import event_publisher
 from roostos_web import __version__
@@ -125,6 +125,10 @@ def create_app(
         app_instance.include_router(config.router)
         app_instance.include_router(certificates.router)
         app_instance.include_router(events.router)
+        app_instance.include_router(dhcp.router)
+        app_instance.include_router(household.router)
+        app_instance.include_router(family.router)
+        app_instance.include_router(protection.router)
 
     # Mount Static UI if not disabled
     if not disable_ui:
