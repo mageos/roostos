@@ -163,6 +163,20 @@ function renderAppShell() {
         };
     }
 
+    // Brand link resets to home/cockpit
+    const brandLink = frame.querySelector('#brand-home-link');
+    if (brandLink) {
+        brandLink.onclick = (e) => {
+            e.preventDefault();
+            if (store.concept1Persona === 'household') {
+                activeHouseholdTab = 'home';
+            } else {
+                activeAdminTab = 'cockpit';
+            }
+            renderAppShell();
+        };
+    }
+
     // Tab navigation event listeners (desktop + mobile)
     frame.querySelectorAll('[data-tab]').forEach(btn => {
         btn.onclick = () => {
