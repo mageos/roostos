@@ -146,8 +146,5 @@ export function renderHouseholdSafety(container) {
 
     container.querySelector('#toggle-ad-block')?.addEventListener('change', () => store.toggleAdBlock());
     container.querySelector('#toggle-vpn')?.addEventListener('change', () => store.toggleVpn());
-    container.querySelector('#toggle-safesearch')?.addEventListener('change', (e) => {
-        store.data.protection.safeSearch.enabled = e.target.checked;
-        store.notify('protection');
-    });
+    container.querySelector('#toggle-safesearch')?.addEventListener('change', () => store.toggleSafeSearch());
 }

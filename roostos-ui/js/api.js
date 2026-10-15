@@ -182,6 +182,42 @@ export class RoostApiClient {
             method: 'DELETE'
         });
     }
+
+    // Firewall & Port Forwards APIs
+    async getPortForwards() {
+        return this.request('/api/firewall/port-forwards');
+    }
+
+    async createPortForward(pfData) {
+        return this.request('/api/firewall/port-forwards', {
+            method: 'POST',
+            body: JSON.stringify(pfData)
+        });
+    }
+
+    async deletePortForward(name) {
+        return this.request(`/api/firewall/port-forwards/${encodeURIComponent(name)}`, {
+            method: 'DELETE'
+        });
+    }
+
+    // DNS Records APIs
+    async getDnsRecords() {
+        return this.request('/api/dns/records');
+    }
+
+    async createDnsRecord(recordData) {
+        return this.request('/api/dns/records', {
+            method: 'POST',
+            body: JSON.stringify(recordData)
+        });
+    }
+
+    async deleteDnsRecord(recordId) {
+        return this.request(`/api/dns/records/${encodeURIComponent(recordId)}`, {
+            method: 'DELETE'
+        });
+    }
 }
 
 export const api = new RoostApiClient();

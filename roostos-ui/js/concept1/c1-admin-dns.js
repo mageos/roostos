@@ -153,10 +153,15 @@ export function renderAdminDns(container) {
 
             tr.querySelector('.cancel-dns-btn').onclick = () => renderAdminDns(container);
             tr.querySelector('.save-dns-btn').onclick = () => {
-                r.domain = tr.querySelector('#inp-dns-domain').value.trim();
-                r.type = tr.querySelector('#inp-dns-type').value;
-                r.ip = tr.querySelector('#inp-dns-ip').value.trim();
-                renderAdminDns(container);
+                const domain = tr.querySelector('#inp-dns-domain').value.trim();
+                const ip = tr.querySelector('#inp-dns-ip').value.trim();
+                if (!domain || !ip) return alert('Please enter domain and IP');
+                store.addDnsRecord({
+                    id,
+                    domain,
+                    type: tr.querySelector('#inp-dns-type').value,
+                    ip
+                });
             };
         }
 

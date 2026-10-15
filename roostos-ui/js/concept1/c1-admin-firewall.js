@@ -193,12 +193,20 @@ export function renderAdminFirewall(container) {
 
             tr.querySelector('.cancel-pf-btn').onclick = () => renderAdminFirewall(container);
             tr.querySelector('.save-pf-btn').onclick = () => {
-                p.name = tr.querySelector('#inp-pf-name').value.trim();
-                p.proto = tr.querySelector('#inp-pf-proto').value;
-                p.wanPort = Number(tr.querySelector('#inp-pf-wan').value);
-                p.lanIp = tr.querySelector('#inp-pf-ip').value.trim();
-                p.lanPort = Number(tr.querySelector('#inp-pf-port').value);
-                renderAdminFirewall(container);
+                const name = tr.querySelector('#inp-pf-name').value.trim();
+                const wanPort = tr.querySelector('#inp-pf-wan').value;
+                const lanIp = tr.querySelector('#inp-pf-ip').value.trim();
+                const lanPort = tr.querySelector('#inp-pf-port').value;
+                if (!name || !wanPort || !lanIp) return alert('Please fill in required fields');
+
+                store.addPortForward({
+                    id,
+                    name,
+                    proto: tr.querySelector('#inp-pf-proto').value,
+                    wanPort: Number(wanPort),
+                    lanIp,
+                    lanPort: Number(lanPort || wanPort)
+                });
             };
         }
 

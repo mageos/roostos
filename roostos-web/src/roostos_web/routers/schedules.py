@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, Body, HTTPException
+from fastapi import APIRouter, Depends, Body, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 
+from roostos_engine.config import PortForwardConfig, FirewallConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_user, get_current_parent, get_current_admin, UserSession
@@ -152,6 +153,69 @@ async def get_schedules(
         "schedules": [s.model_dump(exclude_none=True) for s in config.schedules],
         "port_forwards": [pf.model_dump(exclude_none=True) for pf in config.firewall.port_forwards]
     }
+
+
+@router.get("/api/firewall/port-forwards", response_model=List[PortForwardConfig])
+async def get_port_forwards(
+    current_user: UserSession = Depends(get_current_user),
+    repo: ConfigRepository = Injected(ConfigRepository)
+) -> List[PortForwardConfig]:
+    """Returns list of configured destination NAT (port forward) rules."""
+    config = repo.get_config()
+    fw = getattr(config, "firewall", None)
+    return getattr(fw, "port_forwards", []) if fw else []
+
+
+@router.post("/api/firewall/port-forwards", response_model=PortForwardConfig)
+async def create_or_update_port_forward(
+    forward: PortForwardConfig,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> PortForwardConfig:
+    """Creates or updates a port forwarding rule and persists to firewall config."""
+    config = repo.get_config()
+    if not hasattr(config, "firewall") or config.firewall is None:
+        from roostos_engine.models.firewall import FirewallSettings
+        config.firewall = FirewallSettings()
+
+    existing_idx = next((i for i, pf in enumerate(config.firewall.port_forwards) if pf.name == forward.name), None)
+    if existing_idx is not None:
+        config.firewall.port_forwards[existing_idx] = forward
+    else:
+        config.firewall.port_forwards.append(forward)
+
+    repo.save_firewall_config(FirewallConfig(firewall=config.firewall))
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass
+    return forward
+
+
+@router.delete("/api/firewall/port-forwards/{name}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_port_forward(
+    name: str,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> None:
+    """Removes a port forwarding rule by name."""
+    config = repo.get_config()
+    if not hasattr(config, "firewall") or config.firewall is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Port forward '{name}' not found")
+
+    existing_idx = next((i for i, pf in enumerate(config.firewall.port_forwards) if pf.name == name), None)
+    if existing_idx is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Port forward '{name}' not found")
+
+    config.firewall.port_forwards.pop(existing_idx)
+    repo.save_firewall_config(FirewallConfig(firewall=config.firewall))
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass
+
 
 @router.post("/api/schedules/bypass")
 async def grant_bypass(

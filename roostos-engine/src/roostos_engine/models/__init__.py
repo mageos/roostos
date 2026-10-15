@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field, model_validator
 
 from roostos_engine.models.system import (
-    SystemHTTPSConfig, SystemUpdatesRebootWindow, SystemUpdatesConfig, SystemDNSConfig,
+    SystemHTTPSConfig, SystemUpdatesRebootWindow, SystemUpdatesConfig, DNSRecordConfig, SystemDNSConfig,
     ClusterSettingsConfig, SystemIdentityServerConfig, TelemetryConfig, TelemetryExportConfig,
     NotificationChannelConfig, NotificationsConfig, SystemSettings, UserConfig, SystemConfig,
 )

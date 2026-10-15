@@ -205,3 +205,34 @@ def test_install_system_dependencies(
         data = response.json()
         assert data["success"] is True
         mock_mgr.install_packages.assert_called_once()
+
+
+def test_get_create_and_delete_dns_records(
+    mock_dependencies: Any, admin_headers: Dict[str, str], parent_headers: Dict[str, str]
+):
+    client = TestClient(app)
+    # 1. Get initial records
+    get_res = client.get("/api/dns/records", headers=parent_headers)
+    assert get_res.status_code == 200
+    assert isinstance(get_res.json(), list)
+
+    # 2. Create a new DNS record
+    create_payload = {"domain": "nas.home.lan", "type": "A", "ip": "192.168.1.50"}
+    post_res = client.post("/api/dns/records", json=create_payload, headers=admin_headers)
+    assert post_res.status_code == 200
+    created = post_res.json()
+    assert created["domain"] == "nas.home.lan"
+    assert created["ip"] == "192.168.1.50"
+    rec_id = created["id"]
+
+    # 3. Verify in get list
+    get_res2 = client.get("/api/dns/records", headers=parent_headers)
+    assert any(r["id"] == rec_id for r in get_res2.json())
+
+    # 4. Delete the record
+    del_res = client.delete(f"/api/dns/records/{rec_id}", headers=admin_headers)
+    assert del_res.status_code == 204
+
+    # 5. Verify record is deleted
+    get_res3 = client.get("/api/dns/records", headers=parent_headers)
+    assert not any(r["id"] == rec_id for r in get_res3.json())

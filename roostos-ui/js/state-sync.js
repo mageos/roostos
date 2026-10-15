@@ -3,7 +3,7 @@ import { api } from './api.js';
 
 export async function syncStateWithBackend(data, notify) {
     try {
-        const [pulse, people, devData, guestWifi, shields, scopes, leases] = await Promise.allSettled([
+        const [pulse, people, devData, guestWifi, shields, scopes, leases, portForwards, dnsRecords] = await Promise.allSettled([
             api.getHouseholdPulse(),
             api.getFamilyPeople(),
             api.getDevices(),
@@ -11,6 +11,8 @@ export async function syncStateWithBackend(data, notify) {
             api.getSecurityShields(),
             api.getDhcpScopes(),
             api.getDhcpLeases(),
+            api.getPortForwards(),
+            api.getDnsRecords(),
         ]);
 
         if (pulse.status === 'fulfilled' && pulse.value) {
@@ -124,6 +126,28 @@ export async function syncStateWithBackend(data, notify) {
                 network: l.network_interface,
                 expires: `${Math.round(l.expires_in_seconds / 3600)}h ${Math.round((l.expires_in_seconds % 3600) / 60)}m`,
                 vendor: l.vendor || 'Network Device',
+            }));
+        }
+
+        if (portForwards.status === 'fulfilled' && Array.isArray(portForwards.value) && portForwards.value.length) {
+            data.admin.portForwards = portForwards.value.map(pf => ({
+                id: pf.name.toLowerCase().replace(/\s+/g, '-'),
+                name: pf.name,
+                proto: (pf.protocol || 'TCP').toUpperCase(),
+                wanPort: pf.external_port || pf.wan_port || 0,
+                lanIp: pf.internal_ip || pf.lan_ip || '',
+                lanPort: pf.internal_port || pf.lan_port || 0,
+                hits: 0,
+                enabled: pf.enabled ?? true,
+            }));
+        }
+
+        if (dnsRecords.status === 'fulfilled' && Array.isArray(dnsRecords.value) && dnsRecords.value.length) {
+            data.admin.dnsRecords = dnsRecords.value.map(r => ({
+                id: r.id || r.domain.toLowerCase().replace(/\s+/g, '-'),
+                domain: r.domain,
+                type: r.type || 'A',
+                ip: r.ip,
             }));
         }
 

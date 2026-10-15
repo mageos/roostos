@@ -13,6 +13,8 @@ from roostos_engine.config import (
     WifiAccessPoint,
     DeviceConfig,
     PersonConfig,
+    FirewallSettings,
+    PortForwardConfig,
 )
 from roostos_engine.repository import ConfigRepository, InMemoryConfigRepository
 from roostos_sdk.client import RoostClient
@@ -55,6 +57,8 @@ class DummyRepo(InMemoryConfigRepository):
         ]
         self.config.buildings = []
         self.config.rooms = []
+        self.config.users = []
+        self.config.firewall = FirewallSettings(port_forwards=[])
 
     def get_config(self) -> RoostConfig:
         return self.config
@@ -68,6 +72,9 @@ class DummyRepo(InMemoryConfigRepository):
 
     def save_system_config(self, sys_cfg) -> None:
         self.config.system = sys_cfg.system
+
+    def save_firewall_config(self, fw_cfg) -> None:
+        self.config.firewall = fw_cfg.firewall
 
 
 @pytest.fixture
@@ -211,4 +218,69 @@ def test_pause_individual_person(test_setup):
     resume_resp = client.post("/api/v1/family/people/alice/pause", json={"paused": False}, headers=headers)
     assert resume_resp.status_code == 200
     assert resume_resp.json()["action"] == "resume_person"
+
+
+def test_security_shields_toggle_safesearch_and_vpn(test_setup):
+    client, headers = test_setup
+    # Initial status
+    get_resp = client.get("/api/v1/protection/shields", headers=headers)
+    assert get_resp.status_code == 200
+    init_data = get_resp.json()
+    assert "safe_search_enabled" in init_data
+
+    # Toggle SafeSearch and VPN
+    up_resp = client.post(
+        "/api/v1/protection/shields",
+        json={"safe_search_enabled": False, "privacy_vpn_enabled": True},
+        headers=headers,
+    )
+    assert up_resp.status_code == 200
+    updated = up_resp.json()
+    assert updated["safe_search_enabled"] is False
+    assert updated["privacy_vpn_enabled"] is True
+
+    # Re-fetch to ensure persistence
+    get_resp2 = client.get("/api/v1/protection/shields", headers=headers)
+    assert get_resp2.status_code == 200
+    assert get_resp2.json()["safe_search_enabled"] is False
+    assert get_resp2.json()["privacy_vpn_enabled"] is True
+
+
+def test_port_forwards_crud(test_setup):
+    client, headers = test_setup
+    admin_token = create_access_token(data={"sub": "admin", "role": "admin"})
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+
+    # 1. Get initial port forwards
+    get_res = client.get("/api/firewall/port-forwards", headers=headers)
+    assert get_res.status_code == 200
+    assert isinstance(get_res.json(), list)
+
+    # 2. Create a new port forward
+    new_pf = {
+        "name": "Minecraft Server",
+        "protocol": "tcp",
+        "external_port": 25565,
+        "internal_ip": "192.168.1.60",
+        "internal_port": 25565,
+        "enabled": True,
+    }
+    create_res = client.post("/api/firewall/port-forwards", json=new_pf, headers=admin_headers)
+    assert create_res.status_code == 200
+    created = create_res.json()
+    assert created["name"] == "Minecraft Server"
+    assert created["external_port"] == 25565
+
+    # 3. Verify in list
+    get_res2 = client.get("/api/firewall/port-forwards", headers=headers)
+    assert any(pf["name"] == "Minecraft Server" for pf in get_res2.json())
+
+    # 4. Delete port forward
+    del_res = client.delete("/api/firewall/port-forwards/Minecraft%20Server", headers=admin_headers)
+    assert del_res.status_code == 204
+
+    # 5. Verify gone
+    get_res3 = client.get("/api/firewall/port-forwards", headers=headers)
+    assert not any(pf["name"] == "Minecraft Server" for pf in get_res3.json())
+
 

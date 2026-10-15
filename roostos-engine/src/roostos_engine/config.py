@@ -4,6 +4,7 @@ from roostos_engine.models import (
     SystemHTTPSConfig,
     SystemUpdatesRebootWindow,
     SystemUpdatesConfig,
+    DNSRecordConfig,
     SystemDNSConfig,
     ClusterSettingsConfig,
     TelemetryConfig,

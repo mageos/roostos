@@ -117,32 +117,34 @@ export function renderHouseholdWifi(container) {
     const upVal = container.querySelector('#st-up-val');
     const pingVal = container.querySelector('#st-ping-val');
 
-    speedBtn.onclick = () => {
+    speedBtn.onclick = async () => {
         speedBtn.disabled = true;
         speedBtn.textContent = 'Testing...';
         progBar.style.display = 'block';
-        progFill.style.width = '10%';
+        progFill.style.width = '15%';
         pingVal.textContent = '...';
+        downVal.textContent = '...';
+        upVal.textContent = '...';
 
-        setTimeout(() => {
-            pingVal.textContent = '9';
-            progFill.style.width = '45%';
-            downVal.textContent = 'Testing...';
-        }, 600);
+        setTimeout(() => { progFill.style.width = '45%'; }, 300);
+        setTimeout(() => { progFill.style.width = '75%'; }, 700);
 
-        setTimeout(() => {
-            downVal.textContent = '954';
-            progFill.style.width = '80%';
-            upVal.textContent = 'Testing...';
-        }, 1400);
+        const res = await store.runSpeedTest();
+        progFill.style.width = '100%';
 
-        setTimeout(() => {
-            upVal.textContent = '891';
-            progFill.style.width = '100%';
-            speedBtn.disabled = false;
-            speedBtn.textContent = '▶ Run Speed Test';
-            setTimeout(() => progBar.style.display = 'none', 500);
-        }, 2200);
+        if (res) {
+            pingVal.textContent = res.ping_ms;
+            downVal.textContent = Math.round(res.download_mbps);
+            upVal.textContent = Math.round(res.upload_mbps);
+        } else {
+            pingVal.textContent = store.data.system.pingMs;
+            downVal.textContent = store.data.system.downloadMbps;
+            upVal.textContent = store.data.system.uploadMbps;
+        }
+
+        speedBtn.disabled = false;
+        speedBtn.textContent = '▶ Run Speed Test';
+        setTimeout(() => { progBar.style.display = 'none'; }, 600);
     };
 
     // QR Modal

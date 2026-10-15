@@ -155,9 +155,34 @@ class StateStore {
         this.notify('wifi');
     }
 
-    toggleVpn() {
-        this.data.protection.vpnTunnel.enabled = !this.data.protection.vpnTunnel.enabled;
+    async toggleSafeSearch() {
+        this.data.protection.safeSearch.enabled = !this.data.protection.safeSearch.enabled;
+        try {
+            await api.updateSecurityShields({ safe_search_enabled: this.data.protection.safeSearch.enabled });
+        } catch (e) { console.warn(e); }
         this.notify('protection');
+    }
+
+    async toggleVpn() {
+        this.data.protection.vpnTunnel.enabled = !this.data.protection.vpnTunnel.enabled;
+        try {
+            await api.updateSecurityShields({ privacy_vpn_enabled: this.data.protection.vpnTunnel.enabled });
+        } catch (e) { console.warn(e); }
+        this.notify('protection');
+    }
+
+    async runSpeedTest() {
+        try {
+            const res = await api.runSpeedTest();
+            if (res) {
+                this.data.system.downloadMbps = Math.round(res.download_mbps);
+                this.data.system.uploadMbps = Math.round(res.upload_mbps);
+                this.data.system.pingMs = res.ping_ms;
+                this.notify('system');
+                return res;
+            }
+        } catch (e) { console.warn('runSpeedTest API failed:', e); }
+        return null;
     }
 
     async allowBlockedRequest(id) {
@@ -181,23 +206,61 @@ class StateStore {
         this.notify('system');
     }
 
-    addDnsRecord(rec) {
-        this.data.admin.dnsRecords.push({ id: `dns-${Date.now().toString(36)}`, ...rec });
+    async addDnsRecord(rec) {
+        const id = rec.id || `dns-${Date.now().toString(36)}`;
+        try {
+            await api.createDnsRecord({
+                id,
+                domain: rec.domain,
+                type: rec.type || 'A',
+                ip: rec.ip
+            });
+            await this.syncWithBackend();
+        } catch (e) {
+            console.warn('createDnsRecord API fallback:', e);
+            this.data.admin.dnsRecords.push({ id, ...rec });
+        }
         this.notify('dns');
     }
 
-    deleteDnsRecord(id) {
-        this.data.admin.dnsRecords = this.data.admin.dnsRecords.filter(r => r.id !== id);
+    async deleteDnsRecord(id) {
+        try {
+            await api.deleteDnsRecord(id);
+        } catch (e) {
+            console.warn('deleteDnsRecord API fallback:', e);
+        }
+        this.data.admin.dnsRecords = this.data.admin.dnsRecords.filter(r => r.id !== id && r.domain !== id);
         this.notify('dns');
     }
 
-    addPortForward(pf) {
-        this.data.admin.portForwards.push({ id: `pf-${Date.now().toString(36)}`, ...pf });
+    async addPortForward(pf) {
+        const id = pf.id || `pf-${Date.now().toString(36)}`;
+        try {
+            await api.createPortForward({
+                name: pf.name,
+                protocol: (pf.proto || 'tcp').toLowerCase(),
+                external_port: Number(pf.wanPort),
+                internal_ip: pf.lanIp,
+                internal_port: Number(pf.lanPort || pf.wanPort),
+                enabled: true
+            });
+            await this.syncWithBackend();
+        } catch (e) {
+            console.warn('createPortForward API fallback:', e);
+            this.data.admin.portForwards.push({ id, hits: 0, ...pf });
+        }
         this.notify('firewall');
     }
 
-    deletePortForward(id) {
-        this.data.admin.portForwards = this.data.admin.portForwards.filter(p => p.id !== id);
+    async deletePortForward(nameOrId) {
+        const pf = this.data.admin.portForwards.find(p => p.id === nameOrId || p.name === nameOrId);
+        const name = pf ? pf.name : nameOrId;
+        try {
+            await api.deletePortForward(name);
+        } catch (e) {
+            console.warn('deletePortForward API fallback:', e);
+        }
+        this.data.admin.portForwards = this.data.admin.portForwards.filter(p => p.id !== nameOrId && p.name !== nameOrId);
         this.notify('firewall');
     }
 }

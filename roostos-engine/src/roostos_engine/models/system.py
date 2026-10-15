@@ -22,10 +22,18 @@ class SystemUpdatesConfig(BaseModel):
     last_check_time: Optional[str] = None
     last_install_time: Optional[str] = None
 
+class DNSRecordConfig(BaseModel):
+    id: Optional[str] = None
+    domain: str
+    type: str = "A"
+    ip: str
+
 class SystemDNSConfig(BaseModel):
     forwarders: List[str] = Field(default_factory=list)
     ad_blocking_enabled: bool = False
+    safe_search_enabled: bool = True
     subsystem: str = "local"
+    records: List[DNSRecordConfig] = Field(default_factory=list)
 
 class ClusterSettingsConfig(BaseModel):
     node_id: Optional[str] = "node-01"
@@ -89,6 +97,7 @@ class SystemSettings(BaseModel):
     identity_server: Optional[SystemIdentityServerConfig] = Field(default_factory=SystemIdentityServerConfig)
     telemetry: Optional[TelemetryConfig] = Field(default_factory=TelemetryConfig)
     notifications: Optional[NotificationsConfig] = Field(default_factory=NotificationsConfig)
+    privacy_vpn_enabled: bool = False
 
     @field_validator("unregistered_device_policy")
     @classmethod

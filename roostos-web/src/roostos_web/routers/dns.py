@@ -2,10 +2,10 @@
 
 import sys
 from typing import List, Optional, Any, Dict
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, status
 from pydantic import BaseModel, Field
 
-from roostos_engine.config import SystemDNSConfig, SystemConfig
+from roostos_engine.config import SystemDNSConfig, SystemConfig, DNSRecordConfig
 from roostos_engine.models.plugins import (
     PluginsConfig,
     PluginConfig,
@@ -159,3 +159,71 @@ async def update_dns_config(
         "forwarders": dns_data.forwarders,
         "dependencies": dep_report.model_dump(),
     }
+
+
+@router.get("/api/dns/records", response_model=List[DNSRecordConfig])
+async def get_dns_records(
+    current_user: UserSession = Depends(get_current_parent),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> List[DNSRecordConfig]:
+    """Returns list of custom local DNS records."""
+    config = repo.get_config()
+    dns_settings = config.system.dns or SystemDNSConfig()
+    return getattr(dns_settings, "records", [])
+
+
+@router.post("/api/dns/records", response_model=DNSRecordConfig)
+async def create_or_update_dns_record(
+    record: DNSRecordConfig,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> DNSRecordConfig:
+    """Creates or updates a custom local DNS record."""
+    config = repo.get_config()
+    if not config.system.dns:
+        config.system.dns = SystemDNSConfig()
+
+    records = config.system.dns.records
+    rec_id = record.id or record.domain.lower()
+    record.id = rec_id
+
+    existing_idx = next((i for i, r in enumerate(records) if r.id == rec_id or r.domain.lower() == record.domain.lower()), None)
+    if existing_idx is not None:
+        records[existing_idx] = record
+    else:
+        records.append(record)
+
+    system_config_obj = SystemConfig(system=config.system, users=getattr(config, "users", []))
+    repo.save_system_config(system_config_obj)
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass
+    return record
+
+
+@router.delete("/api/dns/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_dns_record(
+    record_id: str,
+    current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    dbus: RoostClient = Injected(RoostClient),
+) -> None:
+    """Removes a custom local DNS record by ID or domain."""
+    config = repo.get_config()
+    if not config.system.dns:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Record '{record_id}' not found")
+
+    records = config.system.dns.records
+    existing_idx = next((i for i, r in enumerate(records) if r.id == record_id or r.domain.lower() == record_id.lower()), None)
+    if existing_idx is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Record '{record_id}' not found")
+
+    records.pop(existing_idx)
+    system_config_obj = SystemConfig(system=config.system, users=getattr(config, "users", []))
+    repo.save_system_config(system_config_obj)
+    try:
+        await dbus.get_config()
+    except Exception:
+        pass

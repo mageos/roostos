@@ -4,6 +4,7 @@ from roostos_engine.config import (
     RoostConfig,
     SystemSettings,
     SystemDNSConfig,
+    DNSRecordConfig,
     UserConfig,
     PersonConfig,
     BuildingConfig,
@@ -32,7 +33,12 @@ def create_mock_config() -> RoostConfig:
                 subsystem="technitium",
                 forwarders=["1.1.1.1", "1.0.0.1"],
                 ad_blocking_enabled=True,
-                dnssec_validation=True,
+                safe_search_enabled=True,
+                records=[
+                    DNSRecordConfig(id="rec-nas", domain="nas.home.lan", type="A", ip="192.168.1.15"),
+                    DNSRecordConfig(id="rec-printer", domain="printer.home.lan", type="A", ip="192.168.1.80"),
+                    DNSRecordConfig(id="rec-hass", domain="homeassistant.home.lan", type="A", ip="192.168.1.50"),
+                ],
             ),
         ),
         users=[
@@ -127,8 +133,8 @@ def create_mock_config() -> RoostConfig:
         ),
         firewall=FirewallSettings(
             port_forwards=[
-                PortForwardConfig(name="Plex Media Server", proto="tcp", ext_port=32400, int_ip="192.168.1.120", int_port=32400),
-                PortForwardConfig(name="WireGuard Tunnel", proto="udp", ext_port=51820, int_ip="192.168.1.1", int_port=51820),
+                PortForwardConfig(name="Plex Media Server", protocol="tcp", external_port=32400, internal_ip="192.168.1.120", internal_port=32400),
+                PortForwardConfig(name="WireGuard Tunnel", protocol="udp", external_port=51820, internal_ip="192.168.1.1", internal_port=51820),
             ],
             rules=[
                 InputRuleConfig(name="Allow Web Admin", proto="tcp", port=8000, action="accept"),

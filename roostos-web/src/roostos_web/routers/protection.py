@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from roostos_engine.config import SystemConfig
 from roostos_engine.repository import ConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_user, UserSession
@@ -183,15 +184,17 @@ async def get_security_shields(
     config = repo.get_config()
     dns_cfg = getattr(config.system, "dns", None)
     ad_block = getattr(dns_cfg, "ad_blocking_enabled", True)
+    safe_search = getattr(dns_cfg, "safe_search_enabled", True)
+    vpn_enabled = getattr(config.system, "privacy_vpn_enabled", False)
 
     return SecurityShieldsDTO(
         ad_blocking_enabled=ad_block,
         ad_blocking_blocked_today=18432,
         ad_blocking_queries_today=75890,
-        safe_search_enabled=True,
+        safe_search_enabled=safe_search,
         threat_defense_enabled=True,
         threat_defense_drops_today=42,
-        privacy_vpn_enabled=False,
+        privacy_vpn_enabled=vpn_enabled,
         privacy_vpn_endpoint="ch45.nordvpn.com:51820",
     )
 
@@ -205,10 +208,24 @@ async def update_security_shields(
 ) -> SecurityShieldsDTO:
     """Updates security shield states (Ad-blocking, SafeSearch, Threat Defense, Privacy VPN)."""
     config = repo.get_config()
+    changed = False
+
     if payload.ad_blocking_enabled is not None:
         if getattr(config.system, "dns", None):
             config.system.dns.ad_blocking_enabled = payload.ad_blocking_enabled
-        repo.save_system_config(config.system)
+            changed = True
+
+    if payload.safe_search_enabled is not None:
+        if getattr(config.system, "dns", None):
+            config.system.dns.safe_search_enabled = payload.safe_search_enabled
+            changed = True
+
+    if payload.privacy_vpn_enabled is not None:
+        config.system.privacy_vpn_enabled = payload.privacy_vpn_enabled
+        changed = True
+
+    if changed:
+        repo.save_system_config(SystemConfig(system=config.system, users=getattr(config, "users", [])))
         try:
             await dbus.get_config()
         except Exception:
