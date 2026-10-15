@@ -4,13 +4,13 @@
 
 class CatalogService {
     async fetchSources() {
-        const res = await window.authService.apiFetch("/api/catalog/sources");
+        const res = await window.authService.apiFetch("/api/v1/catalog/sources");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch catalog sources");
     }
 
     async saveSource(source) {
-        const res = await window.authService.apiFetch("/api/catalog/sources", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/sources", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(source)
@@ -23,7 +23,7 @@ class CatalogService {
     }
 
     async deleteSource(sourceId) {
-        const res = await window.authService.apiFetch(`/api/catalog/sources/${sourceId}`, {
+        const res = await window.authService.apiFetch(`/api/v1/catalog/sources/${sourceId}`, {
             method: "DELETE"
         });
         if (!res.ok) throw new Error("Failed to delete catalog source");
@@ -31,7 +31,7 @@ class CatalogService {
     }
 
     async refreshCatalogs() {
-        const res = await window.authService.apiFetch("/api/catalog/refresh", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/refresh", {
             method: "POST"
         });
         if (!res.ok) throw new Error("Failed to refresh catalogs");
@@ -40,15 +40,15 @@ class CatalogService {
 
     async fetchApps(category = "") {
         const url = category && category !== "all"
-            ? `/api/catalog/apps?category=${encodeURIComponent(category)}`
-            : "/api/catalog/apps";
+            ? `/api/v1/catalog/apps?category=${encodeURIComponent(category)}`
+            : "/api/v1/catalog/apps";
         const res = await window.authService.apiFetch(url);
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch catalog apps");
     }
 
     async installApp(payload) {
-        const res = await window.authService.apiFetch("/api/catalog/apps/install", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/apps/install", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -61,7 +61,7 @@ class CatalogService {
     }
 
     async fetchImages() {
-        const res = await window.authService.apiFetch("/api/catalog/images");
+        const res = await window.authService.apiFetch("/api/v1/catalog/images");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch local images");
     }
@@ -69,7 +69,7 @@ class CatalogService {
     async uploadImage(file) {
         const formData = new FormData();
         formData.append("file", file);
-        const res = await window.authService.apiFetch("/api/catalog/images/load", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/images/load", {
             method: "POST",
             body: formData
         });
@@ -81,7 +81,7 @@ class CatalogService {
     }
 
     async inspectManifest(sourceUrlOrPath, gitRef = "main") {
-        const res = await window.authService.apiFetch("/api/catalog/manifest/inspect", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/manifest/inspect", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ source_url_or_path: sourceUrlOrPath, git_ref: gitRef })
@@ -94,7 +94,7 @@ class CatalogService {
     }
 
     async buildAndInstallFromSource(payload) {
-        const res = await window.authService.apiFetch("/api/catalog/build-and-install", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/build-and-install", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -107,7 +107,7 @@ class CatalogService {
     }
 
     async importAppFromSource(payload) {
-        const res = await window.authService.apiFetch("/api/catalog/import", {
+        const res = await window.authService.apiFetch("/api/v1/catalog/import", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -120,7 +120,7 @@ class CatalogService {
     }
 
     async checkAppUpdate(appId) {
-        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/check-update`);
+        const res = await window.authService.apiFetch(`/api/v1/catalog/apps/${encodeURIComponent(appId)}/check-update`);
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || "Failed to check application updates");
@@ -129,7 +129,7 @@ class CatalogService {
     }
 
     async updateImportedApp(appId, payload = {}) {
-        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/update`, {
+        const res = await window.authService.apiFetch(`/api/v1/catalog/apps/${encodeURIComponent(appId)}/update`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -142,7 +142,7 @@ class CatalogService {
     }
 
     async deleteLocalApp(appId) {
-        const res = await window.authService.apiFetch(`/api/catalog/apps/${encodeURIComponent(appId)}/local`, {
+        const res = await window.authService.apiFetch(`/api/v1/catalog/apps/${encodeURIComponent(appId)}/local`, {
             method: "DELETE"
         });
         if (!res.ok) {

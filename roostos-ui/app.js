@@ -640,7 +640,7 @@ window.loadDashboard = async function(options = {}) {
 
 async function loadUserProfile() {
     try {
-        const res = await window.authService.apiFetch("/api/auth/me");
+        const res = await window.authService.apiFetch("/api/v1/auth/me");
         if (res.ok) {
             const user = await res.json();
             const nameEl = document.getElementById("user-display-name");

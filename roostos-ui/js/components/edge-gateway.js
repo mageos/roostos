@@ -40,9 +40,9 @@ export class EdgeGatewayComponent extends HTMLElement {
     async loadData() {
         try {
             const [statusRes, routesRes, peersRes] = await Promise.all([
-                apiFetch("/api/edge/status"),
-                apiFetch("/api/edge/routes"),
-                apiFetch("/api/edge/peers"),
+                apiFetch("/api/v1/edge/status"),
+                apiFetch("/api/v1/edge/routes"),
+                apiFetch("/api/v1/edge/peers"),
             ]);
             if (statusRes.ok) {
                 const data = await statusRes.json();
@@ -129,7 +129,7 @@ export class EdgeGatewayComponent extends HTMLElement {
             if (!name) return alert("Please specify a peer name.");
 
             try {
-                const res = await apiFetch("/api/edge/peers", {
+                const res = await apiFetch("/api/v1/edge/peers", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ name, peer_type, subnets, route_internet })
@@ -153,7 +153,7 @@ export class EdgeGatewayComponent extends HTMLElement {
     async deletePeer(peerId) {
         if (!confirm("Revoke this WireGuard peer? They will lose VPN access immediately.")) return;
         try {
-            const res = await apiFetch(`/api/edge/peers/${peerId}`, { method: "DELETE" });
+            const res = await apiFetch(`/api/v1/edge/peers/${peerId}`, { method: "DELETE" });
             if (res.ok) {
                 await this.loadData();
             } else {
@@ -189,7 +189,7 @@ export class EdgeGatewayComponent extends HTMLElement {
             }
 
             try {
-                const res = await apiFetch("/api/edge/routes", {
+                const res = await apiFetch("/api/v1/edge/routes", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ domain, target_ip, target_port, ssl_enabled })
@@ -232,7 +232,7 @@ export class EdgeGatewayComponent extends HTMLElement {
     async deleteRoute(routeId) {
         if (!confirm("Are you sure you want to delete this ingress route?")) return;
         try {
-            await apiFetch(`/api/edge/routes/${routeId}`, { method: "DELETE" });
+            await apiFetch(`/api/v1/edge/routes/${routeId}`, { method: "DELETE" });
             await this.loadData();
         } catch (e) {
             alert(`Error deleting route: ${e}`);

@@ -13,7 +13,7 @@ from roostos_web.di import Injected
 
 router = APIRouter(tags=["plugins"])
 
-@router.get("/api/plugins")
+@router.get("/api/v1/plugins")
 async def get_plugins(
     current_user: UserSession = Depends(get_current_user),
     plugins_service: PluginsService = Injected(PluginsService)
@@ -21,7 +21,7 @@ async def get_plugins(
     """Returns the list of installed plugin configurations with their container statuses."""
     return {"plugins": await plugins_service.get_plugins_status()}
 
-@router.post("/api/plugins/upload")
+@router.post("/api/v1/plugins/upload")
 async def upload_plugin_zip(
     file: UploadFile = File(...),
     current_user: UserSession = Depends(get_current_admin),
@@ -147,7 +147,7 @@ async def upload_plugin_zip(
         await dbus.get_config()
         return {"status": "success", "message": f"Plugin {plugin_id} installed successfully from ZIP archive."}
 
-@router.post("/api/plugins/manifest")
+@router.post("/api/v1/plugins/manifest")
 async def install_plugin_via_manifest(
     manifest_yaml: str = Body(..., embed=True),
     current_user: UserSession = Depends(get_current_admin),
@@ -212,7 +212,7 @@ async def install_plugin_via_manifest(
     await dbus.get_config()
     return {"status": "success", "message": f"Plugin {plugin_id} registered and loaded from manifest successfully."}
 
-@router.post("/api/plugins")
+@router.post("/api/v1/plugins")
 async def install_plugin(
     id: str = Body(...),
     name: str = Body(...),
@@ -264,7 +264,7 @@ async def install_plugin(
     await dbus.get_config()
     return {"status": "success", "message": f"Plugin {id} registered and loaded successfully."}
 
-@router.post("/api/plugins/{plugin_id}/toggle")
+@router.post("/api/v1/plugins/{plugin_id}/toggle")
 async def toggle_plugin(
     plugin_id: str,
     enabled: bool = Body(..., embed=True),
@@ -288,7 +288,7 @@ async def toggle_plugin(
     await dbus.get_config()
     return {"status": "success", "message": f"Plugin {plugin_id} state updated successfully."}
 
-@router.delete("/api/plugins/{plugin_id}")
+@router.delete("/api/v1/plugins/{plugin_id}")
 async def delete_plugin(
     plugin_id: str,
     current_user: UserSession = Depends(get_current_admin),
@@ -311,7 +311,7 @@ async def delete_plugin(
     await dbus.get_config()
     return {"status": "success", "message": f"Plugin {plugin_id} deleted successfully."}
 
-@router.api_route("/api/services/{service_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+@router.api_route("/api/v1/services/{service_name}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
 async def service_proxy(
     service_name: str,
     path: str,

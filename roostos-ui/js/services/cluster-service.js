@@ -4,13 +4,13 @@
 
 class ClusterService {
     async fetchClusterStatus() {
-        const res = await window.authService.apiFetch("/api/cluster/status");
+        const res = await window.authService.apiFetch("/api/v1/cluster/status");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch cluster status");
     }
 
     async fetchNodes() {
-        const res = await window.authService.apiFetch("/api/cluster/nodes");
+        const res = await window.authService.apiFetch("/api/v1/cluster/nodes");
         if (res.ok) {
             const data = await res.json();
             return data.nodes || [];
@@ -19,7 +19,7 @@ class ClusterService {
     }
 
     async saveNode(nodeData) {
-        const res = await window.authService.apiFetch("/api/cluster/nodes", {
+        const res = await window.authService.apiFetch("/api/v1/cluster/nodes", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(nodeData)
@@ -32,7 +32,7 @@ class ClusterService {
     }
 
     async removeNode(nodeId) {
-        const res = await window.authService.apiFetch(`/api/cluster/nodes/${encodeURIComponent(nodeId)}`, {
+        const res = await window.authService.apiFetch(`/api/v1/cluster/nodes/${encodeURIComponent(nodeId)}`, {
             method: "DELETE"
         });
         if (!res.ok) {
@@ -43,7 +43,7 @@ class ClusterService {
     }
 
     async generateJoinToken() {
-        const res = await window.authService.apiFetch("/api/cluster/token", {
+        const res = await window.authService.apiFetch("/api/v1/cluster/token", {
             method: "POST"
         });
         if (res.ok) return await res.json();
@@ -51,7 +51,7 @@ class ClusterService {
     }
 
     async discoverControllers() {
-        const res = await window.authService.apiFetch("/api/cluster/discover", {
+        const res = await window.authService.apiFetch("/api/v1/cluster/discover", {
             method: "POST"
         });
         if (res.ok) {
@@ -62,7 +62,7 @@ class ClusterService {
     }
 
     async fetchDetectedHardware() {
-        const res = await window.authService.apiFetch("/api/cluster/hardware");
+        const res = await window.authService.apiFetch("/api/v1/cluster/hardware");
         if (res.ok) {
             const data = await res.json();
             return data.hardware || [];
@@ -71,13 +71,13 @@ class ClusterService {
     }
 
     async fetchClusterUpdates() {
-        const res = await window.authService.apiFetch("/api/cluster/updates");
+        const res = await window.authService.apiFetch("/api/v1/cluster/updates");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch cluster updates");
     }
 
     async triggerNodeUpdate(nodeId, securityOnly = false) {
-        const url = `/api/cluster/nodes/${encodeURIComponent(nodeId)}/updates/install?security_only=${securityOnly}`;
+        const url = `/api/v1/cluster/nodes/${encodeURIComponent(nodeId)}/updates/install?security_only=${securityOnly}`;
         const res = await window.authService.apiFetch(url, { method: "POST" });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -87,19 +87,19 @@ class ClusterService {
     }
 
     async fetchNodeHeartbeat(nodeId) {
-        const res = await window.authService.apiFetch(`/api/cluster/nodes/${encodeURIComponent(nodeId)}/heartbeat`);
+        const res = await window.authService.apiFetch(`/api/v1/cluster/nodes/${encodeURIComponent(nodeId)}/heartbeat`);
         if (res.ok) return await res.json();
         throw new Error(`Failed to fetch heartbeat for node ${nodeId}`);
     }
 
     async fetchManifest() {
-        const res = await window.authService.apiFetch("/api/cluster/sync/manifest");
+        const res = await window.authService.apiFetch("/api/v1/cluster/sync/manifest");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch cluster state manifest");
     }
 
     async promoteNode(nodeId, newEpoch = null, force = false) {
-        const res = await window.authService.apiFetch("/api/cluster/promote", {
+        const res = await window.authService.apiFetch("/api/v1/cluster/promote", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ node_id: nodeId, new_epoch: newEpoch, force: force })
@@ -112,7 +112,7 @@ class ClusterService {
     }
 
     async demoteNode(nodeId) {
-        const res = await window.authService.apiFetch("/api/cluster/demote", {
+        const res = await window.authService.apiFetch("/api/v1/cluster/demote", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ node_id: nodeId })

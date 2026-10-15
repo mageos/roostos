@@ -12,7 +12,7 @@ from roostos_web.di import Injected
 
 router = APIRouter(tags=["devices"])
 
-@router.get("/api/devices")
+@router.get("/api/v1/devices")
 async def get_devices(
     current_user: UserSession = Depends(get_current_user),
     device_service: DeviceService = Injected(DeviceService)
@@ -27,7 +27,7 @@ async def get_devices(
         "active_arp": active_arp
     }
 
-@router.post("/api/devices")
+@router.post("/api/v1/devices")
 async def register_device(
     mac: str = Body(...),
     name: str = Body(...),
@@ -58,7 +58,7 @@ async def register_device(
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "success"}
 
-@router.delete("/api/devices/{mac}")
+@router.delete("/api/v1/devices/{mac}")
 async def delete_device(
     mac: str,
     current_user: UserSession = Depends(get_current_parent),
@@ -77,7 +77,7 @@ async def delete_device(
         raise HTTPException(status_code=400, detail="Failed to delete device.")
     return {"status": "success"}
 
-@router.get("/api/people")
+@router.get("/api/v1/people")
 async def get_people(
     current_user: UserSession = Depends(get_current_user),
     device_service: DeviceService = Injected(DeviceService)
@@ -86,7 +86,7 @@ async def get_people(
     config = device_service.get_devices_config()
     return {"people": [p.model_dump() for p in config.people]}
 
-@router.post("/api/people")
+@router.post("/api/v1/people")
 async def save_person(
     id: str = Body(...),
     name: str = Body(...),
@@ -115,7 +115,7 @@ async def save_person(
     await dbus.get_config()
     return {"status": "success"}
 
-@router.delete("/api/people/{person_id}")
+@router.delete("/api/v1/people/{person_id}")
 async def delete_person(
     person_id: str,
     current_user: UserSession = Depends(get_current_parent),
@@ -140,7 +140,7 @@ async def delete_person(
     await dbus.get_config()
     return {"status": "success"}
 
-@router.get("/api/buildings")
+@router.get("/api/v1/buildings")
 async def get_buildings(
     current_user: UserSession = Depends(get_current_user),
     device_service: DeviceService = Injected(DeviceService)
@@ -149,7 +149,7 @@ async def get_buildings(
     config = device_service.get_devices_config()
     return {"buildings": [b.model_dump() for b in config.buildings]}
 
-@router.post("/api/buildings")
+@router.post("/api/v1/buildings")
 async def save_building(
     id: str = Body(...),
     name: str = Body(...),
@@ -177,7 +177,7 @@ async def save_building(
     await dbus.get_config()
     return {"status": "success"}
 
-@router.delete("/api/buildings/{building_id}")
+@router.delete("/api/v1/buildings/{building_id}")
 async def delete_building(
     building_id: str,
     current_user: UserSession = Depends(get_current_parent),
@@ -202,7 +202,7 @@ async def delete_building(
     await dbus.get_config()
     return {"status": "success"}
 
-@router.get("/api/rooms")
+@router.get("/api/v1/rooms")
 async def get_rooms(
     current_user: UserSession = Depends(get_current_user),
     device_service: DeviceService = Injected(DeviceService)
@@ -211,7 +211,7 @@ async def get_rooms(
     config = device_service.get_devices_config()
     return {"rooms": [r.model_dump() for r in config.rooms]}
 
-@router.post("/api/rooms")
+@router.post("/api/v1/rooms")
 async def save_room(
     id: str = Body(...),
     name: str = Body(...),
@@ -240,7 +240,7 @@ async def save_room(
     await dbus.get_config()
     return {"status": "success"}
 
-@router.delete("/api/rooms/{room_id}")
+@router.delete("/api/v1/rooms/{room_id}")
 async def delete_room(
     room_id: str,
     current_user: UserSession = Depends(get_current_parent),

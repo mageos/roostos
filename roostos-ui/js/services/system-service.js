@@ -1,6 +1,6 @@
 class SystemService {
     async fetchSystemSettings() {
-        const res = await window.authService.apiFetch("/api/system");
+        const res = await window.authService.apiFetch("/api/v1/system");
         if (res.ok) {
             return await res.json();
         }
@@ -8,7 +8,7 @@ class SystemService {
     }
 
     async saveSystemSettings(settings) {
-        const res = await window.authService.apiFetch("/api/system", {
+        const res = await window.authService.apiFetch("/api/v1/system", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(settings)
@@ -17,7 +17,7 @@ class SystemService {
     }
 
     async fetchHealth() {
-        const res = await window.authService.apiFetch("/api/system/health");
+        const res = await window.authService.apiFetch("/api/v1/system/health");
         if (res.ok) {
             return await res.json();
         }
@@ -25,7 +25,7 @@ class SystemService {
     }
 
     async triggerBackup(passphrase) {
-        const res = await window.authService.apiFetch("/api/backups", {
+        const res = await window.authService.apiFetch("/api/v1/backups", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ passphrase })
@@ -34,7 +34,7 @@ class SystemService {
     }
 
     async fetchPlugins() {
-        const res = await window.authService.apiFetch("/api/plugins");
+        const res = await window.authService.apiFetch("/api/v1/plugins");
         if (res.ok) {
             return await res.json();
         }
@@ -42,7 +42,7 @@ class SystemService {
     }
 
     async savePlugin(plugin) {
-        const res = await window.authService.apiFetch("/api/plugins", {
+        const res = await window.authService.apiFetch("/api/v1/plugins", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(plugin)
@@ -51,14 +51,14 @@ class SystemService {
     }
 
     async deletePlugin(id) {
-        const res = await window.authService.apiFetch(`/api/plugins/${id}`, {
+        const res = await window.authService.apiFetch(`/api/v1/plugins/${id}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async uploadPlugin(formData) {
-        const res = await window.authService.apiFetch("/api/plugins/upload", {
+        const res = await window.authService.apiFetch("/api/v1/plugins/upload", {
             method: "POST",
             body: formData // Note: no Content-Type header so the browser sets multipart/form-data boundary
         });
@@ -66,7 +66,7 @@ class SystemService {
     }
 
     async updatePluginManifest(id, manifestJson) {
-        const res = await window.authService.apiFetch("/api/plugins/manifest", {
+        const res = await window.authService.apiFetch("/api/v1/plugins/manifest", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id, manifest: manifestJson })
@@ -76,7 +76,7 @@ class SystemService {
 
     // Additional generic endpoints for rooms, buildings, people
     async fetchPeople() {
-        const res = await window.authService.apiFetch("/api/people");
+        const res = await window.authService.apiFetch("/api/v1/people");
         if (res.ok) {
             window.allOwners = await res.json();
             return window.allOwners;
@@ -85,7 +85,7 @@ class SystemService {
     }
 
     async savePerson(person) {
-        const res = await window.authService.apiFetch("/api/people", {
+        const res = await window.authService.apiFetch("/api/v1/people", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(person)
@@ -94,14 +94,14 @@ class SystemService {
     }
 
     async deletePerson(id) {
-        const res = await window.authService.apiFetch(`/api/people/${id}`, {
+        const res = await window.authService.apiFetch(`/api/v1/people/${id}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async fetchBuildings() {
-        const res = await window.authService.apiFetch("/api/buildings");
+        const res = await window.authService.apiFetch("/api/v1/buildings");
         if (res.ok) {
             return await res.json();
         }
@@ -109,7 +109,7 @@ class SystemService {
     }
 
     async saveBuilding(building) {
-        const res = await window.authService.apiFetch("/api/buildings", {
+        const res = await window.authService.apiFetch("/api/v1/buildings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(building)
@@ -118,14 +118,14 @@ class SystemService {
     }
 
     async deleteBuilding(id) {
-        const res = await window.authService.apiFetch(`/api/buildings/${id}`, {
+        const res = await window.authService.apiFetch(`/api/v1/buildings/${id}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async fetchRooms() {
-        const res = await window.authService.apiFetch("/api/rooms");
+        const res = await window.authService.apiFetch("/api/v1/rooms");
         if (res.ok) {
             window.allLocations = await res.json();
             return window.allLocations;
@@ -134,7 +134,7 @@ class SystemService {
     }
 
     async saveRoom(room) {
-        const res = await window.authService.apiFetch("/api/rooms", {
+        const res = await window.authService.apiFetch("/api/v1/rooms", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(room)
@@ -143,14 +143,14 @@ class SystemService {
     }
 
     async deleteRoom(id) {
-        const res = await window.authService.apiFetch(`/api/rooms/${id}`, {
+        const res = await window.authService.apiFetch(`/api/v1/rooms/${id}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async fetchServicesStatus() {
-        const res = await window.authService.apiFetch("/api/system/services");
+        const res = await window.authService.apiFetch("/api/v1/system/services");
         if (res.ok) {
             return await res.json();
         }
@@ -158,7 +158,7 @@ class SystemService {
     }
 
     async fetchLogs(service, limit) {
-        const res = await window.authService.apiFetch(`/api/diagnostics/logs?service=${encodeURIComponent(service)}&limit=${limit}`);
+        const res = await window.authService.apiFetch(`/api/v1/diagnostics/logs?service=${encodeURIComponent(service)}&limit=${limit}`);
         if (res.ok) {
             return await res.json();
         }
@@ -200,13 +200,13 @@ class SystemService {
     }
 
     async fetchDependencies() {
-        const res = await window.authService.apiFetch("/api/system/dependencies");
+        const res = await window.authService.apiFetch("/api/v1/system/dependencies");
         if (res.ok) return await res.json();
         throw new Error("Failed to fetch system dependencies");
     }
 
     async installDependencies(feature = null, packages = null) {
-        const res = await window.authService.apiFetch("/api/system/dependencies/install", {
+        const res = await window.authService.apiFetch("/api/v1/system/dependencies/install", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ feature, packages })

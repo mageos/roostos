@@ -141,7 +141,7 @@ class ClusterReplicator:
 
     async def sync_from_controller(self, controller_url: str) -> bool:
         """Fetches the state bundle from the controller and applies it to local replica."""
-        url = f"{controller_url.rstrip('/')}/api/cluster/sync/bundle"
+        url = f"{controller_url.rstrip('/')}/api/v1/cluster/sync/bundle"
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
                 res = await client.get(url)

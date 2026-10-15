@@ -36,7 +36,7 @@ export class NetworkTopologyComponent extends HTMLElement {
 
     async loadData() {
         try {
-            const res = await apiFetch("/api/network/topology");
+            const res = await apiFetch("/api/v1/network/topology");
             if (res.ok) {
                 const data = await res.json();
                 this.networks = Array.isArray(data.networks) ? data.networks : [];
@@ -127,7 +127,7 @@ export class NetworkTopologyComponent extends HTMLElement {
             if (src === tgt) return alert("Source and target networks cannot be the same.");
 
             try {
-                const res = await apiFetch("/api/network/topology/links", {
+                const res = await apiFetch("/api/v1/network/topology/links", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -173,7 +173,7 @@ export class NetworkTopologyComponent extends HTMLElement {
             const description = editTr.querySelector(".link-desc-input").value.trim();
 
             try {
-                const res = await apiFetch("/api/network/topology/links", {
+                const res = await apiFetch("/api/v1/network/topology/links", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -194,7 +194,7 @@ export class NetworkTopologyComponent extends HTMLElement {
     async deleteLink(linkId) {
         if (!confirm("Are you sure you want to delete this inter-network link?")) return;
         try {
-            const res = await apiFetch(`/api/network/topology/links/${linkId}`, { method: "DELETE" });
+            const res = await apiFetch(`/api/v1/network/topology/links/${linkId}`, { method: "DELETE" });
             if (res.ok) await this.loadData();
         } catch (e) {
             alert(`Failed to delete link: ${e}`);
@@ -221,7 +221,7 @@ export class NetworkTopologyComponent extends HTMLElement {
             if (!name || !subnet) return alert("Network name and subnet CIDR are required.");
 
             try {
-                const res = await apiFetch("/api/network/topology/subnets", {
+                const res = await apiFetch("/api/v1/network/topology/subnets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -259,7 +259,7 @@ export class NetworkTopologyComponent extends HTMLElement {
             const iface = editTr.querySelector(".net-if-input").value.trim();
 
             try {
-                const res = await apiFetch("/api/network/topology/subnets", {
+                const res = await apiFetch("/api/v1/network/topology/subnets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -279,7 +279,7 @@ export class NetworkTopologyComponent extends HTMLElement {
     async deleteNet(netId) {
         if (!confirm("Are you sure you want to remove this subnet from topology? Connected links will be severed.")) return;
         try {
-            const res = await apiFetch(`/api/network/topology/subnets/${netId}`, { method: "DELETE" });
+            const res = await apiFetch(`/api/v1/network/topology/subnets/${netId}`, { method: "DELETE" });
             if (res.ok) await this.loadData();
         } catch (e) {
             alert(`Failed to delete subnet: ${e}`);

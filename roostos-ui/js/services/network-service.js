@@ -1,6 +1,6 @@
 class NetworkService {
     async fetchConfig() {
-        const res = await window.authService.apiFetch("/api/network");
+        const res = await window.authService.apiFetch("/api/v1/network");
         if (res.ok) {
             const data = await res.json();
             window.networkSettings = data.network || {};
@@ -13,7 +13,7 @@ class NetworkService {
     }
 
     async saveConfig(network, wifi, vpns) {
-        const res = await window.authService.apiFetch("/api/network", {
+        const res = await window.authService.apiFetch("/api/v1/network", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ network, wifi, vpns })

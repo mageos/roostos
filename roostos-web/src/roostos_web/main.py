@@ -68,6 +68,22 @@ def determine_server_mode(
     return "full"
 
 
+class ApiV1FallbackMiddleware:
+    """Transparently rewrites unversioned /api/* paths to /api/v1/* for backwards compatibility."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            path = scope.get("path", "")
+            if path.startswith("/api/") and not path.startswith("/api/v1/"):
+                scope["path"] = f"/api/v1{path[4:]}"
+                if "raw_path" in scope:
+                    scope["raw_path"] = scope["path"].encode("ascii")
+        await self.app(scope, receive, send)
+
+
 def create_app(
     mode: Optional[str] = None,
     no_ui: Optional[bool] = None,
@@ -92,6 +108,7 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app_instance.add_middleware(ApiV1FallbackMiddleware)
 
     # Public ACME HTTP-01 challenge responder for Let's Encrypt validation
     app_instance.include_router(certificates.acme_challenge_router)

@@ -6,7 +6,7 @@ window.setupWizard = {
 
     async checkAndPromptSetup() {
         try {
-            const res = await fetch("/api/setup/status");
+            const res = await fetch("/api/v1/setup/status");
             if (!res.ok) return;
             const data = await res.json();
             if (!data.is_configured) {
@@ -194,7 +194,7 @@ window.setupWizard = {
         }
 
         try {
-            const res = await fetch("/api/setup/apply", {
+            const res = await fetch("/api/v1/setup/apply", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)

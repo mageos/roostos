@@ -24,7 +24,7 @@ from roostos_web.auth import get_current_parent, get_current_admin, UserSession
 from roostos_web.di import Injected
 from roostos_web.audit import log_config_change
 
-router = APIRouter(tags=["dns"])
+router = APIRouter(prefix="/api/v1/dns", tags=["dns"])
 
 
 class DNSConfigSchema(BaseModel):
@@ -34,7 +34,7 @@ class DNSConfigSchema(BaseModel):
     auto_install_dependencies: bool = False
 
 
-@router.get("/api/dns/config")
+@router.get("/config")
 async def get_dns_config(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository),
@@ -60,7 +60,7 @@ async def get_dns_config(
     }
 
 
-@router.post("/api/dns/config")
+@router.post("/config")
 async def update_dns_config(
     request: Request,
     dns_data: DNSConfigSchema,
@@ -161,7 +161,7 @@ async def update_dns_config(
     }
 
 
-@router.get("/api/dns/records", response_model=List[DNSRecordConfig])
+@router.get("/records", response_model=List[DNSRecordConfig])
 async def get_dns_records(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository),
@@ -172,7 +172,7 @@ async def get_dns_records(
     return getattr(dns_settings, "records", [])
 
 
-@router.post("/api/dns/records", response_model=DNSRecordConfig)
+@router.post("/records", response_model=DNSRecordConfig)
 async def create_or_update_dns_record(
     record: DNSRecordConfig,
     current_user: UserSession = Depends(get_current_admin),
@@ -203,7 +203,7 @@ async def create_or_update_dns_record(
     return record
 
 
-@router.delete("/api/dns/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/records/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dns_record(
     record_id: str,
     current_user: UserSession = Depends(get_current_admin),

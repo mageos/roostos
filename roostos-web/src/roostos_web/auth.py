@@ -61,7 +61,7 @@ def validate_authorization_code(code: str, redirect_uri: str) -> Optional[str]:
 from fastapi import Cookie
 from typing import List, Callable
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 class UserSession(BaseModel):
     username: str

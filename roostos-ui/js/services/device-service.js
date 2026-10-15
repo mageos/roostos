@@ -1,6 +1,6 @@
 class DeviceService {
     async fetchDevices() {
-        const res = await window.authService.apiFetch("/api/devices");
+        const res = await window.authService.apiFetch("/api/v1/devices");
         if (res.ok) {
             const data = await res.json();
             window.allDevices = data.devices || [];
@@ -12,7 +12,7 @@ class DeviceService {
     }
 
     async saveDevice(payload) {
-        const res = await window.authService.apiFetch("/api/devices", {
+        const res = await window.authService.apiFetch("/api/v1/devices", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -21,7 +21,7 @@ class DeviceService {
     }
 
     async deleteDevice(mac) {
-        const res = await window.authService.apiFetch(`/api/devices/${mac}`, {
+        const res = await window.authService.apiFetch(`/api/v1/devices/${mac}`, {
             method: "DELETE"
         });
         return res;

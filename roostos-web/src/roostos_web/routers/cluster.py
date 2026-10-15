@@ -18,7 +18,7 @@ from roostos_web.services.cluster import ClusterService
 from roostos_web.di import Injected
 
 
-router = APIRouter(prefix="/api/cluster", tags=["cluster"])
+router = APIRouter(prefix="/api/v1/cluster", tags=["cluster"])
 
 
 class NodeInterfaceSchema(BaseModel):

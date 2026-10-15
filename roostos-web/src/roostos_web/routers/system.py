@@ -22,7 +22,7 @@ class UserManagementSchema(BaseModel):
     role: str
     person: Optional[str] = None
 
-@router.get("/api/system")
+@router.get("/api/v1/system")
 async def get_system_config(
     current_user: UserSession = Depends(get_current_parent),
     system_service: SystemService = Injected(SystemService)
@@ -37,7 +37,7 @@ class SystemUpdatePayload(BaseModel):
     docker_registry: Optional[str] = ""
 
 
-@router.post("/api/system")
+@router.post("/api/v1/system")
 async def update_system_config(
     request: Request,
     payload: SystemUpdatePayload,
@@ -55,7 +55,7 @@ async def update_system_config(
     )
     return {"status": "success", "message": "System configurations updated successfully."}
 
-@router.get("/api/system/health")
+@router.get("/api/v1/system/health")
 async def get_system_health(
     current_user: UserSession = Depends(get_current_user),
     system_service: SystemService = Injected(SystemService)
@@ -63,7 +63,7 @@ async def get_system_health(
     """Runs a series of system diagnostics checks to verify router network/firewall integrity."""
     return await system_service.run_diagnostics()
 
-@router.post("/api/system/reboot")
+@router.post("/api/v1/system/reboot")
 async def reboot_router(
     request: Request,
     current_user: UserSession = Depends(get_current_admin),
@@ -78,7 +78,7 @@ async def reboot_router(
     await system_service.reboot_router()
     return {"status": "success", "message": "Reboot instruction triggered successfully."}
 
-@router.get("/api/users")
+@router.get("/api/v1/users")
 async def get_users_list(
     current_user: UserSession = Depends(get_current_parent),
     auth_service: AuthService = Injected(AuthService)
@@ -87,7 +87,7 @@ async def get_users_list(
     users = auth_service.get_users()
     return {"users": [{"username": u.username, "role": u.role, "person": u.person} for u in users]}
 
-@router.post("/api/users")
+@router.post("/api/v1/users")
 async def save_user(
     request: Request,
     user_data: UserManagementSchema,
@@ -140,7 +140,7 @@ async def save_user(
     )
     return {"status": "success", "message": f"User {user_data.username} saved successfully."}
 
-@router.delete("/api/users/{username}")
+@router.delete("/api/v1/users/{username}")
 async def delete_user(
     request: Request,
     username: str,
@@ -174,7 +174,7 @@ async def delete_user(
     )
     return {"status": "success", "message": f"User {username} deleted successfully."}
 
-@router.get("/api/system/services")
+@router.get("/api/v1/system/services")
 async def get_system_services(
     current_user: UserSession = Depends(get_current_parent),
     system_service: SystemService = Injected(SystemService)
@@ -188,7 +188,7 @@ class InstallDependenciesPayload(BaseModel):
     packages: Optional[List[str]] = None
 
 
-@router.get("/api/system/dependencies")
+@router.get("/api/v1/system/dependencies")
 async def get_system_dependencies(
     current_user: UserSession = Depends(get_current_parent),
 ):
@@ -196,7 +196,7 @@ async def get_system_dependencies(
     return check_all_dependencies().model_dump()
 
 
-@router.post("/api/system/dependencies/install")
+@router.post("/api/v1/system/dependencies/install")
 async def install_system_dependencies(
     request: Request,
     payload: InstallDependenciesPayload,

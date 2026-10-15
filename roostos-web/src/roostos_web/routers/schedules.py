@@ -31,7 +31,7 @@ class AntiEvasionSchema(BaseModel):
     custom_doh_ips: list[str] = []
     custom_vpn_ips: list[str] = []
 
-@router.get("/api/firewall/anti-evasion")
+@router.get("/api/v1/firewall/anti-evasion")
 async def get_anti_evasion_settings(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -53,7 +53,7 @@ async def get_anti_evasion_settings(
         ]
     }
 
-@router.post("/api/firewall/anti-evasion")
+@router.post("/api/v1/firewall/anti-evasion")
 async def update_anti_evasion_settings(
     settings: AntiEvasionSchema,
     current_user: UserSession = Depends(get_current_admin),
@@ -95,7 +95,7 @@ async def update_anti_evasion_settings(
     return {"status": "success", "message": "Anti-evasion security settings updated."}
 
 
-@router.get("/api/firewall/rules")
+@router.get("/api/v1/firewall/rules")
 async def get_firewall_rules(
     current_user: UserSession = Depends(get_current_user),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -104,7 +104,7 @@ async def get_firewall_rules(
     config = repo.get_config()
     return [r.model_dump() for r in config.firewall.rules]
 
-@router.post("/api/firewall/rules")
+@router.post("/api/v1/firewall/rules")
 async def update_firewall_rule(
     rule: FirewallRuleSchema,
     current_user: UserSession = Depends(get_current_admin),
@@ -124,7 +124,7 @@ async def update_firewall_rule(
         raise HTTPException(status_code=400, detail="Failed to save firewall rule.")
     return {"status": "success", "message": f"Firewall rule '{rule.name}' saved."}
 
-@router.delete("/api/firewall/rules/{name}")
+@router.delete("/api/v1/firewall/rules/{name}")
 async def delete_firewall_rule(
     name: str,
     current_user: UserSession = Depends(get_current_admin),
@@ -142,7 +142,7 @@ async def delete_firewall_rule(
 # ==========================================
 
 
-@router.get("/api/schedules")
+@router.get("/api/v1/schedules")
 async def get_schedules(
     current_user: UserSession = Depends(get_current_user),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -155,7 +155,7 @@ async def get_schedules(
     }
 
 
-@router.get("/api/firewall/port-forwards", response_model=List[PortForwardConfig])
+@router.get("/api/v1/firewall/port-forwards", response_model=List[PortForwardConfig])
 async def get_port_forwards(
     current_user: UserSession = Depends(get_current_user),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -166,7 +166,7 @@ async def get_port_forwards(
     return getattr(fw, "port_forwards", []) if fw else []
 
 
-@router.post("/api/firewall/port-forwards", response_model=PortForwardConfig)
+@router.post("/api/v1/firewall/port-forwards", response_model=PortForwardConfig)
 async def create_or_update_port_forward(
     forward: PortForwardConfig,
     current_user: UserSession = Depends(get_current_admin),
@@ -193,7 +193,7 @@ async def create_or_update_port_forward(
     return forward
 
 
-@router.delete("/api/firewall/port-forwards/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/api/v1/firewall/port-forwards/{name}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_port_forward(
     name: str,
     current_user: UserSession = Depends(get_current_admin),
@@ -217,7 +217,7 @@ async def delete_port_forward(
         pass
 
 
-@router.post("/api/schedules/bypass")
+@router.post("/api/v1/schedules/bypass")
 async def grant_bypass(
     mac: str = Body(...),
     duration_minutes: int = Body(...),
@@ -230,7 +230,7 @@ async def grant_bypass(
         raise HTTPException(status_code=400, detail="Failed to grant bypass.")
     return {"status": "success"}
 
-@router.delete("/api/schedules/bypass/{mac}")
+@router.delete("/api/v1/schedules/bypass/{mac}")
 async def revoke_bypass(
     mac: str,
     current_user: UserSession = Depends(get_current_parent),
@@ -242,7 +242,7 @@ async def revoke_bypass(
         raise HTTPException(status_code=400, detail="Failed to revoke bypass.")
     return {"status": "success"}
 
-@router.post("/api/backups")
+@router.post("/api/v1/backups")
 async def create_backup(
     passphrase: str = Body(..., embed=True),
     current_user: UserSession = Depends(get_current_admin),
@@ -252,7 +252,7 @@ async def create_backup(
     backup_path = await dbus.create_backup(passphrase)
     return {"status": "success", "backup_path": backup_path}
 
-@router.post("/api/backups/restore")
+@router.post("/api/v1/backups/restore")
 async def restore_backup(
     backup_path: str = Body(...),
     passphrase: str = Body(...),
@@ -265,7 +265,7 @@ async def restore_backup(
         raise HTTPException(status_code=400, detail="Failed to restore backup. Verify manifest and password.")
     return {"status": "success", "message": "Backup restored successfully."}
 
-@router.get("/api/firewall/blocks")
+@router.get("/api/v1/firewall/blocks")
 async def get_firewall_blocks(
     limit: int = 50,
     current_user: UserSession = Depends(get_current_parent),

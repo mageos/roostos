@@ -13,6 +13,7 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 @router.get("/api/health")
+@router.get("/api/v1/health")
 async def get_node_health(
     check_mqtt: bool = Query(False, description="Whether to trigger an active MQTT broadcast ping health check"),
     dbus: RoostClient = Injected(RoostClient),

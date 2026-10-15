@@ -41,7 +41,7 @@ export const showEditEndpointModal = (component, apiFetch) => {
         if (!host) return alert("Please specify a domain name or IP.");
         const isIp = /^(\d{1,3}\.){3}\d{1,3}$/.test(host);
         try {
-            const res = await apiFetch("/api/edge/endpoint", {
+            const res = await apiFetch("/api/v1/edge/endpoint", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ domain: isIp ? null : host, ip: isIp ? host : null, port })
@@ -108,7 +108,7 @@ export const showLinkModal = (component, apiFetch) => {
         btn.textContent = "Connecting...";
 
         try {
-            const res = await apiFetch("/api/edge/connect", {
+            const res = await apiFetch("/api/v1/edge/connect", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ token })

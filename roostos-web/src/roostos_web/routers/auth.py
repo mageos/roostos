@@ -139,7 +139,7 @@ async def oauth_token(
         raise HTTPException(status_code=400, detail=f"Unsupported grant_type: {grant_type}")
 
 
-@router.post("/api/auth/login")
+@router.post("/api/v1/auth/login")
 async def login(
     request: Request,
     response: Response,
@@ -171,7 +171,7 @@ async def login(
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/api/auth/me", response_model=UserSession)
+@router.get("/api/v1/auth/me", response_model=UserSession)
 async def read_users_me(current_user: UserSession = Depends(get_current_user)):
     """Returns metadata for the currently logged-in session."""
     return current_user

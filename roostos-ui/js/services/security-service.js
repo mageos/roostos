@@ -1,6 +1,6 @@
 class SecurityService {
     async fetchSchedules() {
-        const res = await window.authService.apiFetch("/api/schedules");
+        const res = await window.authService.apiFetch("/api/v1/schedules");
         if (res.ok) {
             return await res.json();
         }
@@ -8,7 +8,7 @@ class SecurityService {
     }
 
     async fetchFirewallRules() {
-        const res = await window.authService.apiFetch("/api/firewall/rules");
+        const res = await window.authService.apiFetch("/api/v1/firewall/rules");
         if (res.ok) {
             return await res.json();
         }
@@ -16,7 +16,7 @@ class SecurityService {
     }
 
     async saveFirewallRule(rule) {
-        const res = await window.authService.apiFetch("/api/firewall/rules", {
+        const res = await window.authService.apiFetch("/api/v1/firewall/rules", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(rule)
@@ -25,7 +25,7 @@ class SecurityService {
     }
 
     async deleteFirewallRule(name) {
-        const res = await window.authService.apiFetch(`/api/firewall/rules/${encodeURIComponent(name)}`, {
+        const res = await window.authService.apiFetch(`/api/v1/firewall/rules/${encodeURIComponent(name)}`, {
             method: "DELETE"
         });
         return res;
@@ -33,7 +33,7 @@ class SecurityService {
 
 
     async saveSchedule(schedule) {
-        const res = await window.authService.apiFetch("/api/schedules", {
+        const res = await window.authService.apiFetch("/api/v1/schedules", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(schedule)
@@ -42,14 +42,14 @@ class SecurityService {
     }
 
     async deleteSchedule(name) {
-        const res = await window.authService.apiFetch(`/api/schedules/${name}`, {
+        const res = await window.authService.apiFetch(`/api/v1/schedules/${name}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async triggerBypass(personId, durationMins) {
-        const res = await window.authService.apiFetch("/api/schedules/bypass", {
+        const res = await window.authService.apiFetch("/api/v1/schedules/bypass", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ person_id: personId, duration_minutes: durationMins })
@@ -58,7 +58,7 @@ class SecurityService {
     }
 
     async fetchDnsConfig() {
-        const res = await window.authService.apiFetch("/api/dns/config");
+        const res = await window.authService.apiFetch("/api/v1/dns/config");
         if (res.ok) {
             const data = await res.json();
             window.localDnsRecords = data.local_records || [];
@@ -68,7 +68,7 @@ class SecurityService {
     }
 
     async saveDnsConfig(config) {
-        const res = await window.authService.apiFetch("/api/dns/config", {
+        const res = await window.authService.apiFetch("/api/v1/dns/config", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(config)
@@ -77,7 +77,7 @@ class SecurityService {
     }
 
     async fetchUsers() {
-        const res = await window.authService.apiFetch("/api/users");
+        const res = await window.authService.apiFetch("/api/v1/users");
         if (res.ok) {
             return await res.json();
         }
@@ -85,7 +85,7 @@ class SecurityService {
     }
 
     async saveUser(user) {
-        const res = await window.authService.apiFetch("/api/users", {
+        const res = await window.authService.apiFetch("/api/v1/users", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(user)
@@ -94,14 +94,14 @@ class SecurityService {
     }
 
     async deleteUser(username) {
-        const res = await window.authService.apiFetch(`/api/users/${username}`, {
+        const res = await window.authService.apiFetch(`/api/v1/users/${username}`, {
             method: "DELETE"
         });
         return res;
     }
 
     async fetchAntiEvasionSettings() {
-        const res = await window.authService.apiFetch("/api/firewall/anti-evasion");
+        const res = await window.authService.apiFetch("/api/v1/firewall/anti-evasion");
         if (res.ok) {
             return await res.json();
         }
@@ -109,7 +109,7 @@ class SecurityService {
     }
 
     async saveAntiEvasionSettings(settings) {
-        const res = await window.authService.apiFetch("/api/firewall/anti-evasion", {
+        const res = await window.authService.apiFetch("/api/v1/firewall/anti-evasion", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(settings)
