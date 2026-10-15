@@ -2,7 +2,6 @@
 
 import ipaddress
 from typing import Any, Dict, List, Optional
-from injector import inject
 
 from roostos_engine.config import NetworkConfig, DevicesConfig, DeviceConfig, NetworkBridge, NetworkVlan
 from roostos_engine.repository import ConfigRepository
@@ -19,8 +18,7 @@ from roostos_web.schemas.dhcp import (
 class KeaService:
     """Service for managing multi-subnet Kea DHCP scopes, leases, and reservations."""
 
-    @inject
-    def __init__(self, repo: ConfigRepository, dbus: RoostClient):
+    def __init__(self, repo: ConfigRepository, dbus: Optional[RoostClient] = None):
         self.repo = repo
         self.dbus = dbus
 

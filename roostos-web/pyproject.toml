@@ -14,7 +14,7 @@ dependencies = [
     "roostos-sdk",
     "roostos-engine",
     "roostos-cli",
-    "injector>=0.21.0",
+    "punq>=0.9.0",
     "qrcode>=8.2",
 ]
 

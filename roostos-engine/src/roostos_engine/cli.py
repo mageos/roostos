@@ -94,9 +94,15 @@ async def get_dbus_property(property_name: str, session: bool = False):
 # ==========================================
 
 @click.group()
-def main():
+@click.option("--config-dir", default=None, help="Path to config files directory")
+@click.pass_context
+def main(ctx, config_dir):
     """RoostOS Core CLI management utility."""
-    pass
+    ctx.ensure_object(dict)
+    if config_dir:
+        from roostos_engine.di import create_engine_container
+        ctx.obj["config_dir"] = config_dir
+        ctx.obj["container"] = create_engine_container(config_dir=config_dir)
 
 @main.group(name="config")
 def config_group():

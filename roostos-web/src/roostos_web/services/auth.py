@@ -1,11 +1,9 @@
 from typing import List
-from injector import inject
 from roostos_engine.config import SystemConfig, UserConfig
 from roostos_engine.repository import ConfigRepository
 
 
 class AuthService:
-    @inject
     def __init__(self, repo: ConfigRepository):
         self.repo = repo
 
