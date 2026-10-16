@@ -23,7 +23,7 @@ class BackupHandler:
         backup_dir = "/var/lib/roostos/backups"
         try:
             os.makedirs(backup_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             # Fall back to user-writeable path inside config_dir for testing/sandbox envs
             backup_dir = os.path.join(self.config_dir, "backups")
             os.makedirs(backup_dir, exist_ok=True)
@@ -79,9 +79,11 @@ class BackupHandler:
                 tar.add(staged_configs, arcname="roostos")
 
             # Encrypt tar.gz using GPG AES256
+            gnupg_dir = os.path.join(tmp_dir, "gnupg")
+            os.makedirs(gnupg_dir, mode=0o700, exist_ok=True)
             try:
                 subprocess.run(
-                    ["gpg", "--symmetric", "--cipher-algo", "AES256", "--batch", "--yes", "--passphrase-fd", "0", "-o", backup_path, tar_path],
+                    ["gpg", "--homedir", gnupg_dir, "--symmetric", "--cipher-algo", "AES256", "--batch", "--yes", "--passphrase-fd", "0", "-o", backup_path, tar_path],
                     input=passphrase.encode(),
                     check=True,
                     stdout=subprocess.PIPE,
@@ -102,11 +104,13 @@ class BackupHandler:
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             decrypted_tar = os.path.join(tmp_dir, "backup.tar.gz")
+            gnupg_dir = os.path.join(tmp_dir, "gnupg")
+            os.makedirs(gnupg_dir, mode=0o700, exist_ok=True)
             
             # Decrypt the GPG backup
             try:
                 subprocess.run(
-                    ["gpg", "--decrypt", "--batch", "--yes", "--passphrase-fd", "0", "-o", decrypted_tar, backup_path],
+                    ["gpg", "--homedir", gnupg_dir, "--decrypt", "--batch", "--yes", "--passphrase-fd", "0", "-o", decrypted_tar, backup_path],
                     input=passphrase.encode(),
                     check=True,
                     stdout=subprocess.PIPE,

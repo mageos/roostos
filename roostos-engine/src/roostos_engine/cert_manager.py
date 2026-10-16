@@ -31,7 +31,7 @@ class CertificateManager:
             os.makedirs(self.plugins_cert_dir, exist_ok=True)
             os.makedirs(self.services_cert_dir, exist_ok=True)
             os.makedirs(self.server_cert_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def ensure_root_ca(self) -> Tuple[x509.Certificate, rsa.RSAPrivateKey]:

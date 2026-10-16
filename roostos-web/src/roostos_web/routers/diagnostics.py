@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 from roostos_web.auth import get_current_parent, get_current_admin, UserSession
 
-router = APIRouter(tags=["diagnostics"])
+router = APIRouter(prefix="/api/v1/diagnostics", tags=["diagnostics"])
 
 # Valid host regex: alphanumeric, dots, and hyphens
 HOST_REGEX = re.compile(r"^[a-zA-Z0-9.-]+$")
@@ -39,7 +39,7 @@ def validate_host(host: str) -> None:
             detail="Invalid host. Must be a valid domain name or IP address."
         )
 
-@router.post("/api/diagnostics/ping")
+@router.post("/ping")
 async def ping(
     request: PingRequest,
     current_user: UserSession = Depends(get_current_parent)
@@ -62,7 +62,7 @@ async def ping(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-@router.post("/api/diagnostics/traceroute")
+@router.post("/traceroute")
 async def traceroute(
     request: TracerouteRequest,
     current_user: UserSession = Depends(get_current_parent)
@@ -96,7 +96,7 @@ async def traceroute(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-@router.post("/api/diagnostics/dns-lookup")
+@router.post("/dns-lookup")
 async def dns_lookup(
     request: DNSLookupRequest,
     current_user: UserSession = Depends(get_current_parent)
@@ -127,7 +127,7 @@ async def dns_lookup(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
-@router.get("/api/diagnostics/logs")
+@router.get("/logs")
 async def get_logs(
     service: str = Query("roostd"),
     limit: int = Query(100, ge=1, le=500),

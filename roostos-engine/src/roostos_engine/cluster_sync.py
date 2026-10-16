@@ -98,7 +98,7 @@ class ClusterSyncAgent:
         if self.mock and not self.controller_url.startswith("http"):
             return self.replicator.generate_manifest(epoch=1, master_node_id="master-01")
 
-        url = f"{self.controller_url}/api/cluster/sync/manifest"
+        url = f"{self.controller_url}/api/v1/cluster/sync/manifest"
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 res = await client.get(url)
@@ -181,7 +181,7 @@ class ClusterSyncAgent:
             self._last_heartbeat_status = "acknowledged"
             return {"status": "acknowledged", "commands": []}
 
-        url = f"{self.controller_url}/api/cluster/nodes/{self.node_id}/heartbeat"
+        url = f"{self.controller_url}/api/v1/cluster/nodes/{self.node_id}/heartbeat"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=payload.model_dump())
             resp.raise_for_status()
@@ -205,7 +205,7 @@ class ClusterSyncAgent:
                 "wifi_access_points": [],
             }
 
-        url = f"{self.controller_url}/api/cluster/nodes/{self.node_id}/config"
+        url = f"{self.controller_url}/api/v1/cluster/nodes/{self.node_id}/config"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url)
             if resp.status_code == 200:
@@ -245,7 +245,7 @@ class ClusterSyncAgent:
                 "message": f"Node '{name}' joined cluster successfully.",
             }
 
-        url = f"{self.controller_url}/api/cluster/join"
+        url = f"{self.controller_url}/api/v1/cluster/join"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, json=join_req.model_dump())
             resp.raise_for_status()

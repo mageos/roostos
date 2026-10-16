@@ -10,7 +10,7 @@ from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_admin, UserSession
 from roostos_web.di import Injected
 
-router = APIRouter(tags=["config"])
+router = APIRouter(prefix="/api/v1/config", tags=["config"])
 
 class CommitRequest(BaseModel):
     description: str
@@ -18,7 +18,7 @@ class CommitRequest(BaseModel):
 class RollbackRequest(BaseModel):
     commit: str
 
-@router.get("/api/config/staged")
+@router.get("/staged")
 async def get_staged_status(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -38,7 +38,7 @@ async def get_staged_status(
         "staged_files": []
     }
 
-@router.post("/api/config/commit")
+@router.post("/commit")
 async def commit_changes(
     request: CommitRequest,
     current_user: UserSession = Depends(get_current_admin),
@@ -68,7 +68,7 @@ async def commit_changes(
         "git_commit": git_success
     }
 
-@router.post("/api/config/discard")
+@router.post("/discard")
 async def discard_staged_changes(
     current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -80,7 +80,7 @@ async def discard_staged_changes(
     repo.discard_staged_changes()
     return {"status": "success", "message": "Staged changes discarded."}
 
-@router.get("/api/config/history")
+@router.get("/history")
 async def get_config_history(
     current_user: UserSession = Depends(get_current_parent),
     repo: ConfigRepository = Injected(ConfigRepository)
@@ -91,7 +91,7 @@ async def get_config_history(
     history = git_engine.get_commit_history()
     return {"history": history}
 
-@router.post("/api/config/rollback")
+@router.post("/rollback")
 async def rollback_config(
     request: RollbackRequest,
     current_user: UserSession = Depends(get_current_admin),

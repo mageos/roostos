@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 import os
-from typing import Union
+from typing import Union, Any, List, Optional
 import yaml
 from roostos_engine.config import (
     RoostConfig,
@@ -17,6 +17,30 @@ from roostos_engine.config import (
 )
 
 class ConfigRepository(ABC):
+    def __init__(self) -> None:
+        self._listeners: list = []
+
+    def add_listener(self, listener: Any) -> None:
+        if not hasattr(self, "_listeners"):
+            self._listeners = []
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def remove_listener(self, listener: Any) -> None:
+        if hasattr(self, "_listeners") and listener in self._listeners:
+            self._listeners.remove(listener)
+
+    def notify_change(self, section: str, action: str = "save", data: Any = None) -> None:
+        if not hasattr(self, "_listeners"):
+            self._listeners = []
+        from roostos_engine.events import ConfigChangeEvent
+        event = ConfigChangeEvent(section=section, action=action, data=data)
+        for listener in list(self._listeners):
+            try:
+                listener(event)
+            except Exception:
+                pass
+
     @abstractmethod
     def get_config(self) -> RoostConfig:
         pass
@@ -42,7 +66,7 @@ class YAMLConfigRepository(ConfigRepository):
         self.config_dir = config_dir
         try:
             os.makedirs(self.config_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def get_config(self) -> RoostConfig:
@@ -50,12 +74,15 @@ class YAMLConfigRepository(ConfigRepository):
 
     def save_system_config(self, data: SystemConfig) -> None:
         save_config_file(self.config_dir, "system.yaml", data)
+        self.notify_change("system", data=data)
 
     def save_nodes_config(self, data: NodesConfigFile) -> None:
         save_config_file(self.config_dir, "nodes.yaml", data)
+        self.notify_change("nodes", data=data)
 
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.config_dir, "devices.yaml", data)
+        self.notify_change("devices", data=data)
 
     def save_network_config(self, data: Union[NetworkConfig, NetworkSettings]) -> None:
         if isinstance(data, NetworkSettings):
@@ -68,24 +95,26 @@ class YAMLConfigRepository(ConfigRepository):
                     existing = NetworkConfig.model_validate(raw)
                 except Exception:
                     pass
+            net_cfg = existing if existing else NetworkConfig(network=data, edge_gateways=data.edge_gateways)
             if existing:
                 existing.network = data
                 existing.edge_gateways = data.edge_gateways
-                net_cfg = existing
-            else:
-                net_cfg = NetworkConfig(network=data, edge_gateways=data.edge_gateways)
             save_config_file(self.config_dir, "network.yaml", net_cfg)
         else:
             save_config_file(self.config_dir, "network.yaml", data)
+        self.notify_change("network", data=data)
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.config_dir, "schedules.yaml", data)
+        self.notify_change("schedules", data=data)
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
         save_config_file(self.config_dir, "firewall.yaml", data)
+        self.notify_change("firewall", data=data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         save_config_file(self.config_dir, "plugins.yaml", data)
+        self.notify_change("plugins", data=data)
 
 
 class StagingConfigRepository(ConfigRepository):
@@ -94,7 +123,7 @@ class StagingConfigRepository(ConfigRepository):
         self.staged_dir = staged_dir
         try:
             os.makedirs(self.staged_dir, exist_ok=True)
-        except PermissionError:
+        except (PermissionError, OSError):
             pass
 
     def get_config(self) -> RoostConfig:
@@ -206,6 +235,8 @@ class StagingConfigRepository(ConfigRepository):
             import shutil
             shutil.copy2(src, dst)
             os.remove(src)
+        self.notify_change("commit", action="commit")
+        self.active_repo.notify_change("commit", action="commit")
 
     def discard_staged_changes(self) -> None:
         """Deletes all staged files."""
@@ -220,11 +251,16 @@ class StagingConfigRepository(ConfigRepository):
             return False
         return len([f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]) > 0
 
+    def add_listener(self, listener: Any) -> None:
+        super().add_listener(listener)
+        self.active_repo.add_listener(listener)
+
 
 class InMemoryConfigRepository(ConfigRepository):
     """In-memory implementation of ConfigRepository for isolated unit tests."""
 
     def __init__(self, initial_config: RoostConfig = None):
+        super().__init__()
         if initial_config is not None:
             self._config = initial_config
         else:
@@ -252,23 +288,28 @@ class InMemoryConfigRepository(ConfigRepository):
     def save_system_config(self, data: SystemConfig) -> None:
         self._config.system = data.system
         self._config.users = data.users
+        self.notify_change("system", data=data)
 
     def save_nodes_config(self, data: NodesConfigFile) -> None:
         self._config.nodes = data.nodes
+        self.notify_change("nodes", data=data)
 
     def save_devices_config(self, data: DevicesConfig) -> None:
         self._config.people = data.people
         self._config.buildings = data.buildings
         self._config.rooms = data.rooms
         self._config.devices = data.devices
+        self.notify_change("devices", data=data)
 
     def save_network_config(self, data: NetworkConfig) -> None:
         self._config.network = data.network
         self._config.wifi = data.wifi
         self._config.vpns = data.vpns
+        self.notify_change("network", data=data)
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         self._config.schedules = data.schedules
+        self.notify_change("schedules", data=data)
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
         fw = data.firewall if hasattr(data, "firewall") and data.firewall else data
@@ -279,8 +320,10 @@ class InMemoryConfigRepository(ConfigRepository):
         self._config.firewall.block_quic = getattr(fw, "block_quic", False)
         self._config.firewall.custom_doh_ips = getattr(fw, "custom_doh_ips", [])
         self._config.firewall.custom_vpn_ips = getattr(fw, "custom_vpn_ips", [])
+        self.notify_change("firewall", data=data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         self._config.plugins = data.plugins
+        self.notify_change("plugins", data=data)
 
 

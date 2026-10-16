@@ -1,7 +1,6 @@
 import os
 import time
 from typing import List, Dict, Any, Optional
-from injector import inject
 
 from roostos_engine.models.node import NodeConfig, NodesConfigFile, NodeRole, NodeInterface
 from roostos_engine.models.system import SystemConfig
@@ -12,7 +11,6 @@ from roostos_sdk.client import RoostClient
 
 
 class ClusterService:
-    @inject
     def __init__(
         self,
         repo: ConfigRepository,

@@ -179,11 +179,11 @@ export const renderPeerQrModalContent = (peer) => html`
     </p>
     <div style="background: white; padding: 16px; border-radius: 12px; display: flex; justify-content: center; align-items: center; margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
         <div style="width: 240px; height: 240px; display: flex; align-items: center; justify-content: center;">
-            ${peer.qr_svg ? peer.qr_svg : `<img src="/api/edge/peers/${peer.id}/qr" alt="WireGuard QR Code" style="width: 240px; height: 240px; display: block;">`}
+            ${peer.qr_svg ? peer.qr_svg : `<img src="/api/v1/edge/peers/${peer.id}/qr" alt="WireGuard QR Code" style="width: 240px; height: 240px; display: block;">`}
         </div>
     </div>
     <div style="display: flex; gap: 10px; justify-content: flex-end;">
-        <a href="/api/edge/peers/${peer.id}/config" download="${peer.name}.conf" class="btn btn-primary btn-sm">⬇ Download .conf</a>
+        <a href="/api/v1/edge/peers/${peer.id}/config" download="${peer.name}.conf" class="btn btn-primary btn-sm">⬇ Download .conf</a>
         <button class="btn btn-secondary btn-sm close-modal-btn">Done</button>
     </div>
 `;

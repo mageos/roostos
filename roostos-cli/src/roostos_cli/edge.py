@@ -178,7 +178,7 @@ def connect_cmd(
         pass
 
     home_priv, home_pub = mgr.generate_wireguard_keypair()
-    enroll_url = f"{endpoint_url}/api/edge/enroll"
+    enroll_url = f"{endpoint_url}/api/v1/edge/enroll"
     payload = EdgeEnrollmentPayload(
         home_public_key=home_pub,
         hostname="roost-home",

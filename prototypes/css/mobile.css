@@ -1,0 +1,121 @@
+/* Mobile UX Patterns & Bottom Navigation Bar */
+
+/* Mobile Bottom Navigation Bar */
+.mobile-bottom-nav {
+    display: none;
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-subtle);
+    padding: 6px 12px 10px;
+    z-index: 50;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-nav-items {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    width: 100%;
+}
+
+.mobile-nav-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 500;
+    padding: 4px 8px;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+    gap: 3px;
+    min-width: 54px;
+}
+
+.mobile-nav-btn.active {
+    color: var(--brand-primary);
+    font-weight: 700;
+}
+
+.mobile-nav-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+
+/* Mobile responsive breakpoints */
+@media (max-width: 768px) {
+    .mobile-bottom-nav {
+        display: block;
+    }
+
+    .roost-header .c1-nav-tabs,
+    .roost-header .c2-nav-tabs {
+        display: none;
+    }
+
+    .roost-main {
+        padding: 16px;
+        padding-bottom: 80px;
+    }
+
+    .c1-hero-banner {
+        padding: 18px;
+    }
+
+    .c1-hero-title {
+        font-size: 20px;
+    }
+
+    .c1-quick-actions {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .drawer-panel {
+        max-width: 100%;
+        border-radius: 20px 20px 0 0;
+    }
+
+    .table-action-bar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+
+    .table-action-bar .btn {
+        width: 100%;
+    }
+}
+
+/* Specific styling when viewport simulator is in mobile mode */
+.viewport-stage.mode-mobile .mobile-bottom-nav {
+    display: block;
+    position: sticky;
+    bottom: 0;
+}
+
+.viewport-stage.mode-mobile .roost-header .c1-nav-tabs,
+.viewport-stage.mode-mobile .roost-header .c2-nav-tabs {
+    display: none;
+}
+
+.viewport-stage.mode-mobile .roost-main {
+    padding: 14px;
+    padding-bottom: 80px;
+}
+
+.viewport-stage.mode-mobile .c1-quick-actions {
+    grid-template-columns: 1fr 1fr;
+}
+
+.viewport-stage.mode-mobile .c1-hero-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+}

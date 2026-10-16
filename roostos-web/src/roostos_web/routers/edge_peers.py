@@ -23,7 +23,7 @@ from roostos_engine.repository import ConfigRepository
 from roostos_web.auth import get_current_admin, get_current_user, UserSession
 from roostos_web.di import Injected
 
-router = APIRouter(prefix="/api/edge/peers", tags=["Edge Peers"])
+router = APIRouter(prefix="/api/v1/edge/peers", tags=["Edge Peers"])
 
 
 def _get_active_gateway(repo: ConfigRepository) -> Optional[EdgeGatewayConfig]:

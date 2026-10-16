@@ -59,10 +59,12 @@ def test_restore_corrupt_manifest(temp_config_dir):
     # Let's decrypt the backup, tamper with a file, re-encrypt it, and try restoring it
     with tempfile.TemporaryDirectory() as tmp_dir:
         decrypted_tar = os.path.join(tmp_dir, "backup.tar.gz")
+        gnupg_dir = os.path.join(tmp_dir, "gnupg")
+        os.makedirs(gnupg_dir, mode=0o700, exist_ok=True)
         
         # Decrypt
         subprocess.run(
-            ["gpg", "--decrypt", "--batch", "--yes", "--passphrase-fd", "0", "-o", decrypted_tar, backup_path],
+            ["gpg", "--homedir", gnupg_dir, "--decrypt", "--batch", "--yes", "--passphrase-fd", "0", "-o", decrypted_tar, backup_path],
             input=passphrase.encode(),
             check=True
         )
@@ -84,7 +86,7 @@ def test_restore_corrupt_manifest(temp_config_dir):
 
         # Encrypt back to backup_path
         subprocess.run(
-            ["gpg", "--symmetric", "--cipher-algo", "AES256", "--batch", "--yes", "--passphrase-fd", "0", "-o", backup_path, tampered_tar],
+            ["gpg", "--homedir", gnupg_dir, "--symmetric", "--cipher-algo", "AES256", "--batch", "--yes", "--passphrase-fd", "0", "-o", backup_path, tampered_tar],
             input=passphrase.encode(),
             check=True
         )

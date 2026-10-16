@@ -25,10 +25,10 @@ class ClusterNode(BaseModel):
 
 
 def _login_and_get_token(controller_url: str, user: str, pwd: str) -> str:
-    """Authenticates against controller /api/auth/login and returns JWT access token."""
+    """Authenticates against controller /api/v1/auth/login and returns JWT access token."""
     login_data = urllib.parse.urlencode({"username": user, "password": pwd}).encode("utf-8")
     req = urllib.request.Request(
-        f"{controller_url}/api/auth/login",
+        f"{controller_url}/api/v1/auth/login",
         data=login_data,
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
@@ -108,7 +108,7 @@ def token_cmd(ttl: int, config_dir: str, port: int) -> None:
     """Generates a temporary pairing join token on the cluster controller."""
     token = None
     try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/cluster/token", method="POST")
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/v1/cluster/token", method="POST")
         with urllib.request.urlopen(req, timeout=3) as resp:
             token = json.loads(resp.read().decode("utf-8")).get("token")
     except Exception:
@@ -214,7 +214,7 @@ def join_cluster_cmd(
         join_payload["management_ip"] = mgmt_ip
     try:
         req = urllib.request.Request(
-            f"{target_controller}/api/cluster/join",
+            f"{target_controller}/api/v1/cluster/join",
             data=json.dumps(join_payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",

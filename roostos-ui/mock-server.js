@@ -164,13 +164,14 @@ const server = http.createServer(async (req, res) => {
 
     // --- Mock API Routes ---
     if (pathname.startsWith('/api/')) {
-        if (pathname === '/api/auth/me') {
+        const normPath = pathname.startsWith('/api/v1/') ? '/api/' + pathname.slice(8) : pathname;
+        if (normPath === '/api/auth/me') {
             return sendJson(res, mockDb.user);
         }
-        if (pathname === '/api/system') {
+        if (normPath === '/api/system') {
             return sendJson(res, mockDb.system);
         }
-        if (pathname === '/api/network') {
+        if (normPath === '/api/network') {
             if (req.method === 'POST') {
                 const payload = await parseBody(req);
                 if (payload.network) mockDb.network = { ...mockDb.network, ...payload.network };
@@ -180,28 +181,28 @@ const server = http.createServer(async (req, res) => {
             }
             return sendJson(res, { network: mockDb.network, wifi: mockDb.wifi, vpns: mockDb.vpns });
         }
-        if (pathname === '/api/devices') {
+        if (normPath === '/api/devices') {
             return sendJson(res, { devices: mockDb.devices, active_leases: mockDb.active_leases, active_arp: mockDb.active_arp });
         }
-        if (pathname === '/api/schedules') {
+        if (normPath === '/api/schedules') {
             return sendJson(res, { schedules: mockDb.schedules, port_forwards: [] });
         }
-        if (pathname === '/api/firewall/rules') {
+        if (normPath === '/api/firewall/rules') {
             return sendJson(res, { rules: mockDb.firewallRules });
         }
-        if (pathname === '/api/dns/config') {
+        if (normPath === '/api/dns/config') {
             return sendJson(res, mockDb.dns);
         }
-        if (pathname === '/api/users') {
+        if (normPath === '/api/users') {
             return sendJson(res, mockDb.users);
         }
-        if (pathname === '/api/buildings') {
+        if (normPath === '/api/buildings') {
             return sendJson(res, mockDb.buildings);
         }
-        if (pathname === '/api/rooms') {
+        if (normPath === '/api/rooms') {
             return sendJson(res, mockDb.rooms);
         }
-        if (pathname === '/api/plugins') {
+        if (normPath === '/api/plugins') {
             return sendJson(res, mockDb.plugins);
         }
         return sendJson(res, { status: "ok" });

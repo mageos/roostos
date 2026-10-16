@@ -18,7 +18,7 @@ from roostos_web.di import Injected
 from roostos_web.routers.catalog_images import images_router
 from roostos_web.routers.catalog_import import import_router
 
-router = APIRouter(prefix="/api/catalog", tags=["catalog"])
+router = APIRouter(prefix="/api/v1/catalog", tags=["catalog"])
 router.include_router(images_router)
 router.include_router(import_router)
 

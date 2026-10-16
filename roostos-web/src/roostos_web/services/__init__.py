@@ -6,3 +6,4 @@ from roostos_web.services.devices import DeviceService
 from roostos_web.services.schedules import SchedulesService
 from roostos_web.services.plugins import PluginsService
 from roostos_web.services.cluster import ClusterService
+from roostos_web.services.kea_service import KeaService

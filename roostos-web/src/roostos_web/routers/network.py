@@ -21,7 +21,7 @@ from roostos_web.services.network_discovery import get_live_interface_stats
 router = APIRouter(tags=["network"])
 
 
-@router.get("/api/network")
+@router.get("/api/v1/network")
 async def get_network_config(
     current_user: UserSession = Depends(get_current_parent),
     network_service: NetworkService = Injected(NetworkService)
@@ -77,7 +77,7 @@ async def get_network_config(
         "vpns": [v.model_dump(by_alias=True) for v in vpns]
     }
 
-@router.post("/api/network")
+@router.post("/api/v1/network")
 async def update_network_config(
     network: NetworkSettings = Body(...),
     wifi: WifiSettings = Body(...),
@@ -93,7 +93,7 @@ class GuestNetworkSchema(BaseModel):
     passphrase: str
     subnet: str = "192.168.10.0/24"
 
-@router.post("/api/wifi/guest/create")
+@router.post("/api/v1/wifi/guest/create")
 async def create_guest_network(
     data: GuestNetworkSchema,
     current_user: UserSession = Depends(get_current_admin),

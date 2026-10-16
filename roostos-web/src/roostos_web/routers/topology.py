@@ -13,7 +13,7 @@ from roostos_web.auth import get_current_admin, get_current_parent, UserSession
 from roostos_web.di import Injected
 from roostos_web.services.network_discovery import discover_live_system_subnets
 
-router = APIRouter(prefix="/api/network/topology", tags=["Topology"])
+router = APIRouter(prefix="/api/v1/network/topology", tags=["Topology"])
 
 
 class TopologyResponse(BaseModel):

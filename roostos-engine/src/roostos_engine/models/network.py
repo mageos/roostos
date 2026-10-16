@@ -103,6 +103,7 @@ class WifiAccessPoint(BaseModel):
     radio: Optional[str] = None
     bridge: Optional[str] = None
     vlan: Optional[int] = None
+    enabled: bool = True
 
 class WifiMesh(BaseModel):
     enabled: bool = False

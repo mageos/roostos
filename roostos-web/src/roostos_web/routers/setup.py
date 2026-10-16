@@ -18,7 +18,7 @@ from roostos_cli.inspector import EnvironmentInspector
 from roostos_cli.discovery import NetworkDiscoverer
 from roostos_cli.wizard import SetupWizard
 
-router = APIRouter(prefix="/api/setup", tags=["setup"])
+router = APIRouter(prefix="/api/v1/setup", tags=["setup"])
 
 
 class SetupStatusResponse(BaseModel):

@@ -20,7 +20,7 @@ from roostos_web.auth import get_current_admin, get_current_user, UserSession
 from roostos_web.services.base import get_repository
 from roostos_web.di import Injected
 
-router = APIRouter(prefix="/api/edge", tags=["edge"])
+router = APIRouter(prefix="/api/v1/edge", tags=["edge"])
 
 def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig) -> None:
     """Helper to persist edge gateway record in network config."""
