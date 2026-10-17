@@ -41,18 +41,24 @@ class PAMAuthProvider:
     ) -> Tuple[str, Optional[str]]:
         user_record = next((u for u in config.users if u.username == username), None)
 
+        if username == "root":
+            return "admin", (user_record.person if user_record else None)
+
         is_roostos_group_member = False
         try:
             user_pw = pwd.getpwnam(username)
-            user_gid = user_pw.pw_gid
-            gids = set(os.getgrouplist(username, user_gid))
-            for group_name in ("roostos", "sudo", "wheel"):
-                try:
-                    if grp.getgrnam(group_name).gr_gid in gids:
-                        is_roostos_group_member = True
-                        break
-                except KeyError:
-                    pass
+            if user_pw.pw_uid == 0 or user_pw.pw_gid == 0:
+                is_roostos_group_member = True
+            else:
+                user_gid = user_pw.pw_gid
+                gids = set(os.getgrouplist(username, user_gid))
+                for group_name in ("roostos", "sudo", "wheel", "adm", "root"):
+                    try:
+                        if grp.getgrnam(group_name).gr_gid in gids:
+                            is_roostos_group_member = True
+                            break
+                    except KeyError:
+                        pass
         except (KeyError, Exception):
             pass
 
@@ -60,6 +66,8 @@ class PAMAuthProvider:
             return "admin", (user_record.person if user_record else None)
         elif user_record:
             return user_record.role, user_record.person
+        elif not config.users:
+            return "admin", None
         else:
             return "member", None
 

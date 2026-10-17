@@ -157,8 +157,16 @@ export class RoostApiClient {
         return this.request('/api/v1/system');
     }
 
+    async getSystemServices() {
+        return this.request('/api/v1/system/services');
+    }
+
     async getSystemHealth() {
         return this.request('/api/v1/health');
+    }
+
+    async getStateBundle() {
+        return this.request('/api/v1/config/state-bundle');
     }
 
     // Network & Wi-Fi APIs
@@ -239,7 +247,11 @@ export class RoostApiClient {
         });
     }
 
-    // DNS Records APIs
+    // DNS Records & Config APIs
+    async getDnsConfig() {
+        return this.request('/api/v1/dns/config');
+    }
+
     async getDnsRecords() {
         return this.request('/api/v1/dns/records');
     }

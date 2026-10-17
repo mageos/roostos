@@ -25,19 +25,22 @@ export function renderAdminDns(container) {
         `).join('');
     };
 
+    const forwarders = (admin.dnsForwarders || ['1.1.1.1', '8.8.8.8']).join(', ');
+    const domainSuffix = data.system.domain || 'lan';
+
     container.innerHTML = `
         <!-- DNS Forwarders & Cache -->
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="metric-label">DNS Engine</div>
-                <div class="metric-value">Technitium <span style="font-size: 13px; color: var(--accent-emerald);">• DNS Daemon</span></div>
-                <div class="metric-sub">Upstream: 1.1.1.1, 8.8.8.8 (DoH)</div>
+                <div class="metric-label">DNS Resolver</div>
+                <div class="metric-value">RoostDNS <span style="font-size: 13px; color: var(--accent-emerald);">• Active</span></div>
+                <div class="metric-sub">Upstream: ${forwarders}</div>
             </div>
 
             <div class="metric-card">
-                <div class="metric-label">Cache Hit Ratio</div>
-                <div class="metric-value">88.4% <span style="font-size: 13px; color: var(--text-muted);">(Active Cache)</span></div>
-                <div class="metric-sub">Local Resolver Cache</div>
+                <div class="metric-label">Ad & Tracker Shield</div>
+                <div class="metric-value">${data.protection.adBlocking.enabled ? 'Enabled' : 'Disabled'}</div>
+                <div class="metric-sub">SafeSearch: ${data.protection.safeSearch.enabled ? 'Active' : 'Off'}</div>
             </div>
 
             <div class="metric-card">
@@ -51,7 +54,7 @@ export function renderAdminDns(container) {
         <div class="card">
             <div class="card-header">
                 <div>
-                    <h3 class="card-title">📝 Local Domain Name Records (.home.lan)</h3>
+                    <h3 class="card-title">📝 Local Domain Name Records (.${domainSuffix})</h3>
                     <p class="card-subtitle">Custom internal hostname resolution overrides</p>
                 </div>
             </div>

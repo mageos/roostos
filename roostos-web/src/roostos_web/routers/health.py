@@ -1,9 +1,10 @@
+import os
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, Depends, Query
 
 from pydantic import BaseModel
 from roostos_sdk.client import RoostClient
-from roostos_engine.repository import ConfigRepository
+from roostos_engine.repository import ConfigRepository, YAMLConfigRepository, StagingConfigRepository
 from roostos_engine.health import HealthChecker
 from roostos_web.di import Injected
 
@@ -38,7 +39,11 @@ async def get_node_health(
         roles = [r.value if hasattr(r, "value") else str(r) for r in (current_node.roles if current_node else [])] or ["gateway_router"]
         node_name = current_node.name if current_node else config.system.hostname
 
-        checker = HealthChecker(config_dir=getattr(repo, "config_dir", "/etc/roostos"), mock=True)
+        is_mock = (
+            os.environ.get("ROOSTOS_MOCK") == "1"
+            or not isinstance(repo, (YAMLConfigRepository, StagingConfigRepository))
+        )
+        checker = HealthChecker(config_dir=getattr(repo, "config_dir", "/etc/roostos"), mock=is_mock)
         report = checker.collect_health_report(
             node_id=node_id,
             node_name=node_name,

@@ -69,19 +69,39 @@ def determine_server_mode(
 
 
 class ApiV1FallbackMiddleware:
-    """Transparently rewrites unversioned /api/* paths to /api/v1/* for backwards compatibility."""
+    """Transparently rewrites unversioned /api/* paths to /api/v1/* and prevents stale UI caching."""
 
     def __init__(self, app):
         self.app = app
 
     async def __call__(self, scope, receive, send):
+        is_static_http = False
         if scope["type"] in ("http", "websocket"):
             path = scope.get("path", "")
             if path.startswith("/api/") and not path.startswith("/api/v1/"):
                 scope["path"] = f"/api/v1{path[4:]}"
                 if "raw_path" in scope:
                     scope["raw_path"] = scope["path"].encode("ascii")
-        await self.app(scope, receive, send)
+            elif scope["type"] == "http" and not path.startswith("/api/"):
+                is_static_http = True
+
+        if not is_static_http:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_no_cache(message):
+            if message["type"] == "http.response.start":
+                headers = [
+                    (k, v) for k, v in message.get("headers", [])
+                    if k.lower() not in (b"cache-control", b"pragma", b"expires")
+                ]
+                headers.append((b"cache-control", b"no-cache, no-store, must-revalidate"))
+                headers.append((b"pragma", b"no-cache"))
+                headers.append((b"expires", b"0"))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_with_no_cache)
 
 
 def create_app(
@@ -114,38 +134,19 @@ def create_app(
     app_instance.include_router(certificates.acme_challenge_router)
 
     if active_mode == "edge_gateway":
-        # Limited mode: Minimal attack surface for VPS Edge Gateway
-        app_instance.include_router(edge.router)
-        app_instance.include_router(edge_peers.router)
-        app_instance.include_router(health.router)
+        for rtr in (edge.router, edge_peers.router, health.router):
+            app_instance.include_router(rtr)
     else:
-        # Full Router mode: Mount all management subsystems
-        app_instance.include_router(setup.router)
-        app_instance.include_router(edge.router)
-        app_instance.include_router(edge_peers.router)
-        app_instance.include_router(catalog.router)
-        app_instance.include_router(telemetry.router)
-        app_instance.include_router(alerts.router)
-        app_instance.include_router(updates.router)
-        app_instance.include_router(auth.router)
-        app_instance.include_router(system.router)
-        app_instance.include_router(dns.router)
-        app_instance.include_router(topology.router)
-        app_instance.include_router(identity.router)
-        app_instance.include_router(cluster.router)
-        app_instance.include_router(health.router)
-        app_instance.include_router(devices.router)
-        app_instance.include_router(network.router)
-        app_instance.include_router(schedules.router)
-        app_instance.include_router(plugins.router)
-        app_instance.include_router(diagnostics.router)
-        app_instance.include_router(config.router)
-        app_instance.include_router(certificates.router)
-        app_instance.include_router(events.router)
-        app_instance.include_router(dhcp.router)
-        app_instance.include_router(household.router)
-        app_instance.include_router(family.router)
-        app_instance.include_router(protection.router)
+        for rtr in (
+            setup.router, edge.router, edge_peers.router, catalog.router,
+            telemetry.router, alerts.router, updates.router, auth.router,
+            system.router, dns.router, topology.router, identity.router,
+            cluster.router, health.router, devices.router, network.router,
+            schedules.router, plugins.router, diagnostics.router, config.router,
+            certificates.router, events.router, dhcp.router, household.router,
+            family.router, protection.router,
+        ):
+            app_instance.include_router(rtr)
 
     # Mount Static UI if not disabled
     if not disable_ui:

@@ -145,7 +145,7 @@ class DeviceService:
         try:
             config = self.repo.get_config()
             for interface in config.network.interfaces:
-                if interface.network == "wan":
+                if getattr(interface, "role", None) == "wan" or getattr(interface, "network", None) == "wan":
                     wan_interfaces.add(interface.name)
                     if interface.vlan_tag:
                         wan_interfaces.add(f"{interface.name}.{interface.vlan_tag}")

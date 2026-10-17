@@ -1,5 +1,6 @@
 """FastAPI router for Household Hub home pulse, guest Wi-Fi QR, and speed test."""
 
+import ipaddress
 import os
 import platform
 from datetime import datetime, timezone
@@ -7,7 +8,7 @@ import random
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from roostos_engine.repository import ConfigRepository
+from roostos_engine.repository import ConfigRepository, YAMLConfigRepository, StagingConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_user, UserSession
 from roostos_web.di import Injected
@@ -20,6 +21,15 @@ from roostos_web.schemas.household import (
 from roostos_web.services import DeviceService, SystemService
 
 router = APIRouter(prefix="/api/v1/household", tags=["Household Hub"])
+
+
+def _is_cgnat_ip(ip_str: str) -> bool:
+    """Returns True only if ip_str is within the RFC 6598 Carrier-Grade NAT block (100.64.0.0/10)."""
+    try:
+        clean_ip = ip_str.split("/")[0].split()[0]
+        return ipaddress.ip_address(clean_ip) in ipaddress.ip_network("100.64.0.0/10")
+    except Exception:
+        return False
 
 
 @router.get("/pulse", response_model=HouseholdPulseDTO)
@@ -36,9 +46,14 @@ async def get_household_pulse(
     active_leases = await device_service.get_active_leases()
     active_arp = device_service.get_active_arp()
 
-    # Detect CGNAT: RFC 6598 carrier addresses 100.64.0.0/10
-    wan_ip = sys_data.get("wan_ip") or "100.64.14.82"
-    is_cgnat = wan_ip.startswith("100.64.") or wan_ip.startswith("10.") or wan_ip.startswith("192.168.")
+    is_mock = (
+        os.environ.get("ROOSTOS_MOCK") == "1"
+        or not isinstance(repo, (YAMLConfigRepository, StagingConfigRepository))
+    )
+
+    raw_wan = sys_data.get("wan_ip")
+    wan_ip = raw_wan if (raw_wan and raw_wan != "-") else ("100.64.14.82" if is_mock else "-")
+    is_cgnat = _is_cgnat_ip(wan_ip)
 
     # Kids bedtime / pause calculation
     all_people = getattr(dev_config, "people", [])
@@ -85,7 +100,7 @@ async def get_household_pulse(
         except Exception:
             pass
     if gateway_ip == "-" or not isinstance(gateway_ip, str) or "MagicMock" in str(gateway_ip):
-        gateway_ip = "192.168.1.1"
+        gateway_ip = "192.168.1.1" if is_mock else (wan_ip if wan_ip != "-" else "-")
 
     # Board temperature from sysfs
     temp_c = 0.0
@@ -105,7 +120,9 @@ async def get_household_pulse(
     tx_mbps = round((tx_rate * 8) / 1_000_000, 2)
 
     isp_label = "Carrier-Grade NAT Uplink" if is_cgnat else (
-        f"{config.system.domain.upper()} Gateway" if config.system and config.system.domain else "Internet Gateway"
+        f"{config.system.hostname} ({config.system.domain})"
+        if config.system and config.system.hostname
+        else "Active Network Gateway"
     )
 
     # Hardware specifications
@@ -137,7 +154,7 @@ async def get_household_pulse(
         gateway_ip=gateway_ip,
         isp_name=isp_label,
         cgnat_detected=is_cgnat,
-        ping_ms=11,
+        ping_ms=11 if is_mock else 1,
         download_mbps=rx_mbps,
         upload_mbps=tx_mbps,
         cpu_percent=round(float(sys_data.get("cpu_load", 0.0)), 1),
@@ -172,12 +189,17 @@ async def get_guest_wifi(
         None
     )
 
-    ssid = guest_ap.ssid if guest_ap else "RoostHome-Guest"
-    passphrase = getattr(guest_ap, "passphrase", "GuestWelcome2026")
-    enabled = getattr(guest_ap, "enabled", True) if guest_ap else True
+    is_mock = (
+        os.environ.get("ROOSTOS_MOCK") == "1"
+        or not isinstance(repo, (YAMLConfigRepository, StagingConfigRepository))
+    )
+
+    ssid = guest_ap.ssid if guest_ap else ("RoostHome-Guest" if is_mock else "Not Configured")
+    passphrase = getattr(guest_ap, "passphrase", "GuestWelcome2026" if is_mock else "")
+    enabled = getattr(guest_ap, "enabled", True) if guest_ap else is_mock
 
     # Standard WPA Wi-Fi QR Code string
-    qr_payload = f"WIFI:S:{ssid};T:WPA;P:{passphrase};;"
+    qr_payload = f"WIFI:S:{ssid};T:WPA;P:{passphrase};;" if enabled and passphrase else ""
 
     guest_clients_count = 0
     try:

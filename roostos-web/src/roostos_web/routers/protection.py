@@ -1,11 +1,12 @@
 """FastAPI router for Unified Blocked Threat Feed, Security Shields, and 1-Click remediation."""
 
+import os
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from roostos_engine.config import SystemConfig
-from roostos_engine.repository import ConfigRepository
+from roostos_engine.repository import ConfigRepository, YAMLConfigRepository, StagingConfigRepository
 from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_user, UserSession
 from roostos_web.di import Injected
@@ -19,6 +20,7 @@ from roostos_web.schemas.protection import (
     UpdateShieldsRequestDTO,
 )
 from roostos_web.schemas.family import ScreentimeBonusRequestDTO
+from roostos_web.services import SystemService
 
 router = APIRouter(prefix="/api/v1/protection", tags=["Protection & Threat Feed"])
 
@@ -117,24 +119,56 @@ _mock_blocked_feed: List[BlockedRequestDTO] = [
 ]
 
 
+def _is_mock_repo(repo: ConfigRepository) -> bool:
+    return (
+        os.environ.get("ROOSTOS_MOCK") == "1"
+        or not isinstance(repo, (YAMLConfigRepository, StagingConfigRepository))
+    )
+
+
 @router.get("/blocked-feed", response_model=List[BlockedRequestDTO])
 async def get_blocked_threat_feed(
     category: Optional[str] = Query(None, description="Category filter: ads, bedtime, firewall"),
     current_user: UserSession = Depends(get_current_user),
+    repo: ConfigRepository = Injected(ConfigRepository),
+    system_service: SystemService = Injected(SystemService),
 ) -> List[BlockedRequestDTO]:
     """Returns real-time unified threat feed of blocked queries, bedtimes, and firewall drops."""
+    if _is_mock_repo(repo):
+        feed = _mock_blocked_feed
+    else:
+        raw_blocks = await system_service.get_firewall_blocks(limit=25)
+        feed = [
+            BlockedRequestDTO(
+                id=f"fw-{idx}",
+                timestamp=b.get("timestamp", "Recent"),
+                client_name=b.get("src_ip", "Unknown"),
+                client_ip=b.get("src_ip", "0.0.0.0"),
+                target=f"{b.get('dst_ip', '')}:{b.get('dst_port', '')}".rstrip(":"),
+                subsystem=ThreatSubsystemEnum.NFTABLES,
+                category=ThreatCategoryEnum.PORT_SCAN,
+                rule=b.get("rule", "Firewall Drop"),
+                action_taken=f"{b.get('proto', 'IP')} DROP",
+                zone=b.get("in_face") or "wan",
+                can_allow=False,
+                can_bonus=False,
+                allowed=False,
+            )
+            for idx, b in enumerate(raw_blocks)
+        ]
+
     if not category or category.lower() in ("all", "all blocked"):
-        return _mock_blocked_feed
+        return feed
 
     cat_norm = category.lower()
     if "ad" in cat_norm or "tracker" in cat_norm:
-        return [b for b in _mock_blocked_feed if b.category == ThreatCategoryEnum.AD_TRACKER]
+        return [b for b in feed if b.category == ThreatCategoryEnum.AD_TRACKER]
     if "bedtime" in cat_norm or "screentime" in cat_norm:
-        return [b for b in _mock_blocked_feed if b.category in (ThreatCategoryEnum.BEDTIME, ThreatCategoryEnum.SCREENTIME)]
+        return [b for b in feed if b.category in (ThreatCategoryEnum.BEDTIME, ThreatCategoryEnum.SCREENTIME)]
     if "firewall" in cat_norm or "isolation" in cat_norm or "port" in cat_norm:
-        return [b for b in _mock_blocked_feed if b.subsystem == ThreatSubsystemEnum.NFTABLES]
+        return [b for b in feed if b.subsystem == ThreatSubsystemEnum.NFTABLES]
 
-    return _mock_blocked_feed
+    return feed
 
 
 @router.post("/allow", response_model=QuickActionResponseDTO)
@@ -187,15 +221,21 @@ async def get_security_shields(
     safe_search = getattr(dns_cfg, "safe_search_enabled", True)
     vpn_enabled = getattr(config.system, "privacy_vpn_enabled", False)
 
+    is_mock = _is_mock_repo(repo)
+    vpns = getattr(config, "vpns", None) or []
+    vpn_endpoint = vpns[0].endpoint if vpns and getattr(vpns[0], "endpoint", None) else (
+        "ch45.nordvpn.com:51820" if is_mock else "Not configured"
+    )
+
     return SecurityShieldsDTO(
         ad_blocking_enabled=ad_block,
-        ad_blocking_blocked_today=18432,
-        ad_blocking_queries_today=75890,
+        ad_blocking_blocked_today=18432 if is_mock else 0,
+        ad_blocking_queries_today=75890 if is_mock else 0,
         safe_search_enabled=safe_search,
         threat_defense_enabled=True,
-        threat_defense_drops_today=42,
+        threat_defense_drops_today=42 if is_mock else 0,
         privacy_vpn_enabled=vpn_enabled,
-        privacy_vpn_endpoint="ch45.nordvpn.com:51820",
+        privacy_vpn_endpoint=vpn_endpoint,
     )
 
 

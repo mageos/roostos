@@ -1,10 +1,11 @@
 """ISC Kea DHCP 2.4 configuration compiler, lease parser, and static reservation service."""
 
 import ipaddress
+import os
 from typing import Any, Dict, List, Optional
 
 from roostos_engine.config import NetworkConfig, DevicesConfig, DeviceConfig, NetworkBridge, NetworkVlan
-from roostos_engine.repository import ConfigRepository
+from roostos_engine.repository import ConfigRepository, YAMLConfigRepository, StagingConfigRepository
 from roostos_engine.state_db import StateDB
 from roostos_sdk.client import RoostClient
 from roostos_web.schemas.dhcp import (
@@ -22,6 +23,13 @@ class KeaService:
         self.repo = repo
         self.dbus = dbus
 
+    def _is_mock_mode(self) -> bool:
+        return (
+            os.environ.get("ROOSTOS_MOCK") == "1"
+            or getattr(self.dbus, "mock", False)
+            or not isinstance(self.repo, (YAMLConfigRepository, StagingConfigRepository))
+        )
+
     def _calculate_pool_size(self, pool_start: str, pool_end: str) -> int:
         """Calculates total number of IP addresses in a pool range."""
         try:
@@ -31,7 +39,9 @@ class KeaService:
         except Exception:
             return 0
 
-    def _build_scope_dto(self, iface_obj: Any, is_vlan: bool, active_leases: List[DhcpLeaseDTO]) -> Optional[DhcpScopeDTO]:
+    def _build_scope_dto(
+        self, iface_obj: Any, is_vlan: bool, active_leases: List[DhcpLeaseDTO], node_id: str = "roost-router"
+    ) -> Optional[DhcpScopeDTO]:
         """Constructs a DhcpScopeDTO from a bridge or VLAN model object."""
         if not getattr(iface_obj, "dhcp_enabled", True) or not getattr(iface_obj, "ip", None):
             return None
@@ -55,7 +65,7 @@ class KeaService:
         return DhcpScopeDTO(
             id=f"scope-{iface_obj.name}",
             name=f"{name_tag} {'Zone' if is_vlan else 'Network'}",
-            node_id="roost-gateway-01",
+            node_id=node_id,
             ha_mode=HaModeEnum.STANDALONE,
             interface=iface_obj.name,
             subnet=subnet_str,
@@ -74,26 +84,27 @@ class KeaService:
     async def get_scopes(self) -> List[DhcpScopeDTO]:
         """Returns all configured multi-subnet DHCP scopes with live lease counts."""
         config = self.repo.get_config()
+        node_id = getattr(config.system, "hostname", "roost-router") if config.system else "roost-router"
         net_cfg = config.network
         inner_net = getattr(net_cfg, "network", None) or net_cfg
         active_leases = await self.get_leases()
 
         scopes: List[DhcpScopeDTO] = []
         for b in getattr(inner_net, "bridges", []):
-            scope = self._build_scope_dto(b, is_vlan=False, active_leases=active_leases)
+            scope = self._build_scope_dto(b, is_vlan=False, active_leases=active_leases, node_id=node_id)
             if scope:
                 scopes.append(scope)
 
         for v in getattr(inner_net, "vlans", []):
-            scope = self._build_scope_dto(v, is_vlan=True, active_leases=active_leases)
+            scope = self._build_scope_dto(v, is_vlan=True, active_leases=active_leases, node_id=node_id)
             if scope:
                 scopes.append(scope)
 
-        if not scopes:
+        if not scopes and self._is_mock_mode():
             scopes.append(DhcpScopeDTO(
                 id="scope-lan",
                 name="Household LAN",
-                node_id="roost-gateway-01",
+                node_id=node_id,
                 interface="br-lan",
                 subnet="192.168.1.0/24",
                 gateway="192.168.1.1",
@@ -160,7 +171,7 @@ class KeaService:
         if not raw_leases:
             raw_leases = StateDB._read_kea_leases_csv()
 
-        if not raw_leases:
+        if not raw_leases and self._is_mock_mode():
             raw_leases = [
                 {"ip": "192.168.1.101", "mac": "10:9a:dd:33:44:55", "hostname": "Dads-MacBook-Pro", "interface": "br-lan", "expires": 67320, "vendor": "Apple Inc."},
                 {"ip": "192.168.1.102", "mac": "22:33:44:55:66:77", "hostname": "Moms-iPhone-15", "interface": "br-lan", "expires": 76200, "vendor": "Apple Inc."},

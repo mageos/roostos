@@ -5,8 +5,9 @@ export async function syncStateWithBackend(data, notify) {
     try {
         const [
             pulse, sysConfig, healthReport, people, devData,
-            netConfig, clusterStatus, guestWifi, shields,
-            scopes, leases, reservations, portForwards, dnsRecords
+            netConfig, clusterStatus, guestWifi, shields, blockedFeed,
+            scopes, leases, reservations, portForwards, dnsRecords,
+            dnsConfig, sysServices, stateBundle
         ] = await Promise.allSettled([
             api.getHouseholdPulse(),
             api.getSystem(),
@@ -17,11 +18,15 @@ export async function syncStateWithBackend(data, notify) {
             api.getClusterStatus(),
             api.getGuestWifi(),
             api.getSecurityShields(),
+            api.getBlockedThreatFeed(),
             api.getDhcpScopes(),
             api.getDhcpLeases(),
             api.getDhcpReservations(),
             api.getPortForwards(),
             api.getDnsRecords(),
+            api.getDnsConfig(),
+            api.getSystemServices(),
+            api.getStateBundle(),
         ]);
 
         // 1. System & Live Hardware Telemetry
@@ -61,18 +66,15 @@ export async function syncStateWithBackend(data, notify) {
 
         if (healthReport.status === 'fulfilled' && healthReport.value?.telemetry) {
             const t = healthReport.value.telemetry;
-            if (t.cpu_load) data.system.cpuPercent = t.cpu_load;
-            if (t.ram_usage) data.system.ramPercent = t.ram_usage;
+            if (t.cpu_load !== undefined) data.system.cpuPercent = t.cpu_load;
+            if (t.ram_usage !== undefined) data.system.ramPercent = t.ram_usage;
             if (t.uptime_str && t.uptime_str !== 'Unknown') data.system.uptime = t.uptime_str;
         }
 
         // 2. Family & Household Members
         if (people.status === 'fulfilled' && Array.isArray(people.value)) {
             data.people = people.value.map(p => ({
-                id: p.id,
-                name: p.name,
-                role: p.role,
-                color: p.color || '#3b82f6',
+                id: p.id, name: p.name, role: p.role, color: p.color || '#3b82f6',
                 avatar: p.avatar || (p.role === 'kid' ? '🧒' : '👤'),
                 screentimeLimit: p.screentime_limit_minutes || 0,
                 screentimeUsed: p.screentime_used_minutes || 0,
@@ -99,19 +101,14 @@ export async function syncStateWithBackend(data, notify) {
                 const matchingArp = activeArp.find(a => (a.mac || '').toLowerCase() === normMac);
                 const matchingLease = activeLeases.find(l => (l.mac || '').toLowerCase() === normMac);
                 deviceList.push({
-                    mac: d.mac,
-                    name: d.name,
-                    owner: d.owner || '',
-                    location: d.location || '',
+                    mac: d.mac, name: d.name, owner: d.owner || '', location: d.location || '',
                     ip: d.static_ip || matchingArp?.ip || matchingLease?.ip || '-',
-                    staticIp: d.static_ip || '',
-                    tags: d.tags || ['personal'],
+                    staticIp: d.static_ip || '', tags: d.tags || ['personal'],
                     zone: (d.tags || []).includes('iot') ? 'iot' : ((d.tags || []).includes('guest') ? 'guest' : 'lan'),
                     status: onlineMacs.has(normMac) ? 'online' : 'offline',
                     signal: -50, rxMbps: 0, txMbps: 0,
                     icon: (d.tags || []).includes('laptop') ? '💻' : ((d.tags || []).includes('iot') ? '💡' : '📱'),
-                    vendor: matchingLease?.vendor || 'Hardware Client',
-                    isRegistered: true,
+                    vendor: matchingLease?.vendor || 'Hardware Client', isRegistered: true,
                 });
             }
 
@@ -147,63 +144,79 @@ export async function syncStateWithBackend(data, notify) {
             data.admin.network.interfaces = (net.interfaces || []).map(i => ({
                 name: i.name, role: i.role || 'unassigned', ip: i.ip || '-',
                 gateway: i.gateway || '-', mac: i.mac || '-', mtu: i.mtu || 1500,
-                status: i.status || 'unknown', speed: i.speed || 'Unknown'
+                status: i.status || 'unknown', speed: i.speed || 'Unknown',
+                rxBytes: i.rx_bytes || '0 B', txBytes: i.tx_bytes || '0 B'
             }));
             data.admin.bridgesVlans = (net.bridges || []).map(b => ({
                 name: b.name, type: 'Bridge', ip: b.ip || '-',
                 ports: (b.interfaces || []).join(', ') || '-', dhcp: 'Active (Kea)', isolate: b.isolate || false
             }));
             const wifiAps = netConfig.value.wifi?.access_points || [];
-            if (wifiAps.length > 0) {
-                data.wifiNetworks = wifiAps.map(ap => ({
-                    ssid: ap.ssid, band: ap.band || 'Dual-Band (2.4/5GHz)',
-                    security: ap.security || 'WPA2/WPA3-Personal', clients: 0,
-                    channel: ap.channel || 'Auto', status: ap.enabled !== false ? 'Active' : 'Disabled',
-                    isolate: ap.isolate || false, qr: ap.passphrase ? `WIFI:S:${ap.ssid};T:WPA;P:${ap.passphrase};;` : ''
-                }));
-            }
+            data.wifiNetworks = wifiAps.map(ap => ({
+                ssid: ap.ssid, band: ap.band || 'Dual-Band (2.4/5GHz)',
+                security: ap.security || 'WPA2/WPA3-Personal', clients: 0,
+                channel: ap.channel || 'Auto', status: ap.enabled !== false ? 'Active' : 'Disabled',
+                isolate: ap.isolate || false, qr: ap.passphrase ? `WIFI:S:${ap.ssid};T:WPA;P:${ap.passphrase};;` : ''
+            }));
         }
 
-        // 5. Cluster & Fleet Nodes
+        // 5. System Services & Cluster Fleet Nodes
+        const activeServiceNames = (sysServices.status === 'fulfilled' && Array.isArray(sysServices.value))
+            ? sysServices.value.filter(s => s.status === 'active').map(s => s.id || s.service)
+            : ['roostos-web', 'roostos-engine', 'systemd-networkd', 'kea-dhcp4', 'nftables'];
+        if (sysServices.status === 'fulfilled' && Array.isArray(sysServices.value)) {
+            data.admin.systemServices = sysServices.value;
+        }
+
         if (clusterStatus.status === 'fulfilled' && clusterStatus.value) {
             const cs = clusterStatus.value;
             const rawNodes = cs.nodes || [];
+            const fallbackIfaces = data.admin.network.interfaces || [];
             if (rawNodes.length > 0) {
                 data.cluster.nodes = rawNodes.map(n => ({
                     id: n.id || n.name, hostname: n.name || n.id || data.system.hostname,
                     role: (n.roles || ['gateway_router']).map(r => r === 'gateway_router' ? 'Edge Gateway Router' : r).join(', '),
                     ip: n.management_ip || data.system.gatewayIp,
-                    status: cs.is_controller ? 'Master' : 'Online', model: 'RoostOS Node',
+                    status: cs.is_controller ? 'Master' : 'Online', model: data.system.kernelVersion || 'RoostOS Node',
                     cpu: data.system.cpuPercent, ram: `${data.system.ramPercent}%`,
-                    temp: `${data.system.tempC || 38}°C`, uptime: data.system.uptime,
-                    interfaces: (n.interfaces || []).map(i => ({ name: i.name, role: i.mode || i.type || 'LAN', status: 'UP' })),
-                    services: ['roostos-web', 'roostos-engine', 'kea-dhcp4', 'nftables']
+                    temp: `${data.system.tempC || 0}°C`, uptime: data.system.uptime,
+                    interfaces: (n.interfaces && n.interfaces.length > 0)
+                        ? n.interfaces.map(i => {
+                            const live = fallbackIfaces.find(f => f.name === i.name) || {};
+                            return {
+                                name: i.name, role: i.mode || i.type || live.role || 'LAN',
+                                ip: i.ip || live.ip || '-', speed: i.speed || live.speed || 'Unknown',
+                                mtu: i.mtu || live.mtu || 1500, status: live.status || 'UP',
+                                mac: i.mac || live.mac || '-', rxBytes: live.rxBytes || '0 B', txBytes: live.txBytes || '0 B'
+                            };
+                        })
+                        : fallbackIfaces,
+                    services: activeServiceNames
                 }));
             } else {
                 data.cluster.nodes = [{
-                    id: cs.node_id || "node-01", hostname: cs.node_name || data.system.hostname,
+                    id: cs.node_id || data.system.hostname || "node-01",
+                    hostname: cs.node_name || data.system.hostname,
                     role: "Edge Gateway Router", ip: data.system.gatewayIp,
-                    status: "Master", model: "RoostOS Router", cpu: data.system.cpuPercent,
-                    ram: `${data.system.ramPercent}%`, temp: `${data.system.tempC || 38}°C`, uptime: data.system.uptime,
-                    interfaces: (data.admin.network.interfaces || []).slice(0, 5).map(i => ({ name: i.name, role: i.role || 'LAN', status: i.status || 'UP' })),
-                    services: ['roostos-web', 'roostos-engine', 'systemd-networkd', 'kea-dhcp4', 'nftables']
+                    status: "Master", model: data.system.kernelVersion || "RoostOS Router",
+                    cpu: data.system.cpuPercent, ram: `${data.system.ramPercent}%`,
+                    temp: `${data.system.tempC || 0}°C`, uptime: data.system.uptime,
+                    interfaces: fallbackIfaces,
+                    services: activeServiceNames
                 }];
             }
         }
 
-        // 6. Guest Wi-Fi
+        // 6. Guest Wi-Fi & Security Shields & Threat Feed
         if (guestWifi.status === 'fulfilled' && guestWifi.value) {
             const gw = guestWifi.value;
             const guestNet = data.wifiNetworks.find(w => w.ssid.includes('Guest') || w.isolate);
             if (guestNet) {
-                guestNet.ssid = gw.ssid;
-                guestNet.status = gw.enabled ? 'Active' : 'Disabled';
-                guestNet.clients = gw.clients_count;
-                guestNet.qr = gw.qr_payload;
+                guestNet.ssid = gw.ssid; guestNet.status = gw.enabled ? 'Active' : 'Disabled';
+                guestNet.clients = gw.clients_count; guestNet.qr = gw.qr_payload;
             }
         }
 
-        // 7. Security Shields
         if (shields.status === 'fulfilled' && shields.value) {
             const s = shields.value;
             data.protection.adBlocking.enabled = s.ad_blocking_enabled;
@@ -211,15 +224,26 @@ export async function syncStateWithBackend(data, notify) {
             data.protection.adBlocking.queriesToday = s.ad_blocking_queries_today;
             data.protection.safeSearch.enabled = s.safe_search_enabled;
             data.protection.malwareProtection.enabled = s.threat_defense_enabled;
+            data.protection.malwareProtection.blockedToday = s.threat_defense_drops_today;
             data.protection.vpnTunnel.enabled = s.privacy_vpn_enabled;
+            data.protection.vpnTunnel.endpoint = s.privacy_vpn_endpoint || 'Not configured';
         }
 
-        // 8. DHCP Scopes, Leases, and Reservations
+        if (blockedFeed.status === 'fulfilled' && Array.isArray(blockedFeed.value)) {
+            data.blockedRequests = blockedFeed.value.map(b => ({
+                id: b.id, time: b.timestamp || 'Recent', client: b.client_name || b.client_ip,
+                clientIp: b.client_ip, target: b.target, subsystem: b.subsystem,
+                category: b.category, rule: b.rule, actionTaken: b.action_taken,
+                zone: b.zone || 'wan', canAllow: b.can_allow ?? false,
+                canBonus: b.can_bonus ?? false, allowed: b.allowed ?? false
+            }));
+        }
+
+        // 7. DHCP, Firewall, DNS & State Bundle
         if (scopes.status === 'fulfilled' && Array.isArray(scopes.value)) {
             data.admin.dhcpScopes = scopes.value.map(sc => ({
-                id: sc.id, name: sc.name, nodeId: sc.node_id,
-                haStandby: sc.ha_standby_node || 'none', interface: sc.interface,
-                subnet: sc.subnet, gateway: sc.gateway, enabled: sc.enabled,
+                id: sc.id, name: sc.name, nodeId: sc.node_id, haStandby: sc.ha_standby_node || 'none',
+                interface: sc.interface, subnet: sc.subnet, gateway: sc.gateway, enabled: sc.enabled,
                 poolStart: sc.pool_start, poolEnd: sc.pool_end, leaseTime: String(sc.lease_time_seconds),
                 leaseTimeHuman: `${Math.round(sc.lease_time_seconds / 3600)} Hours`,
                 dnsServers: (sc.dns_servers || []).join(', '), domainName: sc.domain_name,
@@ -238,11 +262,11 @@ export async function syncStateWithBackend(data, notify) {
 
         if (reservations.status === 'fulfilled' && Array.isArray(reservations.value)) {
             data.admin.dhcpReservations = reservations.value.map(r => ({
-                id: r.id || r.mac, mac: r.mac, ip: r.ip, hostname: r.hostname || '', description: r.description || ''
+                id: r.id || r.mac, mac: r.mac, ip: r.ip || r.reserved_ip,
+                hostname: r.hostname || '', description: r.description || ''
             }));
         }
 
-        // 9. Firewall Port Forwards & DNS Records
         if (portForwards.status === 'fulfilled' && Array.isArray(portForwards.value)) {
             data.admin.portForwards = portForwards.value.map(pf => ({
                 id: pf.name.toLowerCase().replace(/\s+/g, '-'), name: pf.name,
@@ -257,6 +281,14 @@ export async function syncStateWithBackend(data, notify) {
                 id: r.id || r.domain.toLowerCase().replace(/\s+/g, '-'),
                 domain: r.domain, type: r.type || 'A', ip: r.ip,
             }));
+        }
+
+        if (dnsConfig.status === 'fulfilled' && dnsConfig.value) {
+            data.admin.dnsForwarders = dnsConfig.value.forwarders || ['1.1.1.1', '8.8.8.8'];
+        }
+
+        if (stateBundle.status === 'fulfilled' && stateBundle.value?.files) {
+            data.admin.yamlFiles = stateBundle.value.files;
         }
 
         notify('sync');

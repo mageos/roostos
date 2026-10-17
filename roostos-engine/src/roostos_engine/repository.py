@@ -3,18 +3,11 @@ import os
 from typing import Union, Any, List, Optional
 import yaml
 from roostos_engine.config import (
-    RoostConfig,
-    SystemConfig,
-    NodesConfigFile,
-    DevicesConfig,
-    NetworkSettings,
-    NetworkConfig,
-    SchedulesConfig,
-    FirewallConfig,
-    PluginsConfig,
-    load_config_directory,
-    save_config_file,
+    RoostConfig, SystemConfig, NodesConfigFile, DevicesConfig, NetworkSettings,
+    NetworkConfig, SchedulesConfig, FirewallConfig, PluginsConfig,
+    load_config_directory, save_config_file,
 )
+
 
 class ConfigRepository(ABC):
     def __init__(self) -> None:
@@ -31,11 +24,9 @@ class ConfigRepository(ABC):
             self._listeners.remove(listener)
 
     def notify_change(self, section: str, action: str = "save", data: Any = None) -> None:
-        if not hasattr(self, "_listeners"):
-            self._listeners = []
         from roostos_engine.events import ConfigChangeEvent
         event = ConfigChangeEvent(section=section, action=action, data=data)
-        for listener in list(self._listeners):
+        for listener in list(getattr(self, "_listeners", [])):
             try:
                 listener(event)
             except Exception:
@@ -128,69 +119,55 @@ class StagingConfigRepository(ConfigRepository):
 
     def get_config(self) -> RoostConfig:
         config = self.active_repo.get_config()
-        
         if not os.path.exists(self.staged_dir):
             return config
-
         staged_files = [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]
-        if staged_files:
-            if "system.yaml" in staged_files:
-                parsed = SystemConfig.model_validate(self._load_staged_yaml("system.yaml"))
-                config.system = parsed.system
-                config.users = parsed.users
-            if "nodes.yaml" in staged_files:
-                parsed_nodes = NodesConfigFile.model_validate(self._load_staged_yaml("nodes.yaml"))
-                config.nodes = parsed_nodes.nodes
-            if "network.yaml" in staged_files:
-                parsed_net = NetworkConfig.model_validate(self._load_staged_yaml("network.yaml"))
-                config.network = parsed_net.network
-                config.wifi = parsed_net.wifi
-                config.vpns = parsed_net.vpns
-                config.edge_gateways = parsed_net.edge_gateways
-            if "devices.yaml" in staged_files:
-                parsed_dev = DevicesConfig.model_validate(self._load_staged_yaml("devices.yaml"))
-                config.people = parsed_dev.people
-                config.buildings = parsed_dev.buildings
-                config.rooms = parsed_dev.rooms
-                config.devices = parsed_dev.devices
-            if "schedules.yaml" in staged_files:
-                parsed_sch = SchedulesConfig.model_validate(self._load_staged_yaml("schedules.yaml"))
-                config.schedules = parsed_sch.schedules
-            if "firewall.yaml" in staged_files:
-                parsed_fw = FirewallConfig.model_validate(self._load_staged_yaml("firewall.yaml"))
-                if parsed_fw.firewall:
-                    config.firewall.port_forwards = parsed_fw.firewall.port_forwards
-                    config.firewall.rules = parsed_fw.firewall.rules
-                    config.firewall.block_doh = parsed_fw.firewall.block_doh
-                    config.firewall.block_vpns = parsed_fw.firewall.block_vpns
-                    config.firewall.block_quic = parsed_fw.firewall.block_quic
-                    config.firewall.custom_doh_ips = parsed_fw.firewall.custom_doh_ips
-                    config.firewall.custom_vpn_ips = parsed_fw.firewall.custom_vpn_ips
-            if "plugins.yaml" in staged_files:
-                parsed_plg = PluginsConfig.model_validate(self._load_staged_yaml("plugins.yaml"))
-                config.plugins = parsed_plg.plugins
-                
+        if "system.yaml" in staged_files:
+            parsed = SystemConfig.model_validate(self._load_staged_yaml("system.yaml"))
+            config.system, config.users = parsed.system, parsed.users
+        if "nodes.yaml" in staged_files:
+            config.nodes = NodesConfigFile.model_validate(self._load_staged_yaml("nodes.yaml")).nodes
+        if "network.yaml" in staged_files:
+            p_net = NetworkConfig.model_validate(self._load_staged_yaml("network.yaml"))
+            config.network, config.wifi, config.vpns, config.edge_gateways = p_net.network, p_net.wifi, p_net.vpns, p_net.edge_gateways
+        if "devices.yaml" in staged_files:
+            p_dev = DevicesConfig.model_validate(self._load_staged_yaml("devices.yaml"))
+            config.people, config.buildings, config.rooms, config.devices = p_dev.people, p_dev.buildings, p_dev.rooms, p_dev.devices
+        if "schedules.yaml" in staged_files:
+            config.schedules = SchedulesConfig.model_validate(self._load_staged_yaml("schedules.yaml")).schedules
+        if "firewall.yaml" in staged_files:
+            p_fw = FirewallConfig.model_validate(self._load_staged_yaml("firewall.yaml"))
+            if p_fw.firewall:
+                config.firewall.port_forwards = p_fw.firewall.port_forwards
+                config.firewall.rules = p_fw.firewall.rules
+                config.firewall.block_doh = p_fw.firewall.block_doh
+                config.firewall.block_vpns = p_fw.firewall.block_vpns
+                config.firewall.block_quic = p_fw.firewall.block_quic
+                config.firewall.custom_doh_ips = p_fw.firewall.custom_doh_ips
+                config.firewall.custom_vpn_ips = p_fw.firewall.custom_vpn_ips
+        if "plugins.yaml" in staged_files:
+            config.plugins = PluginsConfig.model_validate(self._load_staged_yaml("plugins.yaml")).plugins
         return config
 
     def _load_staged_yaml(self, filename: str) -> dict:
-        import yaml
         try:
             with open(os.path.join(self.staged_dir, filename), "r") as f:
-                raw_text = f.read()
-            if "\t" in raw_text:
-                raw_text = raw_text.replace("\t", "  ")
+                raw_text = f.read().replace("\t", "  ")
             return yaml.safe_load(raw_text) or {}
         except Exception:
             return {}
 
     def save_system_config(self, data: SystemConfig) -> None:
         save_config_file(self.staged_dir, "system.yaml", data)
+        self.notify_change("system", data=data)
 
     def save_nodes_config(self, data: NodesConfigFile) -> None:
         save_config_file(self.staged_dir, "nodes.yaml", data)
+        self.notify_change("nodes", data=data)
 
     def save_devices_config(self, data: DevicesConfig) -> None:
         save_config_file(self.staged_dir, "devices.yaml", data)
+        self.notify_change("devices", data=data)
 
     def save_network_config(self, data: Union[NetworkConfig, NetworkSettings]) -> None:
         if isinstance(data, NetworkSettings):
@@ -201,38 +178,37 @@ class StagingConfigRepository(ConfigRepository):
             if os.path.exists(filepath):
                 try:
                     with open(filepath, "r") as f:
-                        raw = yaml.safe_load(f) or {}
-                    existing = NetworkConfig.model_validate(raw)
+                        existing = NetworkConfig.model_validate(yaml.safe_load(f) or {})
                 except Exception:
                     pass
+            net_cfg = existing if existing else NetworkConfig(network=data, edge_gateways=data.edge_gateways)
             if existing:
-                existing.network = data
-                existing.edge_gateways = data.edge_gateways
-                net_cfg = existing
-            else:
-                net_cfg = NetworkConfig(network=data, edge_gateways=data.edge_gateways)
+                existing.network, existing.edge_gateways = data, data.edge_gateways
             save_config_file(self.staged_dir, "network.yaml", net_cfg)
         else:
             save_config_file(self.staged_dir, "network.yaml", data)
+        self.notify_change("network", data=data)
 
     def save_schedules_config(self, data: SchedulesConfig) -> None:
         save_config_file(self.staged_dir, "schedules.yaml", data)
+        self.notify_change("schedules", data=data)
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
         save_config_file(self.staged_dir, "firewall.yaml", data)
+        self.notify_change("firewall", data=data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         save_config_file(self.staged_dir, "plugins.yaml", data)
+        self.notify_change("plugins", data=data)
 
     def commit_staged_changes(self) -> None:
         """Copies all staged configurations to active directory and deletes them from stage."""
         if not os.path.exists(self.staged_dir):
             return
-        staged_files = [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]
-        for filename in staged_files:
+        import shutil
+        for filename in [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]:
             src = os.path.join(self.staged_dir, filename)
             dst = os.path.join(self.active_repo.config_dir, filename)
-            import shutil
             shutil.copy2(src, dst)
             os.remove(src)
         self.notify_change("commit", action="commit")
@@ -242,8 +218,7 @@ class StagingConfigRepository(ConfigRepository):
         """Deletes all staged files."""
         if not os.path.exists(self.staged_dir):
             return
-        staged_files = [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]
-        for filename in staged_files:
+        for filename in [f for f in os.listdir(self.staged_dir) if f.endswith(".yaml")]:
             os.remove(os.path.join(self.staged_dir, filename))
 
     def has_staged_changes(self) -> bool:
@@ -259,27 +234,19 @@ class StagingConfigRepository(ConfigRepository):
 class InMemoryConfigRepository(ConfigRepository):
     """In-memory implementation of ConfigRepository for isolated unit tests."""
 
-    def __init__(self, initial_config: RoostConfig = None):
+    def __init__(self, initial_config: Optional[RoostConfig] = None):
         super().__init__()
         if initial_config is not None:
             self._config = initial_config
         else:
-            from roostos_engine.models import (
-                SystemSettings, NetworkSettings, FirewallSettings
-            )
+            from roostos_engine.models import SystemSettings, NetworkSettings, FirewallSettings
             self._config = RoostConfig(
                 system=SystemSettings(hostname="roost-router", domain="lan"),
-                users=[],
-                nodes=[],
+                users=[], nodes=[],
                 network=NetworkSettings(interfaces=[], bridges=[], vlans=[], gateways=[], zones=[]),
-                vpns=[],
-                people=[],
-                buildings=[],
-                rooms=[],
-                devices=[],
+                vpns=[], people=[], buildings=[], rooms=[], devices=[],
                 firewall=FirewallSettings(port_forwards=[], rules=[]),
-                schedules=[],
-                plugins=[],
+                schedules=[], plugins=[],
             )
 
     def get_config(self) -> RoostConfig:

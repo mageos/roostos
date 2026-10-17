@@ -40,7 +40,8 @@ const adminNavItems = [
 ];
 
 export async function initApp() {
-    await checkAuth();
+    const authUser = await checkAuth();
+    if (!authUser) return;
     renderAppShell();
     store.subscribe(() => renderActiveView());
 
