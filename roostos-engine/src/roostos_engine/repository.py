@@ -128,8 +128,11 @@ class StagingConfigRepository(ConfigRepository):
         if "nodes.yaml" in staged_files:
             config.nodes = NodesConfigFile.model_validate(self._load_staged_yaml("nodes.yaml")).nodes
         if "network.yaml" in staged_files:
+            active_edge_gws = list(config.edge_gateways or getattr(config.network, "edge_gateways", []) or [])
             p_net = NetworkConfig.model_validate(self._load_staged_yaml("network.yaml"))
-            config.network, config.wifi, config.vpns, config.edge_gateways = p_net.network, p_net.wifi, p_net.vpns, p_net.edge_gateways
+            merged_edge_gws = p_net.edge_gateways if p_net.edge_gateways else active_edge_gws
+            p_net.network.edge_gateways = merged_edge_gws
+            config.network, config.wifi, config.vpns, config.edge_gateways = p_net.network, p_net.wifi, p_net.vpns, merged_edge_gws
         if "devices.yaml" in staged_files:
             p_dev = DevicesConfig.model_validate(self._load_staged_yaml("devices.yaml"))
             config.people, config.buildings, config.rooms, config.devices = p_dev.people, p_dev.buildings, p_dev.rooms, p_dev.devices

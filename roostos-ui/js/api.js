@@ -188,6 +188,33 @@ export class RoostApiClient {
         return this.request('/api/v1/edge/status');
     }
 
+    async connectEdgeGateway(token, name = 'VPS Edge Gateway') {
+        return this.request('/api/v1/edge/connect', {
+            method: 'POST',
+            body: JSON.stringify({ token, name })
+        });
+    }
+
+    async updateEdgeEndpoint(endpointData) {
+        return this.request('/api/v1/edge/endpoint', {
+            method: 'PUT',
+            body: JSON.stringify(endpointData)
+        });
+    }
+
+    async createEdgeRoute(routeData) {
+        return this.request('/api/v1/edge/routes', {
+            method: 'POST',
+            body: JSON.stringify(routeData)
+        });
+    }
+
+    async deleteEdgeRoute(routeId) {
+        return this.request(`/api/v1/edge/routes/${encodeURIComponent(routeId)}`, {
+            method: 'DELETE'
+        });
+    }
+
     // Kea DHCP APIs
     async getDhcpScopes() {
         return this.request('/api/v1/dhcp/scopes');

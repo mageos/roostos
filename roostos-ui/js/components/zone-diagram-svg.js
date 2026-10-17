@@ -32,14 +32,14 @@ export function renderZoneDiagramSvg(container) {
 
     const inspectorData = {
         'wg-edge': {
-            title: `Inbound WireGuard Tunnel (${edge.interface || 'wg-edge'})`,
-            badge: edge.enabled ? 'Tunnel Active' : 'Not Configured',
+            title: `Inbound WireGuard Tunnel (wg-edge)`,
+            badge: edge.enabled ? (edge.tunnelStatus || 'Tunnel Active') : 'Not Configured',
             badgeClass: edge.enabled ? 'badge-info' : 'badge-neutral',
-            ip: `${edge.tunnelIp} ↔ ${edge.gatewayEndpoint}`,
-            flow: edge.enabled ? `Internet ➔ Edge VPS (${edge.publicIp}) ➔ ${edge.interface} ➔ Home LAN` : 'Edge Gateway tunnel is not currently enabled',
-            cipher: edge.cipher || 'WireGuard ChaCha20-Poly1305',
+            ip: `${edge.localTunnelIp || '-'} ↔ ${edge.vpsTunnelIp || '-'} (${edge.vpsHostname || edge.vpsPublicIp || '-'})`,
+            flow: edge.enabled ? `Internet ➔ Edge VPS (${edge.vpsHostname || edge.vpsPublicIp}:${edge.tunnelPort || 51820}) ➔ wg-edge ➔ Home LAN` : 'Edge Gateway tunnel is not currently enabled',
+            cipher: 'WireGuard ChaCha20-Poly1305',
             transfer: `Rx: ${edge.rxBytes} / Tx: ${edge.txBytes}`,
-            firewall: 'Inbound DNAT forwarding via Edge Gateway'
+            firewall: `Inbound DNAT forwarding (${(edge.ingressRules || []).length} active ingress routes)`
         },
         'wg-privacy': {
             title: 'Outbound Privacy VPN Tunnel (wg-privacy)',
@@ -130,8 +130,8 @@ export function renderZoneDiagramSvg(container) {
 
                 <g class="diagram-clickable ${selectedDiagramItem === 'wg-edge' ? 'selected' : ''}" data-item="wg-edge">
                     <rect x="50" y="44" width="280" height="48" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
-                    <text x="65" y="64" fill="#ffffff" font-size="13" font-weight="700">☁️ Edge Gateway (${edge.enabled ? 'Active' : 'Disabled'})</text>
-                    <text x="65" y="80" fill="#38bdf8" font-size="11" font-family="monospace">Endpoint: ${edge.publicIp !== '-' ? edge.publicIp : 'Not Configured'}</text>
+                    <text x="65" y="64" fill="#ffffff" font-size="13" font-weight="700">☁️ ${edge.name || 'Edge Gateway'} (${edge.enabled ? 'Active' : 'Disabled'})</text>
+                    <text x="65" y="80" fill="#38bdf8" font-size="11" font-family="monospace">Endpoint: ${edge.enabled ? (edge.vpsHostname !== '-' ? edge.vpsHostname : edge.vpsPublicIp) : 'Not Configured'}</text>
                 </g>
 
                 <g class="diagram-clickable ${selectedDiagramItem === 'wg-privacy' ? 'selected' : ''}" data-item="wg-privacy">
@@ -142,7 +142,7 @@ export function renderZoneDiagramSvg(container) {
 
                 <line x1="190" y1="92" x2="190" y2="155" stroke="#38bdf8" stroke-width="4" class="tunnel-flow-in"/>
                 <rect x="90" y="112" width="200" height="22" rx="6" fill="#0284c7" class="diagram-clickable ${selectedDiagramItem === 'wg-edge' ? 'selected' : ''}" data-item="wg-edge"/>
-                <text x="190" y="127" fill="#ffffff" font-size="10" font-weight="700" text-anchor="middle">🔒 ${edge.interface || 'wg-edge'} (${edge.status})</text>
+                <text x="190" y="127" fill="#ffffff" font-size="10" font-weight="700" text-anchor="middle">🔒 wg-edge (${edge.enabled ? `${edge.localTunnelIp} ↔ ${edge.vpsTunnelIp}` : 'Off'})</text>
 
                 <line x1="730" y1="92" x2="730" y2="155" stroke="#10b981" stroke-width="4" class="tunnel-flow-out"/>
                 <rect x="630" y="112" width="200" height="22" rx="6" fill="#059669" class="diagram-clickable ${selectedDiagramItem === 'wg-privacy' ? 'selected' : ''}" data-item="wg-privacy"/>

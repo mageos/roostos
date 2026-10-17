@@ -160,6 +160,15 @@ def persist_gateway_config(
 
         with open(net_yaml, "w") as f:
             yaml.dump(ydata, f, default_flow_style=False, sort_keys=False)
+
+        staged_yaml = "/var/lib/roostos/staged_config/network.yaml" if config_dir == "/etc/roostos" else ""
+        if staged_yaml and os.path.exists(staged_yaml):
+            with open(staged_yaml, "r") as sf:
+                sdata = yaml.safe_load(sf) or {}
+            sdata["edge_gateways"] = updated_gws
+            sdata.setdefault("network", {})["edge_gateways"] = updated_gws
+            with open(staged_yaml, "w") as sf:
+                yaml.dump(sdata, sf, default_flow_style=False, sort_keys=False)
     except Exception as e:
         import sys
         print(f"Warning: Failed to persist Edge Gateway in network.yaml: {e}", file=sys.stderr)
@@ -172,25 +181,95 @@ def update_gateway_endpoint(
     is_domain: bool = True,
 ) -> None:
     """Updates the domain or IP and port for edge-01 in network.yaml."""
-    net_yaml = os.path.join(config_dir, "network.yaml")
-    if not os.path.exists(net_yaml):
-        return
+    targets = [os.path.join(config_dir, "network.yaml")]
+    if config_dir == "/etc/roostos" and os.path.exists("/var/lib/roostos/staged_config/network.yaml"):
+        targets.append("/var/lib/roostos/staged_config/network.yaml")
+    for net_yaml in targets:
+        if not os.path.exists(net_yaml):
+            continue
+        try:
+            import yaml
+            with open(net_yaml, "r") as f:
+                ydata = yaml.safe_load(f) or {}
+            gws = ydata.get("edge_gateways") or ydata.get("network", {}).get("edge_gateways", [])
+            for gw in gws:
+                if gw.get("id") == "edge-01":
+                    if is_domain:
+                        gw["domain"] = endpoint_host
+                    else:
+                        gw["public_ip"] = endpoint_host
+                    gw["listen_port"] = port
+            with open(net_yaml, "w") as f:
+                yaml.dump(ydata, f, default_flow_style=False, sort_keys=False)
+        except Exception as e:
+            import sys
+            print(f"Warning: Failed to update endpoint in {net_yaml}: {e}", file=sys.stderr)
+
+
+def detect_systemd_wg_edge() -> Optional[Any]:
+    """Detects an active wg-edge tunnel from /etc/systemd/network/50-wg-edge.netdev if present."""
+    from roostos_engine.models.edge import EdgeGatewayConfig
+    net_dir = os.environ.get("ROOSTOS_SYSTEMD_NETWORK_DIR", "/etc/systemd/network")
+    netdev_path = os.path.join(net_dir, "50-wg-edge.netdev")
+    network_path = os.path.join(net_dir, "50-wg-edge.network")
+    if not os.path.exists(netdev_path):
+        return None
     try:
-        import yaml
-        with open(net_yaml, "r") as f:
-            ydata = yaml.safe_load(f) or {}
-        gws = ydata.get("edge_gateways") or ydata.get("network", {}).get("edge_gateways", [])
-        for gw in gws:
-            if gw.get("id") == "edge-01":
-                if is_domain:
-                    gw["domain"] = endpoint_host
-                else:
-                    gw["public_ip"] = endpoint_host
-                gw["listen_port"] = port
-        with open(net_yaml, "w") as f:
-            yaml.dump(ydata, f, default_flow_style=False, sort_keys=False)
-    except Exception as e:
-        import sys
-        print(f"Warning: Failed to update endpoint in network.yaml: {e}", file=sys.stderr)
+        endpoint_host, listen_port, pub_key, domain = "10.42.0.1", 51820, None, None
+        with open(netdev_path, "r") as f:
+            for line in f:
+                s = line.strip()
+                if s.startswith("Endpoint="):
+                    ep = s.split("=", 1)[1].strip()
+                    host_part = ep.rsplit(":", 1)[0]
+                    if ":" in ep:
+                        try:
+                            listen_port = int(ep.rsplit(":", 1)[1])
+                        except ValueError:
+                            pass
+                    if any(c.isalpha() for c in host_part):
+                        domain = host_part
+                    endpoint_host = host_part
+                elif s.startswith("ListenPort="):
+                    try:
+                        listen_port = int(s.split("=", 1)[1].strip())
+                    except ValueError:
+                        pass
+                elif s.startswith("PublicKey="):
+                    pub_key = s.split("=", 1)[1].strip()
+        tunnel_home = "10.42.0.2/24"
+        if os.path.exists(network_path):
+            with open(network_path, "r") as nf:
+                for line in nf:
+                    if line.strip().startswith("Address="):
+                        tunnel_home = line.strip().split("=", 1)[1].strip()
+                        break
+        return EdgeGatewayConfig(
+            id="edge-01", name="VPS Edge Gateway", public_ip=endpoint_host,
+            domain=domain, listen_port=listen_port, tunnel_ip_gateway="10.42.0.1/24",
+            tunnel_ip_home=tunnel_home, public_key=pub_key, status="connected",
+        )
+    except Exception:
+        return None
+
+
+def read_wg_edge_traffic() -> dict:
+    """Reads live Rx/Tx byte counters for the wg-edge interface from /proc/net/dev."""
+    try:
+        if os.path.exists("/proc/net/dev"):
+            with open("/proc/net/dev", "r") as f:
+                for line in f.readlines()[2:]:
+                    parts = line.replace(":", " ").split()
+                    if parts and parts[0] == "wg-edge":
+                        rx_b, tx_b = int(parts[1]), int(parts[9])
+                        def _fmt(b: int) -> str:
+                            if b >= 1024 ** 3: return f"{b / (1024 ** 3):.2f} GB"
+                            if b >= 1024 ** 2: return f"{b / (1024 ** 2):.1f} MB"
+                            if b >= 1024: return f"{b / 1024:.1f} KB"
+                            return f"{b} B"
+                        return {"rx_bytes": _fmt(rx_b), "tx_bytes": _fmt(tx_b)}
+    except Exception:
+        pass
+    return {"rx_bytes": "0 B", "tx_bytes": "0 B"}
 
 
