@@ -41,29 +41,29 @@ export function renderAdminDhcp(container) {
         <div class="card" style="border-left: 4px solid var(--accent-emerald);">
             <div class="card-header">
                 <div>
-                    <h3 class="card-title">📡 Distributed Kea DHCP Fleet (ISC Kea 2.4)</h3>
-                    <p class="card-subtitle">Cluster node assignments, authoritative lease pools, and High-Availability (HA) failover</p>
+                    <h3 class="card-title">📡 Kea DHCP Server Engine (ISC Kea 2.4)</h3>
+                    <p class="card-subtitle">Authoritative lease pools, client discovery, and High-Availability (HA) failover</p>
                 </div>
-                <span class="badge badge-success">● 2 Nodes Active • HA Synchronized</span>
+                <span class="badge badge-success">● Kea DHCPv4 Active</span>
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; color: var(--text-muted);">roost-gateway-01 (Primary)</div>
-                    <div style="font-size: 14px; font-weight: 700; color: var(--brand-primary); margin-top: 2px;">3 Scopes Active</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Serving: br-lan, vlan-guest, vlan-iot</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Primary Router Node</div>
+                    <div style="font-size: 14px; font-weight: 700; color: var(--brand-primary); margin-top: 2px;">${data.system.hostname}</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">${allScopes.length} Scopes Active</div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; color: var(--text-muted);">roost-controller-01 (App Node)</div>
-                    <div style="font-size: 14px; font-weight: 700; color: var(--accent-indigo); margin-top: 2px;">1 Scope + Hot-Standby HA</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Serving: docker0 • Standby for br-lan</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Cluster Management</div>
+                    <div style="font-size: 14px; font-weight: 700; color: var(--accent-indigo); margin-top: 2px;">${nodes.length > 1 ? `${nodes.length} Nodes Synchronized` : 'Standalone Master'}</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">${nodes.length > 1 ? 'mTLS Sync Active' : 'Local Daemon'}</div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; color: var(--text-muted);">HA Failover Protocol</div>
-                    <div style="font-size: 14px; font-weight: 700; color: var(--accent-emerald); margin-top: 2px;">libdhcp_ha (Hot Standby)</div>
-                    <div style="font-size: 11px; color: var(--text-muted);">Heartbeat: 500ms • Zero Lease Collisions</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">HA Protocol & Hook</div>
+                    <div style="font-size: 14px; font-weight: 700; color: var(--accent-emerald); margin-top: 2px;">libdhcp_run_script</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Sub-second Real-time Sync</div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; color: var(--text-muted);">Active Cluster Leases</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">Active Allocated Leases</div>
                     <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">${admin.activeLeases.length} Dynamic + ${data.devices.filter(d => !!d.staticIp).length} Static</div>
                     <div style="font-size: 11px; color: var(--text-muted);">Shared Lease Sync: Active</div>
                 </div>
@@ -85,12 +85,11 @@ export function renderAdminDhcp(container) {
                 <button class="c1-nav-link node-flt-btn ${activeScopeNodeFilter === 'all' ? 'active' : ''}" data-nflt="all">
                     🌐 All Nodes (${allScopes.length})
                 </button>
-                <button class="c1-nav-link node-flt-btn ${activeScopeNodeFilter === 'roost-gateway-01' ? 'active' : ''}" data-nflt="roost-gateway-01">
-                    🛡️ roost-gateway-01 (${allScopes.filter(s => s.nodeId === 'roost-gateway-01').length})
-                </button>
-                <button class="c1-nav-link node-flt-btn ${activeScopeNodeFilter === 'roost-controller-01' ? 'active' : ''}" data-nflt="roost-controller-01">
-                    🖥️ roost-controller-01 (${allScopes.filter(s => s.nodeId === 'roost-controller-01').length})
-                </button>
+                ${nodes.map(n => `
+                    <button class="c1-nav-link node-flt-btn ${activeScopeNodeFilter === n.id ? 'active' : ''}" data-nflt="${n.id}">
+                        ${(n.role || '').includes('Gateway') ? '🛡️' : '🖥️'} ${n.hostname} (${allScopes.filter(s => s.nodeId === n.id).length})
+                    </button>
+                `).join('')}
             </div>
 
             <div class="table-responsive">
@@ -102,7 +101,9 @@ export function renderAdminDhcp(container) {
                         </tr>
                     </thead>
                     <tbody id="dhcp-scopes-tbody">
-                        ${scopes.map(renderScopeRow).join('')}
+                        ${scopes.length === 0 ? `
+                            <tr><td colspan="9" style="text-align:center; padding: 24px; color: var(--text-muted);">No DHCP scopes configured. Click "+ Add Network Scope" to define one.</td></tr>
+                        ` : scopes.map(renderScopeRow).join('')}
                     </tbody>
                 </table>
             </div>
@@ -134,15 +135,12 @@ function bindScopeEvents(container, scopes, nodes) {
             <td><input type="text" class="form-input" id="edit-sc-name" value="${sc.name}"></td>
             <td>
                 <select class="form-select" id="edit-sc-node">
-                    <option value="roost-gateway-01" ${sc.nodeId === 'roost-gateway-01' ? 'selected' : ''}>🛡️ roost-gateway-01</option>
-                    <option value="roost-controller-01" ${sc.nodeId === 'roost-controller-01' ? 'selected' : ''}>🖥️ roost-controller-01</option>
-                    <option value="living-room-ap" ${sc.nodeId === 'living-room-ap' ? 'selected' : ''}>📶 living-room-ap</option>
+                    ${nodes.map(n => `<option value="${n.id}" ${sc.nodeId === n.id ? 'selected' : ''}>${(n.role || '').includes('Gateway') ? '🛡️' : '🖥️'} ${n.hostname}</option>`).join('')}
                 </select>
                 <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">
                     HA: <select class="form-select" id="edit-sc-ha" style="font-size:11px;padding:2px 4px;">
                         <option value="none" ${sc.haStandby === 'none' ? 'selected' : ''}>None</option>
-                        <option value="roost-controller-01" ${sc.haStandby === 'roost-controller-01' ? 'selected' : ''}>roost-controller-01</option>
-                        <option value="roost-gateway-01" ${sc.haStandby === 'roost-gateway-01' ? 'selected' : ''}>roost-gateway-01</option>
+                        ${nodes.map(n => `<option value="${n.id}" ${sc.haStandby === n.id ? 'selected' : ''}>${n.hostname}</option>`).join('')}
                     </select>
                 </div>
             </td>
@@ -207,8 +205,7 @@ function bindScopeEvents(container, scopes, nodes) {
             <td><input type="text" class="form-input" id="new-sc-name" placeholder="Dev VLAN"></td>
             <td>
                 <select class="form-select" id="new-sc-node">
-                    <option value="roost-gateway-01">🛡️ roost-gateway-01</option>
-                    <option value="roost-controller-01">🖥️ roost-controller-01</option>
+                    ${nodes.map(n => `<option value="${n.id}">${(n.role || '').includes('Gateway') ? '🛡️' : '🖥️'} ${n.hostname}</option>`).join('')}
                 </select>
             </td>
             <td><input type="text" class="form-input" id="new-sc-iface" placeholder="vlan-dev"></td>

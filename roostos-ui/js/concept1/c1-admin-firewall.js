@@ -5,21 +5,26 @@ export function renderAdminFirewall(container) {
     const data = store.data;
     const admin = data.admin;
 
-    const renderPfRows = () => admin.portForwards.map(p => `
-        <tr id="pf-row-${p.id}">
-            <td><strong>${p.name}</strong></td>
-            <td><span class="badge badge-info">${p.proto}</span></td>
-            <td><code>${p.wanPort}</code></td>
-            <td><code>${p.lanIp}:${p.lanPort}</code></td>
-            <td>${p.hits.toLocaleString()} hits</td>
-            <td>
-                <div style="display: flex; gap: 6px;">
-                    <button class="btn btn-secondary btn-sm edit-pf-btn" data-id="${p.id}">Edit</button>
-                    <button class="btn btn-danger btn-sm delete-pf-btn" data-id="${p.id}">Delete</button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    const renderPfRows = () => {
+        if (admin.portForwards.length === 0) {
+            return `<tr><td colspan="6" style="text-align:center; padding: 24px; color: var(--text-muted);">No port forwarding rules configured.</td></tr>`;
+        }
+        return admin.portForwards.map(p => `
+            <tr id="pf-row-${p.id}">
+                <td><strong>${p.name}</strong></td>
+                <td><span class="badge badge-info">${p.proto}</span></td>
+                <td><code>${p.wanPort}</code></td>
+                <td><code>${p.lanIp}:${p.lanPort}</code></td>
+                <td>${p.hits.toLocaleString()} hits</td>
+                <td>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-secondary btn-sm edit-pf-btn" data-id="${p.id}">Edit</button>
+                        <button class="btn btn-danger btn-sm delete-pf-btn" data-id="${p.id}">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    };
 
     container.innerHTML = `
         <!-- Zone Security Policy Matrix -->

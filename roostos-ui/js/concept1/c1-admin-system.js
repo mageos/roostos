@@ -6,27 +6,31 @@ let activeYaml = 'network.yaml';
 export function renderAdminSystem(container) {
     const data = store.data;
     const admin = data.admin;
-    const nodes = data.cluster.nodes;
+    const nodes = data.cluster?.nodes || [];
 
     container.innerHTML = `
         <!-- Multi-Node Cluster Fleet Cards -->
         <div class="card">
             <div class="card-header">
                 <div>
-                    <h3 class="card-title">🖥️ RoostOS Multi-Node Cluster Fleet</h3>
+                    <h3 class="card-title">🖥️ RoostOS Cluster Fleet & Node Telemetry</h3>
                     <p class="card-subtitle">Real-time status, hardware specs, and network bindings across all cluster nodes</p>
                 </div>
-                <span class="badge badge-success">Fleet mTLS Sync Active</span>
+                <span class="badge badge-success">Node Telemetry Active</span>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 16px;">
-                ${nodes.map(n => `
+                ${nodes.length === 0 ? `
+                    <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--text-muted);">
+                        No cluster nodes detected. Local router: <strong>${data.system.hostname}</strong> (<code>${data.system.gatewayIp}</code>)
+                    </div>
+                ` : nodes.map(n => `
                     <div style="border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; background: var(--bg-subtle); display: flex; flex-direction: column; justify-content: space-between;">
                         <div>
                             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                                 <div>
                                     <h4 style="font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-                                        <span>${n.role.includes('Cloud') ? '☁️' : n.role.includes('Gateway') ? '🛡️' : n.role.includes('Mesh') ? '📶' : '🖥️'}</span>
+                                        <span>${(n.role || '').includes('Cloud') ? '☁️' : (n.role || '').includes('Gateway') ? '🛡️' : (n.role || '').includes('Mesh') ? '📶' : '🖥️'}</span>
                                         ${n.hostname}
                                     </h4>
                                     <div style="font-size: 12px; color: var(--brand-primary); font-weight: 600; margin-top: 2px;">${n.role}</div>
@@ -44,9 +48,9 @@ export function renderAdminSystem(container) {
                             <div style="margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-subtle);">
                                 <div style="font-size: 11px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px;">BOUND NETWORK INTERFACES:</div>
                                 <div style="display: flex; flex-wrap: wrap; gap: 4px;">
-                                    ${n.interfaces.map(i => `
+                                    ${(n.interfaces || []).map(i => `
                                         <span class="badge badge-neutral" style="font-family:var(--font-mono); font-size:10px;">
-                                            ${i.name} (${i.role.split(' ')[0]})
+                                            ${i.name} (${(i.role || 'LAN').split(' ')[0]})
                                         </span>
                                     `).join('')}
                                 </div>
@@ -54,7 +58,7 @@ export function renderAdminSystem(container) {
                         </div>
 
                         <div style="margin-top: 14px; font-size: 11px; color: var(--text-muted);">
-                            Services: <strong>${n.services.join(', ')}</strong>
+                            Services: <strong>${(n.services || []).join(', ')}</strong>
                         </div>
                     </div>
                 `).join('')}
@@ -76,7 +80,7 @@ export function renderAdminSystem(container) {
                 <button class="c1-nav-link yaml-tab ${activeYaml === 'devices.yaml' ? 'active' : ''}" data-file="devices.yaml">devices.yaml</button>
             </div>
 
-            <div class="c2-yaml-viewer" id="yaml-code-display">${admin.yamlFiles[activeYaml] || ''}</div>
+            <div class="c2-yaml-viewer" id="yaml-code-display">${(admin.yamlFiles && admin.yamlFiles[activeYaml]) || '# Declarative configuration files\n# Location: /etc/roostos/'}</div>
         </div>
     `;
 
@@ -88,7 +92,8 @@ export function renderAdminSystem(container) {
     });
 
     container.querySelector('#btn-copy-yaml').onclick = (e) => {
-        navigator.clipboard?.writeText(admin.yamlFiles[activeYaml]);
+        const text = (admin.yamlFiles && admin.yamlFiles[activeYaml]) || '';
+        navigator.clipboard?.writeText(text);
         e.target.textContent = 'Copied!';
         setTimeout(() => e.target.textContent = '📋 Copy YAML', 1500);
     };

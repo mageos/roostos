@@ -21,7 +21,9 @@ export function renderDhcpReservations(container, onReload) {
                     <tr><th>Device Name</th><th>MAC Address</th><th>Reserved IP</th><th>Zone</th><th>Actions</th></tr>
                 </thead>
                 <tbody id="res-tbody">
-                    ${staticDevices.map(d => `
+                    ${staticDevices.length === 0 ? `
+                        <tr><td colspan="5" style="text-align:center; padding: 24px; color: var(--text-muted);">No static IP reservations configured.</td></tr>
+                    ` : staticDevices.map(d => `
                         <tr id="res-row-${d.mac.replace(/:/g, '')}">
                             <td><strong>${d.name}</strong></td>
                             <td><code>${d.mac}</code></td>

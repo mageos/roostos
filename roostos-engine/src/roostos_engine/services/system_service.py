@@ -230,7 +230,11 @@ class SystemService:
             users=config.users
         )
         self.repo.save_system_config(system_config_obj)
-        await self.dbus.get_config()
+        if self.dbus:
+            try:
+                await self.dbus.get_config()
+            except Exception:
+                pass
 
     async def run_diagnostics(self) -> Dict[str, Any]:
         checks = []
@@ -367,7 +371,7 @@ class SystemService:
         }
 
     async def reboot_router(self):
-        if not self.dbus.mock:
+        if self.dbus and not getattr(self.dbus, "mock", False):
             subprocess.Popen(["sudo", "reboot"])
 
     async def get_services_status(self) -> List[Dict[str, str]]:

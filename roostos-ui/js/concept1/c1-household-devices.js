@@ -7,52 +7,58 @@ let searchQuery = '';
 export function renderHouseholdDevices(container) {
     const data = store.data;
 
+    const personIds = new Set(data.people.map(p => p.id));
     let filtered = data.devices.filter(d => {
         const matchesSearch = !searchQuery ||
             d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
             d.mac.toLowerCase().includes(searchQuery.toLowerCase()) ||
             d.ip.includes(searchQuery);
         if (!matchesSearch) return false;
-        if (activeCategory === 'family') return ['dad', 'mom', 'alice', 'bob'].includes(d.owner);
+        if (activeCategory === 'family') return !!d.owner && (personIds.has(d.owner) || personIds.size === 0);
         if (activeCategory === 'entertainment') return (d.tags || []).includes('entertainment');
         if (activeCategory === 'iot') return d.zone === 'iot';
         if (activeCategory === 'guest') return d.zone === 'guest';
         return true;
     });
 
-    const renderRows = () => filtered.map(d => {
-        const ownerObj = data.people.find(p => p.id === d.owner);
-        const ownerLabel = ownerObj ? `${ownerObj.avatar} ${ownerObj.name}` : (d.owner || '<em>Unassigned</em>');
-        const isPaused = d.status === 'paused' || d.status === 'blocked';
-        return `
-            <tr id="dev-row-${d.mac.replace(/:/g, '')}">
-                <td>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 20px;">${d.icon}</span>
-                        <div>
-                            <strong class="dev-name-link" data-mac="${d.mac}" style="cursor: pointer; color: var(--brand-primary);">${d.name}</strong>
-                            <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.mac}</div>
+    const renderRows = () => {
+        if (filtered.length === 0) {
+            return `<tr><td colspan="7" style="text-align:center; padding: 32px; color: var(--text-muted);">No devices found matching filter.</td></tr>`;
+        }
+        return filtered.map(d => {
+            const ownerObj = data.people.find(p => p.id === d.owner);
+            const ownerLabel = ownerObj ? `${ownerObj.avatar} ${ownerObj.name}` : (d.owner || '<em>Unassigned</em>');
+            const isPaused = d.status === 'paused' || d.status === 'blocked';
+            return `
+                <tr id="dev-row-${d.mac.replace(/:/g, '')}">
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 20px;">${d.icon}</span>
+                            <div>
+                                <strong class="dev-name-link" data-mac="${d.mac}" style="cursor: pointer; color: var(--brand-primary);">${d.name}</strong>
+                                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.mac}</div>
+                            </div>
                         </div>
-                    </div>
-                </td>
-                <td>${ownerLabel}</td>
-                <td>${d.location || '-'}</td>
-                <td><code>${d.ip}</code></td>
-                <td><span class="badge ${d.zone === 'iot' ? 'badge-warning' : d.zone === 'guest' ? 'badge-info' : 'badge-neutral'}">${d.zone.toUpperCase()}</span></td>
-                <td>
-                    <button class="btn btn-sm ${isPaused ? 'btn-danger' : 'btn-success'} pause-dev-btn" data-mac="${d.mac}">
-                        ${isPaused ? '⏸ Paused' : '🟢 Active'}
-                    </button>
-                </td>
-                <td>
-                    <div style="display: flex; gap: 6px;">
-                        <button class="btn btn-secondary btn-sm edit-dev-btn" data-mac="${d.mac}">Edit</button>
-                        <button class="btn btn-danger btn-sm delete-dev-btn" data-mac="${d.mac}">Delete</button>
-                    </div>
-                </td>
-            </tr>
-        `;
-    }).join('');
+                    </td>
+                    <td>${ownerLabel}</td>
+                    <td>${d.location || '-'}</td>
+                    <td><code>${d.ip}</code></td>
+                    <td><span class="badge ${d.zone === 'iot' ? 'badge-warning' : d.zone === 'guest' ? 'badge-info' : 'badge-neutral'}">${d.zone.toUpperCase()}</span></td>
+                    <td>
+                        <button class="btn btn-sm ${isPaused ? 'btn-danger' : 'btn-success'} pause-dev-btn" data-mac="${d.mac}">
+                            ${isPaused ? '⏸ Paused' : '🟢 Active'}
+                        </button>
+                    </td>
+                    <td>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn btn-secondary btn-sm edit-dev-btn" data-mac="${d.mac}">Edit</button>
+                            <button class="btn btn-danger btn-sm delete-dev-btn" data-mac="${d.mac}">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    };
 
     container.innerHTML = `
         <div class="card">

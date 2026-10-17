@@ -29,7 +29,9 @@ export function renderDhcpLeases(container, onReload) {
                     <tr><th>Hostname</th><th>Assigned IP</th><th>MAC Address</th><th>Interface</th><th>Time Remaining</th><th>Vendor</th><th>Action</th></tr>
                 </thead>
                 <tbody>
-                    ${leases.map(l => `
+                    ${leases.length === 0 ? `
+                        <tr><td colspan="7" style="text-align:center; padding: 24px; color: var(--text-muted);">No active dynamic DHCP leases on selected network.</td></tr>
+                    ` : leases.map(l => `
                         <tr>
                             <td><strong>${l.hostname}</strong></td>
                             <td><code>${l.ip}</code></td>

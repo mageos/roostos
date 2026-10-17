@@ -21,6 +21,13 @@ class HouseholdPulseDTO(BaseModel):
     active_kids_count: int = Field(default=0, description="Total number of registered kid profiles")
     total_devices_count: int = Field(default=0, description="Total registered devices")
     online_devices_count: int = Field(default=0, description="Total currently online devices")
+    cpu_percent: float = Field(default=0.0, description="CPU utilization percentage")
+    ram_percent: float = Field(default=0.0, description="RAM utilization percentage")
+    cpu_cores: int = Field(default=1, description="Number of CPU cores")
+    kernel_version: str = Field(default="Linux", description="Kernel version string")
+    ram_total_gb: float = Field(default=0.0, description="Total physical RAM in GB")
+    ram_used_gb: float = Field(default=0.0, description="Used physical RAM in GB")
+    temp_c: float = Field(default=0.0, description="CPU or board temperature in Celsius")
     unassigned_device_alert: bool = Field(default=False, description="Alert flag if unassigned devices are detected")
     unassigned_device: Optional[Dict[str, Any]] = Field(default=None, description="Details of latest quarantined device")
 

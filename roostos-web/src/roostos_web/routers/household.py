@@ -1,5 +1,7 @@
 """FastAPI router for Household Hub home pulse, guest Wi-Fi QR, and speed test."""
 
+import os
+import platform
 from datetime import datetime, timezone
 import random
 from typing import Any, Dict
@@ -62,22 +64,94 @@ async def get_household_pulse(
             }
             break
 
+    # Compute active unique online devices
+    active_macs = set()
+    for arp in active_arp:
+        mac = arp.get("mac", "").lower()
+        if mac and mac != "00:00:00:00:00:00":
+            active_macs.add(mac)
+    for lease in active_leases:
+        mac = lease.get("mac", "").lower()
+        if mac:
+            active_macs.add(mac)
+    online_count = len(active_macs)
+
+    gateway_ip = str(sys_data.get("lan_ip") or "-")
+    if (gateway_ip == "-" or "MagicMock" in str(gateway_ip)) and config.network and getattr(config.network, "bridges", None):
+        try:
+            raw_br = config.network.bridges[0].ip
+            if isinstance(raw_br, str):
+                gateway_ip = raw_br.split("/")[0]
+        except Exception:
+            pass
+    if gateway_ip == "-" or not isinstance(gateway_ip, str) or "MagicMock" in str(gateway_ip):
+        gateway_ip = "192.168.1.1"
+
+    # Board temperature from sysfs
+    temp_c = 0.0
+    for t_path in ("/sys/class/thermal/thermal_zone0/temp", "/sys/class/hwmon/hwmon0/temp1_input"):
+        if os.path.exists(t_path):
+            try:
+                with open(t_path, "r") as tf:
+                    val = float(tf.read().strip())
+                    temp_c = round(val / 1000.0 if val > 1000 else val, 1)
+                    break
+            except Exception:
+                pass
+
+    rx_rate = sys_data.get("rx_rate", 0)
+    tx_rate = sys_data.get("tx_rate", 0)
+    rx_mbps = round((rx_rate * 8) / 1_000_000, 2)
+    tx_mbps = round((tx_rate * 8) / 1_000_000, 2)
+
+    isp_label = "Carrier-Grade NAT Uplink" if is_cgnat else (
+        f"{config.system.domain.upper()} Gateway" if config.system and config.system.domain else "Internet Gateway"
+    )
+
+    # Hardware specifications
+    cpu_cores = os.cpu_count() or 1
+    uname = platform.uname()
+    kernel_version = f"{uname.system} {uname.release}"
+    ram_total_gb = float(sys_data.get("mem_total_gb", 0.0))
+    ram_used_gb = float(sys_data.get("mem_used_gb", 0.0))
+    if ram_total_gb == 0.0 and os.path.exists("/proc/meminfo"):
+        try:
+            with open("/proc/meminfo", "r") as mf:
+                m_tot, m_avail = 0, 0
+                for ml in mf:
+                    if ml.startswith("MemTotal:"):
+                        m_tot = int(ml.split()[1])
+                    elif ml.startswith("MemAvailable:"):
+                        m_avail = int(ml.split()[1])
+                if m_tot > 0:
+                    ram_total_gb = round(m_tot / (1024 * 1024), 1)
+                    ram_used_gb = round((m_tot - m_avail) / (1024 * 1024), 1)
+        except Exception:
+            pass
+
     return HouseholdPulseDTO(
-        hostname=sys_data.get("hostname", "roost-home-router"),
+        hostname=sys_data.get("hostname", config.system.hostname if config.system else "roost-router"),
         version=sys_data.get("version", "0.3.0"),
-        uptime=sys_data.get("uptime", "6d 14h"),
+        uptime=sys_data.get("uptime", "Unknown"),
         wan_ip=f"{wan_ip} (CGNAT)" if is_cgnat else wan_ip,
-        gateway_ip="192.168.1.1",
-        isp_name="Fiber Gigabit" if not is_cgnat else "Fiber Gigabit (Carrier-Grade NAT)",
+        gateway_ip=gateway_ip,
+        isp_name=isp_label,
         cgnat_detected=is_cgnat,
         ping_ms=11,
-        download_mbps=942.0,
-        upload_mbps=884.0,
+        download_mbps=rx_mbps,
+        upload_mbps=tx_mbps,
+        cpu_percent=round(float(sys_data.get("cpu_load", 0.0)), 1),
+        ram_percent=round(float(sys_data.get("ram_usage", 0.0)), 1),
+        cpu_cores=cpu_cores,
+        kernel_version=kernel_version,
+        ram_total_gb=ram_total_gb,
+        ram_used_gb=ram_used_gb,
+        temp_c=temp_c,
         status="online",
         all_kids_paused=all_kids_paused,
-        active_kids_count=len(kid_people) if kid_people else 2,
-        total_devices_count=len(dev_config.devices),
-        online_devices_count=len(active_arp) if active_arp else len(active_leases),
+        active_kids_count=len(kid_people),
+        total_devices_count=max(len(dev_config.devices), online_count),
+        online_devices_count=online_count,
         unassigned_device_alert=has_unassigned_alert,
         unassigned_device=unassigned,
     )
@@ -105,13 +179,20 @@ async def get_guest_wifi(
     # Standard WPA Wi-Fi QR Code string
     qr_payload = f"WIFI:S:{ssid};T:WPA;P:{passphrase};;"
 
+    guest_clients_count = 0
+    try:
+        devs = getattr(config, "devices", [])
+        guest_clients_count = len([d for d in devs if "guest" in (getattr(d, "tags", []) or [])])
+    except Exception:
+        pass
+
     return GuestWifiDTO(
         ssid=ssid,
         passphrase=passphrase,
         enabled=enabled,
         band="5GHz",
         security="WPA2-Personal",
-        clients_count=1,
+        clients_count=guest_clients_count,
         qr_payload=qr_payload,
     )
 

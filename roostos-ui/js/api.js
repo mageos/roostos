@@ -16,6 +16,16 @@ export class RoostApiClient {
         }
         try {
             const resp = await fetch(url, { ...options, headers });
+            if (resp.status === 401) {
+                localStorage.removeItem('roostos_token');
+                sessionStorage.removeItem('roostos_token');
+                const urlParams = new URLSearchParams(window.location.search);
+                if (!urlParams.get('code') && !window.ROOSTOS_MOCK) {
+                    window.location.href = "/oauth/authorize?client_id=roostos_admin_ui&redirect_uri=" + encodeURIComponent(window.location.origin + "/");
+                }
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.detail || `Unauthorized (401)`);
+            }
             if (!resp.ok) {
                 const errData = await resp.json().catch(() => ({}));
                 throw new Error(errData.detail || `Request to ${path} failed with status ${resp.status}`);
@@ -126,20 +136,48 @@ export class RoostApiClient {
 
     // Devices APIs
     async getDevices() {
-        return this.request('/api/devices');
+        return this.request('/api/v1/devices');
     }
 
     async registerDevice(devData) {
-        return this.request('/api/devices', {
+        return this.request('/api/v1/devices', {
             method: 'POST',
             body: JSON.stringify(devData)
         });
     }
 
     async deleteDevice(mac) {
-        return this.request(`/api/devices/${encodeURIComponent(mac)}`, {
+        return this.request(`/api/v1/devices/${encodeURIComponent(mac)}`, {
             method: 'DELETE'
         });
+    }
+
+    // System & Telemetry APIs
+    async getSystem() {
+        return this.request('/api/v1/system');
+    }
+
+    async getSystemHealth() {
+        return this.request('/api/v1/health');
+    }
+
+    // Network & Wi-Fi APIs
+    async getNetwork() {
+        return this.request('/api/v1/network');
+    }
+
+    // Cluster Fleet APIs
+    async getClusterStatus() {
+        return this.request('/api/v1/cluster/status');
+    }
+
+    async getClusterNodes() {
+        return this.request('/api/v1/cluster/nodes');
+    }
+
+    // Edge Gateway APIs
+    async getEdgeStatus() {
+        return this.request('/api/v1/edge/status');
     }
 
     // Kea DHCP APIs
@@ -185,36 +223,36 @@ export class RoostApiClient {
 
     // Firewall & Port Forwards APIs
     async getPortForwards() {
-        return this.request('/api/firewall/port-forwards');
+        return this.request('/api/v1/firewall/port-forwards');
     }
 
     async createPortForward(pfData) {
-        return this.request('/api/firewall/port-forwards', {
+        return this.request('/api/v1/firewall/port-forwards', {
             method: 'POST',
             body: JSON.stringify(pfData)
         });
     }
 
     async deletePortForward(name) {
-        return this.request(`/api/firewall/port-forwards/${encodeURIComponent(name)}`, {
+        return this.request(`/api/v1/firewall/port-forwards/${encodeURIComponent(name)}`, {
             method: 'DELETE'
         });
     }
 
     // DNS Records APIs
     async getDnsRecords() {
-        return this.request('/api/dns/records');
+        return this.request('/api/v1/dns/records');
     }
 
     async createDnsRecord(recordData) {
-        return this.request('/api/dns/records', {
+        return this.request('/api/v1/dns/records', {
             method: 'POST',
             body: JSON.stringify(recordData)
         });
     }
 
     async deleteDnsRecord(recordId) {
-        return this.request(`/api/dns/records/${encodeURIComponent(recordId)}`, {
+        return this.request(`/api/v1/dns/records/${encodeURIComponent(recordId)}`, {
             method: 'DELETE'
         });
     }

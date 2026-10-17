@@ -13,13 +13,20 @@ export function renderAdminNetwork(container) {
     // Filter interfaces by selected cluster node
     let displayedInterfaces = [];
     if (activeNodeFilter === 'all') {
-        nodes.forEach(n => {
-            n.interfaces.forEach(i => displayedInterfaces.push({ ...i, nodeName: n.hostname, nodeRole: n.role }));
+        (nodes || []).forEach(n => {
+            (n.interfaces || []).forEach(i => displayedInterfaces.push({ ...i, nodeName: n.hostname, nodeRole: n.role }));
         });
+        if (displayedInterfaces.length === 0 && admin.network.interfaces.length > 0) {
+            displayedInterfaces = admin.network.interfaces.map(i => ({
+                ...i,
+                nodeName: data.system.hostname,
+                nodeRole: 'Edge Gateway Router'
+            }));
+        }
     } else {
-        const found = nodes.find(n => n.id === activeNodeFilter);
+        const found = (nodes || []).find(n => n.id === activeNodeFilter);
         if (found) {
-            displayedInterfaces = found.interfaces.map(i => ({ ...i, nodeName: found.hostname, nodeRole: found.role }));
+            displayedInterfaces = (found.interfaces || []).map(i => ({ ...i, nodeName: found.hostname, nodeRole: found.role }));
         }
     }
 
@@ -42,7 +49,7 @@ export function renderAdminNetwork(container) {
                     <h3 class="card-title">☁️ Cloud VPS Edge Gateway (CGNAT Bypass Ingress)</h3>
                     <p class="card-subtitle">Stealth WireGuard tunnel providing a static public IPv4 for home services behind CGNAT</p>
                 </div>
-                <span class="badge badge-success">● ${edge.tunnelStatus}</span>
+                <span class="badge ${edge.enabled ? 'badge-success' : 'badge-neutral'}">● ${edge.tunnelStatus || 'Not Enrolled'}</span>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
@@ -54,11 +61,11 @@ export function renderAdminNetwork(container) {
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
                     <div style="font-size: 11px; color: var(--text-muted);">Edge VPS Static Public IP</div>
                     <div style="font-size: 14px; font-weight: 700; margin-top: 2px;"><code>${edge.vpsPublicIp}</code></div>
-                    <span class="badge badge-success" style="margin-top: 4px;">Static Public Ingress</span>
+                    <span class="badge ${edge.enabled ? 'badge-success' : 'badge-neutral'}" style="margin-top: 4px;">Static Public Ingress</span>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
                     <div style="font-size: 11px; color: var(--text-muted);">WireGuard Stealth Tunnel</div>
-                    <div style="font-size: 14px; font-weight: 700; margin-top: 2px;"><code>10.42.0.1 ↔ 10.42.0.2</code></div>
+                    <div style="font-size: 14px; font-weight: 700; margin-top: 2px;"><code>${edge.localTunnelIp || '-'} ↔ ${edge.vpsTunnelIp || '-'}</code></div>
                     <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Dark UDP Port: 51820</div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
@@ -81,7 +88,9 @@ export function renderAdminNetwork(container) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${edge.ingressRules.map(r => `
+                        ${(edge.ingressRules || []).length === 0 ? `
+                            <tr><td colspan="5" style="text-align:center; padding: 20px; color: var(--text-muted);">No Cloud VPS ingress domain mappings configured yet.</td></tr>
+                        ` : (edge.ingressRules || []).map(r => `
                             <tr>
                                 <td><strong><a href="https://${r.domain}" target="_blank" style="color:var(--brand-primary); text-decoration:none;">${r.domain} ↗</a></strong></td>
                                 <td><code>${r.target}</code></td>
@@ -131,16 +140,18 @@ export function renderAdminNetwork(container) {
                         </tr>
                     </thead>
                     <tbody>
-                        ${displayedInterfaces.map(i => `
+                        ${displayedInterfaces.length === 0 ? `
+                            <tr><td colspan="8" style="text-align:center; padding: 24px; color: var(--text-muted);">No network interfaces detected.</td></tr>
+                        ` : displayedInterfaces.map(i => `
                             <tr>
                                 <td><strong>${i.nodeName}</strong><div style="font-size:11px;color:var(--text-muted);">${i.nodeRole}</div></td>
                                 <td><code>${i.name}</code></td>
-                                <td><span class="badge ${i.role.includes('WAN') ? 'badge-info' : i.role.includes('Tunnel') ? 'badge-warning' : 'badge-neutral'}">${i.role}</span></td>
+                                <td><span class="badge ${String(i.role).toLowerCase().includes('wan') ? 'badge-info' : String(i.role).toLowerCase().includes('tunnel') ? 'badge-warning' : 'badge-neutral'}">${i.role}</span></td>
                                 <td>${i.speed}</td>
                                 <td><code>${i.ip}</code></td>
                                 <td>${i.mtu}</td>
-                                <td>${i.rxBytes} / ${i.txBytes}</td>
-                                <td><span class="badge badge-success">${i.status}</span></td>
+                                <td>${i.rxBytes || '0 B'} / ${i.txBytes || '0 B'}</td>
+                                <td><span class="badge ${i.status === 'UP' ? 'badge-success' : 'badge-neutral'}">${i.status}</span></td>
                             </tr>
                         `).join('')}
                     </tbody>

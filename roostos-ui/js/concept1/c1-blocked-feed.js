@@ -5,7 +5,7 @@ let activeBlockedFilter = 'all';
 
 export function renderBlockedFeed(container, options = {}) {
     const data = store.data;
-    const allBlocked = data.protection.blockedRequests;
+    const allBlocked = data.protection?.blockedRequests || [];
     const isExpert = options.isExpert ?? (store.concept2Density === 'expert' || store.concept1Persona === 'admin');
 
     let filtered = allBlocked;
@@ -56,7 +56,13 @@ export function renderBlockedFeed(container, options = {}) {
                     </tr>
                 </thead>
                 <tbody>
-                    ${filtered.map(b => `
+                    ${filtered.length === 0 ? `
+                        <tr>
+                            <td colspan="7" style="text-align: center; padding: 32px 16px; color: var(--text-muted);">
+                                🛡️ No blocked requests recorded yet. All active DNS queries and firewall filters are operating normally.
+                            </td>
+                        </tr>
+                    ` : filtered.map(b => `
                         <tr style="${b.allowed ? 'opacity: 0.6; text-decoration: line-through;' : ''}">
                             <td style="white-space: nowrap;">
                                 <strong>${b.timeAgo}</strong>
@@ -125,9 +131,15 @@ export function renderBlockedFeed(container, options = {}) {
 
     card.querySelectorAll('.bonus-blk-btn').forEach(btn => {
         btn.onclick = () => {
-            store.addBonusScreentime('alice', 30);
-            store.allowBlockedRequest(btn.dataset.id);
-            alert("Granted +30 minutes bonus time to Alice! Wi-Fi unpaused.");
+            const blockedId = btn.dataset.id;
+            const item = (store.data.protection?.blockedRequests || []).find(b => b.id === blockedId);
+            const personId = item?.personId || (store.data.people.find(p => p.role === 'kid')?.id) || (store.data.people[0]?.id);
+            if (personId) {
+                store.addBonusScreentime(personId, 30);
+                const personName = store.data.people.find(p => p.id === personId)?.name || 'User';
+                alert(`Granted +30 minutes bonus time to ${personName}! Wi-Fi unpaused.`);
+            }
+            store.allowBlockedRequest(blockedId);
             if (options.onReload) options.onReload();
             else {
                 card.remove();

@@ -15,7 +15,12 @@ export function renderHouseholdWifi(container) {
             </div>
 
             <div style="display: flex; flex-direction: column; gap: 16px;">
-                ${data.wifiNetworks.map(w => `
+                ${data.wifiNetworks.length === 0 ? `
+                    <div style="border: 1px dashed var(--border-subtle); border-radius: var(--radius-lg); padding: 24px; text-align: center; color: var(--text-muted);">
+                        <p>No Wi-Fi access points configured on this router.</p>
+                        <p style="font-size: 12px; margin-top: 4px;">Ethernet interfaces are currently serving the local network.</p>
+                    </div>
+                ` : data.wifiNetworks.map(w => `
                     <div style="border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 18px; background: var(--bg-subtle);">
                         <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px;">
                             <div>
@@ -150,6 +155,10 @@ export function renderHouseholdWifi(container) {
     // QR Modal
     container.querySelectorAll('.show-qr-btn').forEach(btn => {
         btn.onclick = () => {
+            const net = data.wifiNetworks.find(w => w.ssid === btn.dataset.ssid) || {
+                ssid: btn.dataset.ssid || 'Guest Wi-Fi',
+                password: ''
+            };
             const modal = container.querySelector('#qr-modal-container');
             modal.innerHTML = `
                 <div class="drawer-backdrop" id="qr-backdrop" style="justify-content: center; align-items: center;">
@@ -159,7 +168,7 @@ export function renderHouseholdWifi(container) {
 
                         <!-- High contrast visual QR code representation -->
                         <div style="background: #ffffff; padding: 18px; border-radius: var(--radius-md); display: inline-block; border: 1px solid var(--border-subtle); margin-bottom: 16px;">
-                            <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <svg width="140" height="140" viewBox="0 0 160 160" fill="none">
                                 <rect width="160" height="160" fill="white"/>
                                 <rect x="10" y="10" width="40" height="40" fill="black"/>
                                 <rect x="20" y="20" width="20" height="20" fill="white"/>
@@ -173,13 +182,12 @@ export function renderHouseholdWifi(container) {
                                 <rect x="20" y="70" width="20" height="20" fill="black"/>
                                 <rect x="120" y="70" width="20" height="20" fill="black"/>
                                 <rect x="70" y="110" width="30" height="30" fill="black"/>
-                                <rect x="120" y="110" width="20" height="30" fill="black"/>
                             </svg>
                         </div>
 
                         <div style="background: var(--bg-subtle); padding: 10px; border-radius: var(--radius-sm); font-size: 12px; margin-bottom: 16px;">
-                            Network: <strong>RoostHome-Guest</strong><br>
-                            Password: <code>GuestWelcome2026</code>
+                            Network: <strong>${net.ssid}</strong><br>
+                            Password: <code>${net.password || net.passphrase || 'WPA Protected'}</code>
                         </div>
 
                         <div style="display: flex; gap: 8px;">
@@ -195,6 +203,7 @@ export function renderHouseholdWifi(container) {
                 if (e.target.id === 'qr-backdrop') modal.innerHTML = '';
             };
             modal.querySelector('#btn-copy-pass').onclick = (e) => {
+                navigator.clipboard?.writeText(net.password || net.passphrase || '');
                 e.target.textContent = 'Copied!';
                 setTimeout(() => e.target.textContent = '📋 Copy Password', 1500);
             };

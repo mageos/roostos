@@ -6,39 +6,44 @@ export function renderAdminDns(container) {
     const data = store.data;
     const admin = data.admin;
 
-    const renderDnsRows = () => admin.dnsRecords.map(r => `
-        <tr id="dns-rec-row-${r.id}">
-            <td><strong>${r.domain}</strong></td>
-            <td><span class="badge badge-info">${r.type}</span></td>
-            <td><code>${r.ip}</code></td>
-            <td>
-                <div style="display: flex; gap: 6px;">
-                    <button class="btn btn-secondary btn-sm edit-dns-btn" data-id="${r.id}">Edit</button>
-                    <button class="btn btn-danger btn-sm delete-dns-btn" data-id="${r.id}">Delete</button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    const renderDnsRows = () => {
+        if (admin.dnsRecords.length === 0) {
+            return `<tr><td colspan="4" style="text-align:center; padding: 24px; color: var(--text-muted);">No custom DNS records configured. Click "+ Add DNS Record" to create one.</td></tr>`;
+        }
+        return admin.dnsRecords.map(r => `
+            <tr id="dns-rec-row-${r.id}">
+                <td><strong>${r.domain}</strong></td>
+                <td><span class="badge badge-info">${r.type}</span></td>
+                <td><code>${r.ip}</code></td>
+                <td>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-secondary btn-sm edit-dns-btn" data-id="${r.id}">Edit</button>
+                        <button class="btn btn-danger btn-sm delete-dns-btn" data-id="${r.id}">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    };
 
     container.innerHTML = `
         <!-- DNS Forwarders & Cache -->
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-label">DNS Engine</div>
-                <div class="metric-value">Technitium <span style="font-size: 13px; color: var(--accent-emerald);">• v12.1</span></div>
+                <div class="metric-value">Technitium <span style="font-size: 13px; color: var(--accent-emerald);">• DNS Daemon</span></div>
                 <div class="metric-sub">Upstream: 1.1.1.1, 8.8.8.8 (DoH)</div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">Cache Hit Ratio</div>
-                <div class="metric-value">88.4% <span style="font-size: 13px; color: var(--text-muted);">(0.2ms avg)</span></div>
-                <div class="metric-sub">Cached records: 4,892</div>
+                <div class="metric-value">88.4% <span style="font-size: 13px; color: var(--text-muted);">(Active Cache)</span></div>
+                <div class="metric-sub">Local Resolver Cache</div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">Queries Today</div>
                 <div class="metric-value">${store.data.protection.adBlocking.queriesToday.toLocaleString()}</div>
-                <div class="metric-sub">Blocked: 18,432 (24.3%)</div>
+                <div class="metric-sub">Blocked Today: ${store.data.protection.adBlocking.blockedToday.toLocaleString()}</div>
             </div>
         </div>
 

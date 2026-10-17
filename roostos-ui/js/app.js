@@ -1,5 +1,6 @@
 // RoostOS Management Console - Modular Shell & Router Coordinator
 import { store } from './state.js';
+import { checkAuth, logout } from './auth.js';
 
 import { renderHouseholdHome } from './concept1/c1-household-home.js';
 import { renderHouseholdFamily } from './concept1/c1-household-family.js';
@@ -38,7 +39,8 @@ const adminNavItems = [
     { id: 'system', label: 'Fleet', icon: '🖥️' }
 ];
 
-export function initApp() {
+export async function initApp() {
+    await checkAuth();
     renderAppShell();
     store.subscribe(() => renderActiveView());
 
@@ -118,6 +120,9 @@ function renderAppShell() {
                 <button id="theme-toggle-btn" class="btn btn-secondary btn-sm" title="Toggle Light / Dark theme" style="padding: 4px 8px; font-size: 12px;">
                     🌓
                 </button>
+                <button id="logout-btn" class="btn btn-secondary btn-sm" title="Log out" style="padding: 4px 8px; font-size: 12px;">
+                    🚪
+                </button>
                 <div class="system-status-pill" style="font-size: 12px; color: var(--text-muted); font-weight: 500;">
                     ${isHousehold ? '👨‍👩‍👧 Family Mode' : '⚡ SysAdmin'}
                 </div>
@@ -161,6 +166,12 @@ function renderAppShell() {
             document.documentElement.setAttribute('data-theme', next);
             localStorage.setItem('roostos_theme', next);
         };
+    }
+
+    // Logout handler
+    const logoutBtn = frame.querySelector('#logout-btn');
+    if (logoutBtn) {
+        logoutBtn.onclick = () => logout();
     }
 
     // Brand link resets to home/cockpit

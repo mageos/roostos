@@ -4,25 +4,31 @@ import { store } from '../state.js';
 export function renderHouseholdHome(container) {
     const data = store.data;
     const kids = data.people.filter(p => p.role === "kid");
-    const allKidsPaused = kids.every(k => k.bedtimeActive);
+    const allKidsPaused = kids.length > 0 && kids.every(k => k.bedtimeActive);
 
-    const alertHtml = data.system.unassignedDeviceAlert ? `
+    const unassigned = data.system.unassignedDevice;
+    const alertHtml = (data.system.unassignedDeviceAlert && unassigned) ? `
         <div class="card" style="border-left: 4px solid var(--accent-amber); background: var(--accent-amber-subtle);">
-            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: gap: 12px;">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <span style="font-size: 24px;">⚠️</span>
                     <div>
-                        <strong style="color: var(--text-main);">New Device Detected: Unknown Samsung Galaxy S23</strong>
-                        <p style="font-size: 12px; color: var(--text-muted); margin: 0;">Connected via Wi-Fi (IP: 192.168.1.188). Currently quarantined from home LAN.</p>
+                        <strong style="color: var(--text-main);">New Device Detected: ${unassigned.vendor && unassigned.vendor !== 'Unknown Device' ? unassigned.vendor : `Device ${unassigned.mac.slice(-5)}`}</strong>
+                        <p style="font-size: 12px; color: var(--text-muted); margin: 0;">MAC: <code>${unassigned.mac}</code> (IP: ${unassigned.ip}). Quarantined until approved.</p>
                     </div>
                 </div>
                 <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-primary btn-sm" id="btn-allow-quarantine">Assign to Person</button>
-                    <button class="btn btn-secondary btn-sm" id="btn-dismiss-quarantine">Keep Quarantined</button>
+                    <button class="btn btn-primary btn-sm" id="btn-allow-quarantine">View in Devices</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-dismiss-quarantine">Dismiss</button>
                 </div>
             </div>
         </div>
     ` : '';
+
+    const latestBlock = data.protection.blockedRequests?.[0];
+    const blockSubtitle = latestBlock
+        ? `Latest block: <code>${latestBlock.target}</code> on ${latestBlock.clientName || 'client'} (${latestBlock.timeAgo || 'recently'})`
+        : 'Ad-blocking sinkhole & threat defense active';
 
     container.innerHTML = `
         <!-- Hero Internet Pulse Banner -->
@@ -61,7 +67,7 @@ export function renderHouseholdHome(container) {
                 <div class="c1-action-icon">${allKidsPaused ? '▶️' : '⏸️'}</div>
                 <div class="c1-action-text">
                     <h4>${allKidsPaused ? 'Resume Kids Wi-Fi' : 'Pause Kids Wi-Fi'}</h4>
-                    <p>${allKidsPaused ? 'All kids paused' : 'Pause Alice & Bob now'}</p>
+                    <p>${allKidsPaused ? 'All kids paused' : (kids.length > 0 ? `Pause ${kids.map(k => k.name).join(' & ')}` : 'Pause kids screens')}</p>
                 </div>
             </div>
 
@@ -101,7 +107,12 @@ export function renderHouseholdHome(container) {
             </div>
 
             <div class="c1-family-grid">
-                ${data.people.map(p => {
+                ${data.people.length === 0 ? `
+                    <div style="grid-column: 1 / -1; padding: 24px; text-align: center; color: var(--text-muted);">
+                        <p>No family profiles created yet.</p>
+                        <button class="btn btn-primary btn-sm" style="margin-top: 8px;" id="btn-add-first-family">+ Add Family Member</button>
+                    </div>
+                ` : data.people.map(p => {
                     const pct = p.screentimeLimit > 0 ? Math.min(100, Math.round((p.screentimeUsed / p.screentimeLimit) * 100)) : 0;
                     const barColor = p.bedtimeActive ? 'var(--accent-rose)' : pct > 85 ? 'var(--accent-amber)' : 'var(--accent-emerald)';
                     return `
@@ -132,9 +143,7 @@ export function renderHouseholdHome(container) {
                                 <button class="btn btn-secondary btn-sm toggle-bedtime-btn" data-id="${p.id}" style="flex: 1;">
                                     ${p.bedtimeActive ? 'Unpause' : 'Pause'}
                                 </button>
-                                ${p.role === 'kid' ? `
-                                    <button class="btn btn-secondary btn-sm bonus-time-btn" data-id="${p.id}">+30m</button>
-                                ` : ''}
+                                ${p.role === 'kid' ? `<button class="btn btn-secondary btn-sm bonus-time-btn" data-id="${p.id}">+30m</button>` : ''}
                             </div>
                         </div>
                     `;
@@ -156,7 +165,7 @@ export function renderHouseholdHome(container) {
                 <div style="background: var(--bg-subtle); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
                     <div style="font-size: 12px; color: var(--text-muted);">Family Devices</div>
                     <div style="font-size: 22px; font-weight: 700; color: var(--brand-primary); margin-top: 4px;">
-                        ${data.devices.filter(d => ['dad', 'mom', 'alice', 'bob'].includes(d.owner)).length} Online
+                        ${data.devices.filter(d => !!d.owner).length} Online
                     </div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 14px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
@@ -190,7 +199,7 @@ export function renderHouseholdHome(container) {
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
                 <div>
                     <h3 class="card-title">🛡️ Protection Shield: ${data.protection.blockedRequests.length} Recent Blocks</h3>
-                    <p class="card-subtitle">Latest block: <code>${data.protection.blockedRequests[0].target}</code> on ${data.protection.blockedRequests[0].clientName} (${data.protection.blockedRequests[0].timeAgo})</p>
+                    <p class="card-subtitle">${blockSubtitle}</p>
                 </div>
                 <button class="btn btn-secondary btn-sm" id="btn-view-blocked-feed">View Blocked Requests →</button>
             </div>
@@ -203,17 +212,34 @@ export function renderHouseholdHome(container) {
     container.querySelector('#qa-pause-kids')?.addEventListener('click', () => {
         store.togglePauseKids(!allKidsPaused);
     });
-
     container.querySelector('#qa-dinner-time')?.addEventListener('click', () => {
         store.triggerDinnerTime(60);
     });
-
     container.querySelector('#qa-bonus-time')?.addEventListener('click', () => {
         kids.forEach(k => store.addBonusScreentime(k.id, 30));
     });
-
     container.querySelector('#qa-guest-qr')?.addEventListener('click', () => {
         showGuestWifiModal();
+    });
+    container.querySelector('#btn-view-all-family')?.addEventListener('click', () => window.c1SwitchTab('family'));
+    container.querySelector('#btn-add-first-family')?.addEventListener('click', () => window.c1SwitchTab('family'));
+    container.querySelector('#btn-view-all-devices')?.addEventListener('click', () => window.c1SwitchTab('devices'));
+    container.querySelector('#btn-view-topo-map')?.addEventListener('click', () => window.c1SwitchTab('topology'));
+    container.querySelector('#btn-view-blocked-feed')?.addEventListener('click', () => window.c1SwitchTab('safety'));
+
+    container.querySelectorAll('.toggle-bedtime-btn').forEach(btn => {
+        btn.addEventListener('click', () => store.toggleBedtime(btn.dataset.id));
+    });
+    container.querySelectorAll('.bonus-time-btn').forEach(btn => {
+        btn.addEventListener('click', () => store.addBonusScreentime(btn.dataset.id, 30));
+    });
+
+    container.querySelector('#btn-allow-quarantine')?.addEventListener('click', () => {
+        window.c1SwitchTab('devices');
+    });
+    container.querySelector('#btn-dismiss-quarantine')?.addEventListener('click', () => {
+        store.data.system.unassignedDeviceAlert = false;
+        store.notify("system");
     });
 
     function showGuestWifiModal() {
@@ -230,7 +256,7 @@ export function renderHouseholdHome(container) {
                     <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 16px;">Scan with phone camera to connect instantly</p>
                     
                     <div style="background: #ffffff; padding: 18px; border-radius: var(--radius-md); display: inline-block; border: 1px solid var(--border-subtle); margin-bottom: 16px;">
-                        <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <svg width="140" height="140" viewBox="0 0 160 160" fill="none">
                             <rect width="160" height="160" fill="white"/>
                             <rect x="10" y="10" width="40" height="40" fill="black"/>
                             <rect x="20" y="20" width="20" height="20" fill="white"/>
@@ -244,13 +270,12 @@ export function renderHouseholdHome(container) {
                             <rect x="20" y="70" width="20" height="20" fill="black"/>
                             <rect x="120" y="70" width="20" height="20" fill="black"/>
                             <rect x="70" y="110" width="30" height="30" fill="black"/>
-                            <rect x="120" y="110" width="20" height="30" fill="black"/>
                         </svg>
                     </div>
 
                     <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px; text-align: left;">
                         <div>Network: <strong>${guestNet.ssid}</strong></div>
-                        <div style="margin-top: 4px;">Password: <code id="guest-qr-pass-text">${guestNet.password || 'GuestWelcome2026'}</code></div>
+                        <div style="margin-top: 4px;">Password: <code>${guestNet.password || guestNet.passphrase || 'GuestWelcome2026'}</code></div>
                     </div>
 
                     <button class="btn btn-primary" id="btn-copy-guest-pass" style="width: 100%;">📋 Copy Password</button>
@@ -263,42 +288,9 @@ export function renderHouseholdHome(container) {
             if (e.target.id === 'guest-qr-backdrop') modal.innerHTML = '';
         };
         modal.querySelector('#btn-copy-guest-pass').onclick = (e) => {
-            navigator.clipboard?.writeText(guestNet.password || 'GuestWelcome2026');
+            navigator.clipboard?.writeText(guestNet.password || guestNet.passphrase || 'GuestWelcome2026');
             e.target.textContent = '✓ Copied!';
             setTimeout(() => { modal.innerHTML = ''; }, 1200);
         };
     }
-
-    container.querySelector('#btn-view-all-family')?.addEventListener('click', () => {
-        window.c1SwitchTab('family');
-    });
-
-    container.querySelector('#btn-view-all-devices')?.addEventListener('click', () => {
-        window.c1SwitchTab('devices');
-    });
-
-    container.querySelector('#btn-view-topo-map')?.addEventListener('click', () => {
-        window.c1SwitchTab('topology');
-    });
-
-    container.querySelector('#btn-view-blocked-feed')?.addEventListener('click', () => {
-        window.c1SwitchTab('safety');
-    });
-
-    container.querySelectorAll('.toggle-bedtime-btn').forEach(btn => {
-        btn.addEventListener('click', () => store.toggleBedtime(btn.dataset.id));
-    });
-
-    container.querySelectorAll('.bonus-time-btn').forEach(btn => {
-        btn.addEventListener('click', () => store.addBonusScreentime(btn.dataset.id, 30));
-    });
-
-    container.querySelector('#btn-allow-quarantine')?.addEventListener('click', () => {
-        store.allowQuarantinedDevice("cc:dd:ee:ff:00:99", "dad", "Dad's Work Galaxy S23");
-    });
-
-    container.querySelector('#btn-dismiss-quarantine')?.addEventListener('click', () => {
-        store.data.system.unassignedDeviceAlert = false;
-        store.notify("system");
-    });
 }

@@ -4,26 +4,31 @@ import { store } from '../state.js';
 export function renderHouseholdFamily(container) {
     const people = store.data.people;
 
-    const renderRows = () => people.map(p => `
-        <tr id="person-row-${p.id}">
-            <td><strong>${p.avatar} ${p.name}</strong></td>
-            <td><span class="badge badge-neutral">${p.role}</span></td>
-            <td>${p.screentimeLimit > 0 ? `${p.screentimeLimit} mins/day` : 'Unlimited'}</td>
-            <td>${p.bedtimeStart} - ${p.bedtimeEnd}</td>
-            <td><span class="badge badge-info">${p.filterLevel}</span></td>
-            <td>
-                <span class="badge ${p.bedtimeActive ? 'badge-danger' : 'badge-success'}">
-                    ${p.bedtimeActive ? 'Bedtime Active' : 'Normal'}
-                </span>
-            </td>
-            <td>
-                <div style="display: flex; gap: 6px;">
-                    <button class="btn btn-secondary btn-sm edit-person-btn" data-id="${p.id}">Edit</button>
-                    <button class="btn btn-danger btn-sm delete-person-btn" data-id="${p.id}">Delete</button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
+    const renderRows = () => {
+        if (people.length === 0) {
+            return `<tr><td colspan="7" style="text-align:center; padding: 32px; color: var(--text-muted);">No family members registered yet. Click "+ Add Person" above to create one.</td></tr>`;
+        }
+        return people.map(p => `
+            <tr id="person-row-${p.id}">
+                <td><strong>${p.avatar} ${p.name}</strong></td>
+                <td><span class="badge badge-neutral">${p.role}</span></td>
+                <td>${p.screentimeLimit > 0 ? `${p.screentimeLimit} mins/day` : 'Unlimited'}</td>
+                <td>${p.bedtimeStart} - ${p.bedtimeEnd}</td>
+                <td><span class="badge badge-info">${p.filterLevel}</span></td>
+                <td>
+                    <span class="badge ${p.bedtimeActive ? 'badge-danger' : 'badge-success'}">
+                        ${p.bedtimeActive ? 'Bedtime Active' : 'Normal'}
+                    </span>
+                </td>
+                <td>
+                    <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-secondary btn-sm edit-person-btn" data-id="${p.id}">Edit</button>
+                        <button class="btn btn-danger btn-sm delete-person-btn" data-id="${p.id}">Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    };
 
     container.innerHTML = `
         <div class="card">

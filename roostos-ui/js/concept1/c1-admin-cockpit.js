@@ -13,26 +13,26 @@ export function renderAdminCockpit(container) {
         <div class="metrics-grid">
             <div class="metric-card">
                 <div class="metric-label">CPU Utilization</div>
-                <div class="metric-value">${data.system.cpuPercent}% <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">(4 Cores)</span></div>
-                <div class="metric-sub">Load Avg: 0.18, 0.24, 0.19</div>
+                <div class="metric-value">${data.system.cpuPercent}% <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">(${data.system.cpuCores || 1} Cores)</span></div>
+                <div class="metric-sub">Load Avg: ${(data.system.cpuPercent / 100).toFixed(2)}</div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">Memory (RAM)</div>
-                <div class="metric-value">${data.system.ramPercent}% <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">(1.7 / 4.0 GB)</span></div>
-                <div class="metric-sub">Buffers/Cached: 840 MB</div>
+                <div class="metric-value">${data.system.ramPercent}% <span style="font-size: 14px; font-weight: normal; color: var(--text-muted);">(${data.system.ramUsedGb || 0} / ${data.system.ramTotalGb || 0} GB)</span></div>
+                <div class="metric-sub">Dynamic Allocation</div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">Thermal Sensor</div>
-                <div class="metric-value">${data.system.tempC} °C <span style="font-size: 14px; font-weight: normal; color: var(--accent-emerald);">• Normal</span></div>
-                <div class="metric-sub">Fan RPM: Passive Cooling</div>
+                <div class="metric-value">${data.system.tempC ? `${data.system.tempC} °C` : 'Nominal'} <span style="font-size: 14px; font-weight: normal; color: var(--accent-emerald);">• Normal</span></div>
+                <div class="metric-sub">Board Thermals</div>
             </div>
 
             <div class="metric-card">
                 <div class="metric-label">System Uptime</div>
-                <div class="metric-value" style="font-size: 18px;">${data.system.uptime}</div>
-                <div class="metric-sub">Kernel: Linux 6.8.0-45-generic</div>
+                <div class="metric-value" style="font-size: 18px;">${data.system.uptime || '-'}</div>
+                <div class="metric-sub">Kernel: ${data.system.kernelVersion || 'Linux'}</div>
             </div>
         </div>
 
@@ -71,6 +71,9 @@ export function renderAdminCockpit(container) {
 }
 
 function renderCockpitCharts(container, data, admin) {
+    const wanIface = (admin.network.interfaces.find(i => i.role === 'wan') || {}).name || 'eth0';
+    const services = (data.cluster.nodes?.[0]?.services) || ['roostos-web', 'roostos-engine', 'kea-dhcp4', 'nftables'];
+
     container.innerHTML = `
         <div class="c1-cockpit-grid">
             <!-- Bandwidth Sparkline & Throughput -->
@@ -78,9 +81,9 @@ function renderCockpitCharts(container, data, admin) {
                 <div class="card-header">
                     <div>
                         <h3 class="card-title">📈 WAN Network Real-Time Throughput</h3>
-                        <p class="card-subtitle">Interface: <code>eth0</code> (Symmetric Gigabit Link)</p>
+                        <p class="card-subtitle">Interface: <code>${wanIface}</code> (${data.system.ispName || 'Uplink'})</p>
                     </div>
-                    <span class="badge badge-success">Live: 1s Interval</span>
+                    <span class="badge badge-success">Live Telemetry</span>
                 </div>
 
                 <div style="background: var(--bg-subtle); border-radius: var(--radius-md); padding: 16px; border: 1px solid var(--border-subtle);">
@@ -98,8 +101,8 @@ function renderCockpitCharts(container, data, admin) {
                         <path d="M 0 110 Q 60 40, 120 75 T 240 30 T 360 85 T 440 20 L 500 45" fill="none" stroke="#2563eb" stroke-width="2.5"/>
                     </svg>
                     <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-top: 8px; font-family: var(--font-mono);">
-                        <span>Rx: 42.1 MB/s (Peak: 112 MB/s)</span>
-                        <span>Tx: 6.8 MB/s (Peak: 45 MB/s)</span>
+                        <span>Rx Rate: ${data.system.downloadMbps || 0} MB/s</span>
+                        <span>Tx Rate: ${data.system.uploadMbps || 0} MB/s</span>
                     </div>
                 </div>
             </div>
@@ -154,10 +157,10 @@ function renderCockpitCharts(container, data, admin) {
                 </div>
             </div>
             <div class="c1-services-matrix">
-                ${data.cluster.nodes[0].services.map(s => `
+                ${services.map(s => `
                     <div class="c1-service-item">
                         <h5><span>${s}</span><span class="badge badge-success">Active</span></h5>
-                        <p>Core Networking Unit</p>
+                        <p>Core System Unit</p>
                     </div>
                 `).join('')}
             </div>

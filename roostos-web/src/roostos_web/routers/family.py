@@ -11,20 +11,13 @@ from roostos_sdk.client import RoostClient
 from roostos_web.auth import get_current_parent, get_current_user, UserSession
 from roostos_web.di import Injected
 from roostos_web.schemas.family import (
-    FamilyPersonDTO,
-    FamilyRoleEnum,
-    BedtimeScheduleDTO,
-    ScreentimeBonusRequestDTO,
-    DinnerTimeRequestDTO,
-    PauseKidsRequestDTO,
-    PausePersonRequestDTO,
-    CreateFamilyPersonRequestDTO,
+    FamilyPersonDTO, FamilyRoleEnum, BedtimeScheduleDTO, ScreentimeBonusRequestDTO,
+    DinnerTimeRequestDTO, PauseKidsRequestDTO, PausePersonRequestDTO, CreateFamilyPersonRequestDTO,
 )
 from roostos_web.schemas.household import QuickActionResponseDTO
 from roostos_web.services import DeviceService
 
 router = APIRouter(prefix="/api/v1/family", tags=["Family Management"])
-
 
 @router.get("/people", response_model=List[FamilyPersonDTO])
 async def list_family_people(
@@ -37,11 +30,12 @@ async def list_family_people(
     devices = getattr(dev_config, "devices", [])
 
     results: List[FamilyPersonDTO] = []
+    R_ADM, R_PAR, R_KID = FamilyRoleEnum.ADMIN, FamilyRoleEnum.PARENT, FamilyRoleEnum.KID
     default_metadata = {
-        "dad": {"role": FamilyRoleEnum.ADMIN, "avatar": "👨‍💻", "color": "#3b82f6", "limit": 0, "used": 180, "start": "00:00", "end": "06:00", "active": False, "filter": "Standard"},
-        "mom": {"role": FamilyRoleEnum.PARENT, "avatar": "👩‍🔬", "color": "#ec4899", "limit": 0, "used": 140, "start": "23:30", "end": "06:00", "active": False, "filter": "Standard"},
-        "alice": {"role": FamilyRoleEnum.KID, "avatar": "👧", "color": "#10b981", "limit": 120, "used": 95, "start": "20:30", "end": "06:30", "active": False, "filter": "SafeSearch + AdBlock"},
-        "bob": {"role": FamilyRoleEnum.KID, "avatar": "👦", "color": "#f59e0b", "limit": 90, "used": 90, "start": "20:00", "end": "06:30", "active": True, "filter": "Strict Kids"},
+        "dad": {"role": R_ADM, "avatar": "👨‍💻", "color": "#3b82f6", "limit": 0, "used": 180, "start": "00:00", "end": "06:00", "active": False, "filter": "Standard"},
+        "mom": {"role": R_PAR, "avatar": "👩‍🔬", "color": "#ec4899", "limit": 0, "used": 140, "start": "23:30", "end": "06:00", "active": False, "filter": "Standard"},
+        "alice": {"role": R_KID, "avatar": "👧", "color": "#10b981", "limit": 120, "used": 95, "start": "20:30", "end": "06:30", "active": False, "filter": "SafeSearch + AdBlock"},
+        "bob": {"role": R_KID, "avatar": "👦", "color": "#f59e0b", "limit": 90, "used": 90, "start": "20:00", "end": "06:30", "active": True, "filter": "Strict Kids"},
     }
 
     for p in people:
@@ -81,7 +75,6 @@ async def list_family_people(
 
     return results
 
-
 @router.put("/people/{person_id}", response_model=FamilyPersonDTO)
 async def update_family_person(
     person_id: str,
@@ -110,7 +103,6 @@ async def update_family_person(
         pass
 
     return payload
-
 
 @router.post("/people", response_model=FamilyPersonDTO, status_code=status.HTTP_201_CREATED)
 async def create_family_person(
@@ -159,7 +151,6 @@ async def create_family_person(
         devices=[],
     )
 
-
 @router.delete("/people/{person_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_family_person(
     person_id: str,
@@ -188,7 +179,6 @@ async def delete_family_person(
         await dbus.get_config()
     except Exception:
         pass
-
 
 @router.post("/people/{person_id}/pause", response_model=QuickActionResponseDTO)
 async def toggle_pause_person(
@@ -223,7 +213,6 @@ async def toggle_pause_person(
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
-
 @router.post("/people/{person_id}/bonus", response_model=QuickActionResponseDTO)
 async def grant_person_screentime_bonus(
     person_id: str,
@@ -250,7 +239,6 @@ async def grant_person_screentime_bonus(
         message=f"Granted +{payload.duration_minutes}m bonus screentime to {person_id}.",
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
-
 
 @router.post("/pause-kids", response_model=QuickActionResponseDTO)
 async def toggle_pause_all_kids(
@@ -281,7 +269,6 @@ async def toggle_pause_all_kids(
         message=msg,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )
-
 
 @router.post("/dinner-time", response_model=QuickActionResponseDTO)
 async def trigger_dinner_time(
