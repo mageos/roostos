@@ -19,6 +19,24 @@ case "$1" in
         chmod 2775 /var/lib/roostos 2>/dev/null || true
 
         # Create default configuration files if missing
+        if [ ! -f /etc/roostos/container.yaml ]; then
+            echo "Creating default container.yaml..."
+            cat << 'EOF' > /etc/roostos/container.yaml
+container:
+  description: "Standard production RoostOS container profile with PAM authentication and D-Bus IPC"
+  auth_provider: "pam"
+  config_repository: "staging"
+  system_client: "dbus"
+  cert_manager: "standard"
+  firewall_manager: "nftables"
+  dhcp_manager: "kea"
+  dns_manager: "local"
+  network_manager: "systemd"
+  data_seeder: "none"
+  auto_auth: false
+EOF
+        fi
+
         if [ ! -f /etc/roostos/system.yaml ]; then
             echo "Creating default system.yaml..."
             cat << 'EOF' > /etc/roostos/system.yaml
