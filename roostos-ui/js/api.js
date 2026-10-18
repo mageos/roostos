@@ -210,50 +210,50 @@ export class RoostApiClient {
     }
 
     async deleteEdgeRoute(routeId) {
-        return this.request(`/api/v1/edge/routes/${encodeURIComponent(routeId)}`, {
-            method: 'DELETE'
+        return this.request(`/api/v1/edge/routes/${encodeURIComponent(routeId)}`, { method: 'DELETE' });
+    }
+
+    async syncEdgeLanRoutes(lanSubnets = null) {
+        return this.request('/api/v1/edge/routes/sync-lan', {
+            method: 'POST', body: JSON.stringify(lanSubnets ? { lan_subnets: lanSubnets } : {})
         });
     }
 
-    // Kea DHCP APIs
-    async getDhcpScopes() {
-        return this.request('/api/v1/dhcp/scopes');
+    async verifyEdgeConnectivity() {
+        return this.request('/api/v1/edge/verify');
     }
+
+    async verifyClusterConnectivity() {
+        return this.request('/api/v1/cluster/verify');
+    }
+
+    // Kea DHCP APIs
+    async getDhcpScopes() { return this.request('/api/v1/dhcp/scopes'); }
 
     async updateDhcpScope(scopeId, scopeData) {
         return this.request(`/api/v1/dhcp/scopes/${encodeURIComponent(scopeId)}`, {
-            method: 'PUT',
-            body: JSON.stringify(scopeData)
+            method: 'PUT', body: JSON.stringify(scopeData)
         });
     }
 
     async createDhcpScope(scopeData) {
-        return this.request('/api/v1/dhcp/scopes', {
-            method: 'POST',
-            body: JSON.stringify(scopeData)
-        });
+        return this.request('/api/v1/dhcp/scopes', { method: 'POST', body: JSON.stringify(scopeData) });
     }
 
     async getDhcpLeases(nodeId = null) {
-        const q = nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : '';
-        return this.request(`/api/v1/dhcp/leases${q}`);
+        return this.request(`/api/v1/dhcp/leases${nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : ''}`);
     }
 
     async convertLeaseToStatic(mac, hostname = null, description = null) {
         return this.request('/api/v1/dhcp/reservations/from-lease', {
-            method: 'POST',
-            body: JSON.stringify({ mac, hostname, description })
+            method: 'POST', body: JSON.stringify({ mac, hostname, description })
         });
     }
 
-    async getDhcpReservations() {
-        return this.request('/api/v1/dhcp/reservations');
-    }
+    async getDhcpReservations() { return this.request('/api/v1/dhcp/reservations'); }
 
     async deleteDhcpReservation(mac) {
-        return this.request(`/api/v1/dhcp/reservations/${encodeURIComponent(mac)}`, {
-            method: 'DELETE'
-        });
+        return this.request(`/api/v1/dhcp/reservations/${encodeURIComponent(mac)}`, { method: 'DELETE' });
     }
 
     // Firewall & Port Forwards APIs

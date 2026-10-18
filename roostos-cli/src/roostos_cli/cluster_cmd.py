@@ -139,18 +139,11 @@ def token_cmd(ttl: int, config_dir: str, port: int) -> None:
 @click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
 @click.option("--mock", is_flag=True, help="Simulate join without writing system files")
 def join_cluster_cmd(
-    controller: Optional[str],
-    token: Optional[str],
-    username: Optional[str],
-    password: Optional[str],
-    role: Optional[str],
-    name: Optional[str],
-    config_dir: str,
-    mock: bool,
+    controller: Optional[str], token: Optional[str], username: Optional[str], password: Optional[str],
+    role: Optional[str], name: Optional[str], config_dir: str, mock: bool,
 ) -> None:
     """Enrolls this node into a RoostOS cluster with mTLS certificates."""
     click.secho("=== RoostOS Cluster Node Enrollment ===", fg="cyan", bold=True)
-
     target_controller = controller
     if not target_controller:
         click.echo("Scanning for RoostOS Cluster Controller...")
@@ -179,11 +172,9 @@ def join_cluster_cmd(
             auth_token = _login_and_get_token(target_controller, user, pwd)
         else:
             click.echo("\nAuthentication Method:\n  1) Admin Username & Password\n  2) Pre-shared Join Token")
-            method = click.prompt("Select", type=click.Choice(["1", "2"]), default="1")
-            if method == "1":
+            if click.prompt("Select", type=click.Choice(["1", "2"]), default="1") == "1":
                 user = click.prompt("Admin username", default="admin")
-                pwd = click.prompt("Admin password", hide_input=True)
-                auth_token = _login_and_get_token(target_controller, user, pwd)
+                auth_token = _login_and_get_token(target_controller, user, click.prompt("Admin password", hide_input=True))
             else:
                 auth_token = click.prompt("Join token").strip()
 
@@ -191,10 +182,8 @@ def join_cluster_cmd(
         click.secho("Error: No authentication token obtained.", fg="red", err=True)
         sys.exit(1)
 
-    hostname = socket.gethostname() or "roost-node"
-    node_name, node_role = name or hostname, role or "edge_gateway"
-    node_id = f"node-{uuid.uuid4().hex[:8]}"
-    mgmt_ip = None
+    node_name, node_role = name or (socket.gethostname() or "roost-node"), role or "edge_gateway"
+    node_id, mgmt_ip = f"node-{uuid.uuid4().hex[:8]}", None
     try:
         p = urllib.parse.urlparse(target_controller)
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -216,8 +205,7 @@ def join_cluster_cmd(
         req = urllib.request.Request(
             f"{target_controller}/api/v1/cluster/join",
             data=json.dumps(join_payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            headers={"Content-Type": "application/json"}, method="POST",
         )
         with urllib.request.urlopen(req, timeout=15) as resp:
             join_resp = json.loads(resp.read().decode("utf-8"))
@@ -268,10 +256,8 @@ def adopt_node_cmd(ip: str, name: Optional[str], role: str, config_dir: str) -> 
                     data = loaded
         except Exception:
             pass
-
     nodes = data.get("nodes", [])
     node_id, node_name = f"node-{ip.replace('.', '-')}", name or f"Node {ip}"
-
     for n in nodes:
         if n.get("management_ip") == ip or n.get("id") == node_id:
             n["name"] = node_name
@@ -280,7 +266,6 @@ def adopt_node_cmd(ip: str, name: Optional[str], role: str, config_dir: str) -> 
             break
     else:
         nodes.append({"id": node_id, "name": node_name, "roles": [role], "management_ip": ip, "status": "active"})
-
     data["nodes"] = nodes
     try:
         with open(nodes_path, "w") as f:
@@ -289,3 +274,26 @@ def adopt_node_cmd(ip: str, name: Optional[str], role: str, config_dir: str) -> 
     except Exception as e:
         click.secho(f"Error saving nodes.yaml: {e}", fg="red", err=True)
         sys.exit(1)
+
+
+@cluster_group.command(name="verify")
+@click.option("--config-dir", default="/etc/roostos", help="Path to config directory")
+def verify_cluster_cmd(config_dir: str) -> None:
+    """Probes live connectivity, API health, and X.509/peer authentication across cluster nodes."""
+    from roostos_engine.edge_diagnostics import verify_edge_connectivity_and_auth
+    click.secho("=== Cluster Node Connectivity & Auth Verification ===", fg="cyan", bold=True)
+    nodes_path = os.path.join(config_dir, "nodes.yaml")
+    nodes: List[Dict[str, Any]] = []
+    if os.path.exists(nodes_path):
+        try:
+            with open(nodes_path, "r") as f:
+                nodes = (yaml.safe_load(f) or {}).get("nodes", [])
+        except Exception:
+            pass
+    for n in nodes:
+        ip = n.get("management_ip") or "127.0.0.1"
+        roles = ", ".join(n.get("roles") or [])
+        res = verify_edge_connectivity_and_auth(config_dir=config_dir, target_ip=ip)
+        color = "green" if (res.ping_reachable and res.auth_valid) else "yellow"
+        click.secho(f"• {n.get('name', n.get('id'))} ({ip}) [{roles}] -> Ping: {'OK' if res.ping_reachable else 'FAIL'} | API: {'OK' if res.api_reachable else 'FAIL'} | Auth: {'VALID' if res.auth_valid else 'UNVERIFIED'} ({res.auth_method})", fg=color)
+

@@ -109,6 +109,7 @@ class EdgeManager:
         listen_port: int = 51820,
         output_path: Optional[str] = None,
         domain: Optional[str] = None,
+        lan_subnets: Optional[List[str]] = None,
     ) -> EdgeInviteBundle:
         """Generates a zero-web WireGuard invitation bundle and provisions the server peer."""
         state_dir = self.config_dir
@@ -125,17 +126,17 @@ class EdgeManager:
             except Exception:
                 pass
 
-        # Generate unique keypair for the client peer
         home_priv, home_pub = self.generate_wireguard_keypair()
+        gw_allowed = ["10.42.0.2/32"] + [s for s in (lan_subnets or []) if s != "10.42.0.2/32"]
 
-        # Provision server networkd config on VPS
         net_files = self.generate_networkd_config(
             role="gateway",
             private_key=vps_priv,
             peer_public_key=home_pub,
             listen_port=listen_port,
             tunnel_ip="10.42.0.1/24",
-            allowed_ips="10.42.0.2/32",
+            allowed_ips=",".join(gw_allowed),
+            routed_subnets=lan_subnets,
         )
         self._apply_network_files(net_files)
 
@@ -148,6 +149,7 @@ class EdgeManager:
             assigned_tunnel_ip="10.42.0.2/24",
             gateway_tunnel_ip="10.42.0.1/24",
             allowed_ips=["10.42.0.0/24"],
+            lan_subnets=lan_subnets or [],
             persistent_keepalive=25,
         )
 
@@ -196,8 +198,11 @@ class EdgeManager:
             tunnel_ip=bundle.assigned_tunnel_ip,
             allowed_ips=",".join(bundle.allowed_ips),
             persistent_keepalive=bundle.persistent_keepalive,
+            routed_subnets=["10.42.0.0/24"],
         )
         self._apply_network_files(net_files)
+        from roostos_engine.edge_diagnostics import apply_local_edge_routing
+        apply_local_edge_routing(config_dir=self.config_dir, lan_subnets=bundle.lan_subnets or None, is_gateway=False, mock=self.mock)
         return net_files
 
     def validate_and_consume_token(self, token_str: str) -> Dict[str, Any]:
@@ -224,37 +229,31 @@ class EdgeManager:
         return payload
 
     def generate_networkd_config(
-        self,
-        role: str,
-        private_key: str,
-        peer_public_key: str,
-        endpoint: Optional[str] = None,
-        listen_port: Optional[int] = 51820,
-        tunnel_ip: str = "10.42.0.2/24",
-        allowed_ips: str = "10.42.0.0/24",
-        persistent_keepalive: int = 25,
+        self, role: str, private_key: str, peer_public_key: str, endpoint: Optional[str] = None,
+        listen_port: Optional[int] = 51820, tunnel_ip: str = "10.42.0.2/24",
+        allowed_ips: str = "10.42.0.0/24", persistent_keepalive: int = 25,
+        routed_subnets: Optional[List[str]] = None,
     ) -> Dict[str, str]:
         """Generates systemd-networkd .netdev and .network files for WireGuard."""
         if role == "gateway":
             peer_section = f"[WireGuardPeer]\nPublicKey={peer_public_key}\nAllowedIPs={allowed_ips}\n"
-            listen_line = f"ListenPort={listen_port or 51820}\n"
-            desc = "Server"
+            listen_line, desc = f"ListenPort={listen_port or 51820}\n", "Server"
         else:
             peer_section = (
                 f"[WireGuardPeer]\nPublicKey={peer_public_key}\n"
                 f"Endpoint={endpoint}\nAllowedIPs={allowed_ips}\n"
                 f"PersistentKeepalive={persistent_keepalive}\n"
             )
-            listen_line = ""
-            desc = "Client"
+            listen_line, desc = "", "Client"
 
         netdev = (
             f"[NetDev]\nName=wg-edge\nKind=wireguard\n"
             f"Description=RoostOS Edge Gateway WireGuard {desc}\n\n"
-            f"[WireGuard]\nPrivateKey={private_key}\n{listen_line}\n"
-            f"{peer_section}"
+            f"[WireGuard]\nPrivateKey={private_key}\n{listen_line}\n{peer_section}"
         )
-        network = f"[Match]\nName=wg-edge\n\n[Network]\nAddress={tunnel_ip}\n"
+        network = f"[Match]\nName=wg-edge\n\n[Network]\nAddress={tunnel_ip}\nIPForward=yes\n"
+        for subnet in (routed_subnets or []):
+            network += f"\n[Route]\nDestination={subnet}\nScope=link\n"
         return {"50-wg-edge.netdev": netdev, "50-wg-edge.network": network}
 
     def update_peer_endpoint(self, endpoint_host: str, port: int = 51820) -> bool:
@@ -271,23 +270,13 @@ class EdgeManager:
         return updated
 
     def persist_gateway_config(
-        self,
-        vps_ip: str,
-        gw_tunnel: str,
-        home_tunnel: str,
-        pub_key: str,
-        port: int = 51820,
-        domain: Optional[str] = None,
+        self, vps_ip: str, gw_tunnel: str, home_tunnel: str, pub_key: str,
+        port: int = 51820, domain: Optional[str] = None,
     ) -> None:
         """Helper to persist edge gateway record in network.yaml."""
         _persist_gw_config(
-            config_dir=self.config_dir,
-            vps_ip=vps_ip,
-            gw_tunnel=gw_tunnel,
-            home_tunnel=home_tunnel,
-            pub_key=pub_key,
-            port=port,
-            domain=domain,
+            config_dir=self.config_dir, vps_ip=vps_ip, gw_tunnel=gw_tunnel,
+            home_tunnel=home_tunnel, pub_key=pub_key, port=port, domain=domain,
         )
 
     def generate_nginx_config(self, routes: List[IngressRoute]) -> str:

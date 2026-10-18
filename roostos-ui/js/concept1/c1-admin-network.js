@@ -5,6 +5,7 @@ import { renderDhcpReservations } from './c1-admin-dhcp-reservations.js';
 
 let activeNodeFilter = 'all';
 let addingIngressPos = null; // 'top' | 'bottom' | null
+let edgeDiagStatus = null;
 
 function buildIngressAddRow() {
     return `
@@ -49,6 +50,7 @@ export function renderAdminNetwork(container) {
     const vpsDisplay = (edge.vpsHostname && edge.vpsHostname !== '-' && edge.vpsHostname !== edge.vpsPublicIp)
         ? `${edge.vpsHostname} (${edge.vpsPublicIp})`
         : (edge.vpsPublicIp || '-');
+    const lanSubnetsStr = (edge.lanSubnets && edge.lanSubnets.length > 0) ? edge.lanSubnets.join(', ') : (data.system.lanSubnet || '192.168.1.0/24');
 
     container.innerHTML = `
         <!-- DHCP Scopes Quick Link & Status Card -->
@@ -64,13 +66,24 @@ export function renderAdminNetwork(container) {
 
         <!-- Cloud VPS Edge Gateway (CGNAT Bypass) -->
         <div class="card" style="border-left: 4px solid var(--brand-primary);">
-            <div class="card-header">
+            <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
                 <div>
                     <h3 class="card-title">☁️ Cloud VPS Edge Gateway (${edge.name || 'CGNAT Bypass Ingress'})</h3>
-                    <p class="card-subtitle">Stealth WireGuard tunnel providing a static public IPv4 for home services behind CGNAT</p>
+                    <p class="card-subtitle">Stealth WireGuard tunnel & bidirectional Main LAN ↔ Edge Gateway routing</p>
                 </div>
-                <span class="badge ${edge.enabled ? 'badge-success' : 'badge-neutral'}">● ${edge.tunnelStatus || 'Not Enrolled'}</span>
+                <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <button class="btn btn-secondary btn-sm" id="btn-sync-lan-routes" title="Push bidirectional Main LAN ↔ Edge Gateway routes & firewall rules">🔄 Push LAN Routes</button>
+                    <button class="btn btn-secondary btn-sm" id="btn-verify-edge" title="Probe live WireGuard handshake, ICMP ping, and peer authentication">🩺 Verify Tunnel & Auth</button>
+                    <span class="badge ${edge.enabled ? 'badge-success' : 'badge-neutral'}">● ${edge.tunnelStatus || 'Not Enrolled'}</span>
+                </div>
             </div>
+
+            ${edgeDiagStatus ? `
+                <div style="margin-bottom: 14px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--bg-subtle); border-left: 4px solid ${edgeDiagStatus.ok ? 'var(--accent-emerald)' : 'var(--accent-amber)'}; font-size: 12px;">
+                    <div style="font-weight: 700; margin-bottom: 4px;">${edgeDiagStatus.title}</div>
+                    <div style="color: var(--text-muted);">${edgeDiagStatus.detail}</div>
+                </div>
+            ` : ''}
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 16px;">
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
@@ -84,9 +97,9 @@ export function renderAdminNetwork(container) {
                     <span class="badge ${edge.enabled ? 'badge-success' : 'badge-neutral'}" style="margin-top: 4px;">Static Public Ingress</span>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
-                    <div style="font-size: 11px; color: var(--text-muted);">WireGuard Stealth Tunnel</div>
+                    <div style="font-size: 11px; color: var(--text-muted);">WireGuard Tunnel & LAN Routes</div>
                     <div style="font-size: 14px; font-weight: 700; margin-top: 2px;"><code>${edge.localTunnelIp || '-'} ↔ ${edge.vpsTunnelIp || '-'}</code></div>
-                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">UDP Port: ${edge.tunnelPort || 51820}</div>
+                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">LAN ↔ Edge: <code>${lanSubnetsStr}</code></div>
                 </div>
                 <div style="background: var(--bg-subtle); padding: 12px; border-radius: var(--radius-md);">
                     <div style="font-size: 11px; color: var(--text-muted);">Ingress Proxy Data Transfer</div>
@@ -192,6 +205,37 @@ export function renderAdminNetwork(container) {
     renderDhcpReservations(container, () => renderAdminNetwork(container));
 
     container.querySelector('#btn-goto-dhcp')?.addEventListener('click', () => window.c1SwitchTab('dhcp'));
+    container.querySelector('#btn-sync-lan-routes')?.addEventListener('click', async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = '⏳ Syncing Routes...';
+        try {
+            const res = await api.syncEdgeLanRoutes();
+            edgeDiagStatus = {
+                ok: true,
+                title: '✓ Bidirectional Main LAN ↔ Edge Gateway Routes Synced',
+                detail: `${res.message || 'Routes applied.'} | Subnets: ${(res.lan_subnets || []).join(', ')}`
+            };
+            await store.syncWithBackend();
+        } catch (err) {
+            edgeDiagStatus = { ok: false, title: '⚠ Route Sync Failed', detail: String(err.message || err) };
+        }
+        renderAdminNetwork(container);
+    });
+    container.querySelector('#btn-verify-edge')?.addEventListener('click', async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = '⏳ Verifying...';
+        try {
+            const v = await api.verifyEdgeConnectivity();
+            edgeDiagStatus = {
+                ok: v.status === 'healthy',
+                title: `${v.status === 'healthy' ? '✓' : '⚠'} Connectivity & Auth: ${String(v.status).toUpperCase()} — ${v.message}`,
+                detail: `Interface: ${v.interface} (${v.interface_up ? 'UP' : 'DOWN'}) | Handshake: ${v.wg_handshake_ok ? 'OK' : 'Pending'} | Ping: ${v.ping_reachable ? `OK (${v.latency_ms || '<1'} ms)` : 'Unreachable'} | Peer Auth: ${v.auth_valid ? 'VALID' : 'Unverified'} (${v.auth_method}: ${v.auth_detail}) | LAN Routes: ${(v.lan_routes_configured || []).join(', ') || 'none'}`
+            };
+        } catch (err) {
+            edgeDiagStatus = { ok: false, title: '⚠ Verification Probe Failed', detail: String(err.message || err) };
+        }
+        renderAdminNetwork(container);
+    });
     container.querySelector('#btn-add-ingress-top')?.addEventListener('click', () => {
         addingIngressPos = 'top';
         renderAdminNetwork(container);

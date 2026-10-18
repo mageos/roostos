@@ -60,6 +60,16 @@ async def get_nodes(
     return {"nodes": nodes}
 
 
+@router.get("/verify")
+async def verify_cluster_connectivity(
+    current_user: UserSession = Depends(get_current_user),
+    cluster_service: ClusterService = Injected(ClusterService)
+) -> Dict[str, Any]:
+    """Probes live connectivity, API reachability, and X.509/token authentication for all cluster nodes."""
+    return await cluster_service.verify_nodes_connectivity()
+
+
+
 @router.post("/nodes")
 async def save_node(
     node_data: NodeManagementSchema,

@@ -57,6 +57,7 @@ class EdgeGatewayConfig(BaseModel):
     public_key: Optional[str] = None
     status: str = "disconnected"  # "disconnected", "connected", "pending"
     last_handshake: Optional[str] = None
+    lan_subnets: List[str] = Field(default_factory=list)
     ingress_routes: List[IngressRoute] = Field(default_factory=list)
     peers: List[EdgePeer] = Field(default_factory=list)
 
@@ -75,6 +76,7 @@ class EdgeEnrollmentPayload(BaseModel):
     home_public_key: str
     hostname: str = "roost-home"
     requested_tunnel_ip: str = "10.42.0.2/24"
+    lan_subnets: List[str] = Field(default_factory=list)
 
 
 class EdgeEnrollmentResponse(BaseModel):
@@ -116,6 +118,42 @@ class IngressRoutePayload(BaseModel):
     ssl_enabled: bool = True
 
 
+class EdgeRouteSyncRequest(BaseModel):
+    """Request payload for pushing/syncing LAN subnets between Home Router and Edge Gateway."""
+    lan_subnets: List[str] = Field(default_factory=list)
+    home_public_key: Optional[str] = None
+    tunnel_ip_home: str = "10.42.0.2/24"
+
+
+class EdgeConnectivityCheckResponse(BaseModel):
+    """Detailed connectivity, routing, and authentication check result for Edge Gateway / Cluster Node."""
+    interface: str = "wg-edge"
+    role: str = "client"
+    interface_up: bool = False
+    wireguard_handshake_ok: bool = False
+    wg_handshake_ok: bool = False
+    last_handshake: str = "Never"
+    last_handshake_seconds: int = 0
+    ping_ok: bool = False
+    ping_reachable: bool = False
+    ping_latency_ms: Optional[float] = None
+    latency_ms: Optional[float] = None
+    api_reachable: bool = False
+    auth_verified: bool = False
+    auth_valid: bool = False
+    auth_method: str = "none"
+    auth_detail: str = "Not checked"
+    lan_forwarding_enabled: bool = False
+    ip_forward_enabled: bool = False
+    routed_lan_subnets: List[str] = Field(default_factory=list)
+    lan_routes_configured: List[str] = Field(default_factory=list)
+    tunnel_route_present: bool = False
+    overall_status: str = "disconnected"
+    status: str = "disconnected"
+    message: str = ""
+
+
+
 class EdgeInviteBundle(BaseModel):
     """Encapsulates peer configuration for zero-web WireGuard-First onboarding."""
     version: str = "1.0"
@@ -127,6 +165,7 @@ class EdgeInviteBundle(BaseModel):
     assigned_tunnel_ip: str = "10.42.0.2/24"
     gateway_tunnel_ip: str = "10.42.0.1/24"
     allowed_ips: List[str] = Field(default_factory=lambda: ["10.42.0.0/24"])
+    lan_subnets: List[str] = Field(default_factory=list)
     persistent_keepalive: int = 25
     preshared_key: Optional[str] = None
     created_at: int = Field(default_factory=lambda: int(time.time()))

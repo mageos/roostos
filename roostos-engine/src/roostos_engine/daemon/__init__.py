@@ -31,6 +31,22 @@ async def start_daemon(config_dir: str, bus_type: BusType = BusType.SYSTEM, mock
     await bus.request_name(BUS_NAME)
     print(f"RoostOS Engine Daemon registered on D-Bus: '{BUS_NAME}' at object path '{OBJECT_PATH}'")
 
+    sync_agent = None
+    try:
+        cluster_cfg = getattr(getattr(interface.config, "system", None), "cluster", None)
+        if cluster_cfg and cluster_cfg.controller_url and not getattr(cluster_cfg, "is_controller", False):
+            from roostos_engine.cluster_sync import ClusterSyncAgent
+            sync_agent = ClusterSyncAgent(
+                node_id=cluster_cfg.node_id or "node-worker",
+                controller_url=cluster_cfg.controller_url,
+                config_dir=config_dir,
+                mock=mock,
+            )
+            await sync_agent.start()
+            print(f"ClusterSyncAgent started for node '{sync_agent.node_id}' -> {cluster_cfg.controller_url}")
+    except Exception as e:
+        print(f"Warning: Could not start ClusterSyncAgent: {e}", file=sys.stderr)
+
     loop = asyncio.get_running_loop()
     stop_event = asyncio.Event()
 
@@ -47,6 +63,8 @@ async def start_daemon(config_dir: str, bus_type: BusType = BusType.SYSTEM, mock
             pass
 
     await stop_event.wait()
+    if sync_agent:
+        await sync_agent.stop()
 
 
 def main():

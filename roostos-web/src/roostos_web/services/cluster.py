@@ -1,9 +1,7 @@
 import os
-import time
 from typing import List, Dict, Any, Optional
 
-from roostos_engine.models.node import NodeConfig, NodesConfigFile, NodeRole, NodeInterface
-from roostos_engine.models.system import SystemConfig
+from roostos_engine.models.node import NodeConfig, NodesConfigFile, NodeRole
 from roostos_engine.repository import ConfigRepository
 from roostos_engine.cluster_manager import ClusterManager
 from roostos_engine.cluster_replicator import ClusterReplicator
@@ -31,7 +29,6 @@ class ClusterService:
         try:
             return await self.dbus.get_cluster_status()
         except Exception:
-            # Fallback direct read from repo
             config = self.repo.get_config()
             node_id = "node-01"
             if config.system and config.system.cluster and config.system.cluster.node_id:
@@ -56,15 +53,13 @@ class ClusterService:
         try:
             return await self.dbus.get_nodes()
         except Exception:
-            config = self.repo.get_config()
-            return [n.model_dump() for n in config.nodes]
+            return [n.model_dump() for n in self.repo.get_config().nodes]
 
     async def save_node(self, node_data: Dict[str, Any]) -> None:
         """Adds or updates a node configuration in nodes.yaml."""
         config = self.repo.get_config()
         node_id = node_data.get("id")
         existing_nodes = [n.model_dump() for n in config.nodes]
-        
         idx = next((i for i, n in enumerate(existing_nodes) if n["id"] == node_id), None)
         if idx is not None:
             existing_nodes[idx] = node_data
@@ -112,8 +107,7 @@ class ClusterService:
         except Exception:
             pass
         try:
-            res = await self.dbus.validate_join_token(token)
-            if res:
+            if await self.dbus.validate_join_token(token):
                 return True
         except Exception:
             pass
@@ -132,40 +126,30 @@ class ClusterService:
             return await self.dbus.get_detected_hardware()
         except Exception:
             from roostos_engine.hardware_inspector import HardwareInspector
-            detected = HardwareInspector.inspect_network_interfaces(mock=False)
-            return [d.model_dump() for d in detected]
+            return [d.model_dump() for d in HardwareInspector.inspect_network_interfaces(mock=False)]
 
     async def join_cluster(self, join_data: Dict[str, Any]) -> Dict[str, Any]:
         """Validates join token and registers a node in the cluster with mTLS certificates."""
         token = join_data.get("token", "")
         if not await self.validate_join_token(token):
             raise ValueError("Invalid or expired cluster join token.")
-        
+
         config = self.repo.get_config()
         new_node = self.cluster_manager.register_node(join_data, config.nodes)
         await self.save_node(new_node.model_dump())
 
-        # Auto-link Edge Gateway in network.edge_gateways if role is edge_gateway
-        is_edge = any(
-            (r.value == "edge_gateway" if hasattr(r, "value") else str(r) == "edge_gateway")
-            for r in new_node.roles
-        )
+        is_edge = any((r.value == "edge_gateway" if hasattr(r, "value") else str(r) == "edge_gateway") for r in new_node.roles)
         if is_edge:
             try:
                 from roostos_engine.models.edge import EdgeGatewayConfig
                 existing_gws = list(getattr(config.network, "edge_gateways", []) or [])
                 edge_id = "edge-01"
                 existing_match = next((g for g in existing_gws if g.id in (edge_id, new_node.id)), None)
-                routes = existing_match.ingress_routes if existing_match else []
                 edge_gw = EdgeGatewayConfig(
-                    id=edge_id,
-                    name=new_node.name or "VPS Edge Gateway",
+                    id=edge_id, name=new_node.name or "VPS Edge Gateway",
                     public_ip=new_node.management_ip or (existing_match.public_ip if existing_match else "10.42.0.1"),
-                    listen_port=51820,
-                    tunnel_ip_gateway="10.42.0.1/24",
-                    tunnel_ip_home="10.42.0.2/24",
-                    status="connected",
-                    ingress_routes=routes,
+                    listen_port=51820, tunnel_ip_gateway="10.42.0.1/24", tunnel_ip_home="10.42.0.2/24",
+                    status="connected", ingress_routes=existing_match.ingress_routes if existing_match else [],
                 )
                 updated_gws = [g for g in existing_gws if g.id not in (edge_id, new_node.id)] + [edge_gw]
                 config.network.edge_gateways = updated_gws
@@ -173,16 +157,12 @@ class ClusterService:
                 self.repo.save_network_config(config.network)
             except Exception:
                 pass
-        
-        controller_url = ""
-        if config.system and config.system.cluster and config.system.cluster.controller_url:
-            controller_url = config.system.cluster.controller_url
-        
+
+        controller_url = (config.system.cluster.controller_url if config.system and config.system.cluster else "") or ""
         ca_pem, client_pem, key_pem = None, None, None
         try:
             from roostos_engine.cert_manager import CertificateManager
-            cert_dir = os.path.join(self.repo.config_dir, "certs")
-            cert_mgr = CertificateManager(cert_dir=cert_dir)
+            cert_mgr = CertificateManager(cert_dir=os.path.join(self.repo.config_dir, "certs"))
             bundle = cert_mgr.issue_service_cert(
                 service_name=f"node-{new_node.id}",
                 requested_scopes=["cluster:node", "telemetry:write"]
@@ -192,63 +172,62 @@ class ClusterService:
             pass
 
         return {
-            "status": "success",
-            "node_id": new_node.id,
-            "controller_url": controller_url,
+            "status": "success", "node_id": new_node.id, "controller_url": controller_url,
             "message": f"Node '{new_node.name}' ({new_node.id}) successfully enrolled in cluster.",
-            "ca_cert_pem": ca_pem,
-            "client_cert_pem": client_pem,
-            "client_key_pem": key_pem,
+            "ca_cert_pem": ca_pem, "client_cert_pem": client_pem, "client_key_pem": key_pem,
         }
+
+    async def verify_nodes_connectivity(self) -> Dict[str, Any]:
+        """Probes live connectivity and certificate authentication across cluster nodes and Edge Gateway."""
+        from roostos_engine.edge_diagnostics import verify_edge_connectivity_and_auth
+        config = self.repo.get_config()
+        cfg_dir = getattr(self.repo, "config_dir", getattr(getattr(self.repo, "active_repo", None), "config_dir", "/etc/roostos"))
+        mock = os.environ.get("ROOSTOS_MOCK") == "1"
+        results = []
+        for n in config.nodes:
+            target = n.management_ip or "127.0.0.1"
+            chk = verify_edge_connectivity_and_auth(config_dir=cfg_dir, target_ip=target, mock=mock)
+            results.append({
+                "node_id": n.id, "name": n.name, "ip": target,
+                "roles": [r.value if hasattr(r, "value") else str(r) for r in n.roles],
+                **chk.model_dump()
+            })
+        return {"nodes": results, "checked_count": len(results)}
 
     async def record_heartbeat(self, node_id: str, report: Dict[str, Any]) -> Dict[str, Any]:
         """Records a periodic heartbeat and telemetry from a cluster node."""
         self.cluster_manager.record_heartbeat(node_id, report)
-        commands = self.cluster_manager.pop_node_commands(node_id)
-        return {"status": "acknowledged", "commands": commands}
+        return {"status": "acknowledged", "commands": self.cluster_manager.pop_node_commands(node_id)}
 
     async def get_node_heartbeat(self, node_id: str) -> Optional[Dict[str, Any]]:
-        """Returns the latest heartbeat telemetry for a specific node."""
         return self.cluster_manager.get_node_heartbeat(node_id)
 
     async def get_cluster_updates_summary(self) -> Dict[str, Any]:
-        """Returns aggregated OS update status across all nodes in the cluster."""
-        config = self.repo.get_config()
-        return self.cluster_manager.get_cluster_updates_summary(config.nodes)
+        return self.cluster_manager.get_cluster_updates_summary(self.repo.get_config().nodes)
 
     async def queue_node_command(self, node_id: str, command: str) -> None:
-        """Queues an operational command for a node to pick up on heartbeat."""
         self.cluster_manager.queue_node_command(node_id, command)
 
     async def get_node_config_slice(self, node_id: str) -> Dict[str, Any]:
-        """Synthesizes a tailored configuration slice for a specific node."""
         config = self.repo.get_config()
         return self.cluster_manager.get_node_config_slice(
-            node_id=node_id,
-            system_config=config.system,
-            network_config=config.network,
-            nodes=config.nodes
+            node_id=node_id, system_config=config.system, network_config=config.network, nodes=config.nodes
         )
 
     async def get_state_manifest(self) -> Dict[str, Any]:
-        """Returns the cluster state manifest containing SHA-256 hashes of all configuration files."""
         config = self.repo.get_config()
         epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
         node_id = config.system.cluster.node_id if config.system and config.system.cluster else "node-01"
         controller_url = config.system.cluster.controller_url if config.system and config.system.cluster else ""
-        manifest = self.replicator.generate_manifest(epoch=epoch, master_node_id=node_id, controller_url=controller_url)
-        return manifest.model_dump()
+        return self.replicator.generate_manifest(epoch=epoch, master_node_id=node_id, controller_url=controller_url).model_dump()
 
     async def get_state_bundle(self) -> Dict[str, Any]:
-        """Returns the full bundle of all configuration files for read replicas."""
         config = self.repo.get_config()
         epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
         node_id = config.system.cluster.node_id if config.system and config.system.cluster else "node-01"
-        bundle = self.replicator.export_bundle(epoch=epoch, master_node_id=node_id)
-        return bundle.model_dump()
+        return self.replicator.export_bundle(epoch=epoch, master_node_id=node_id).model_dump()
 
     async def get_file_content(self, filename: str) -> str:
-        """Returns the raw content of a specific configuration file."""
         bundle = await self.get_state_bundle()
         files = bundle.get("files", {})
         if filename not in files:
@@ -256,11 +235,9 @@ class ClusterService:
         return files[filename]
 
     async def promote_node(self, node_id: str, new_epoch: Optional[int] = None, force: bool = False) -> Dict[str, Any]:
-        """Promotes a node to cluster master and increments cluster epoch."""
         config = self.repo.get_config()
         curr_epoch = config.system.cluster.epoch if config.system and config.system.cluster else 1
         next_epoch = new_epoch if new_epoch is not None and new_epoch > curr_epoch else curr_epoch + 1
-
         existing_nodes = [n.model_dump() for n in config.nodes]
         for n in existing_nodes:
             roles = set(n.get("roles", []))
@@ -270,24 +247,17 @@ class ClusterService:
                 roles.discard("controller")
             n["roles"] = list(roles)
 
-        nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes])
-        self.repo.save_nodes_config(nodes_config)
-
+        self.repo.save_nodes_config(NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes]))
         if config.system and config.system.cluster:
             config.system.cluster.node_id = node_id
             config.system.cluster.epoch = next_epoch
             self.repo.save_system_config(config.system)
-
         return {
-            "status": "promoted",
-            "node_id": node_id,
-            "epoch": next_epoch,
-            "role": "controller",
+            "status": "promoted", "node_id": node_id, "epoch": next_epoch, "role": "controller",
             "message": f"Node '{node_id}' successfully promoted to master for epoch {next_epoch}."
         }
 
     async def demote_node(self, node_id: str) -> Dict[str, Any]:
-        """Demotes a controller node to read replica."""
         config = self.repo.get_config()
         existing_nodes = [n.model_dump() for n in config.nodes]
         for n in existing_nodes:
@@ -297,15 +267,8 @@ class ClusterService:
                 if not roles:
                     roles.add("gateway_router")
                 n["roles"] = list(roles)
-
-        nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes])
-        self.repo.save_nodes_config(nodes_config)
-        return {
-            "status": "demoted",
-            "node_id": node_id,
-            "role": "node",
-            "message": f"Node '{node_id}' demoted to read replica."
-        }
+        self.repo.save_nodes_config(NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in existing_nodes]))
+        return {"status": "demoted", "node_id": node_id, "role": "node", "message": f"Node '{node_id}' demoted to read replica."}
 
 
 

@@ -152,6 +152,17 @@ class ClusterSyncAgent:
         except ImportError:
             return {"cpu_percent": 0.0, "memory_percent": 0.0, "disk_percent": 0.0}
 
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Exchanges local node client certificate for a Bearer token if available."""
+        try:
+            from roostos_engine.edge_diagnostics import _obtain_node_bearer_token
+            token = _obtain_node_bearer_token(self.config_dir, self.controller_url)
+            if token:
+                return {"Authorization": f"Bearer {token}"}
+        except Exception:
+            pass
+        return {}
+
     async def send_heartbeat(
         self,
         status: str = "healthy",
@@ -183,7 +194,7 @@ class ClusterSyncAgent:
 
         url = f"{self.controller_url}/api/v1/cluster/nodes/{self.node_id}/heartbeat"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(url, json=payload.model_dump())
+            resp = await client.post(url, json=payload.model_dump(), headers=self._get_auth_headers())
             resp.raise_for_status()
             data = resp.json()
             self._last_heartbeat_time = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -207,7 +218,7 @@ class ClusterSyncAgent:
 
         url = f"{self.controller_url}/api/v1/cluster/nodes/{self.node_id}/config"
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=self._get_auth_headers())
             if resp.status_code == 200:
                 self._last_config_slice = resp.json()
                 return self._last_config_slice

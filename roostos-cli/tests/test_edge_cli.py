@@ -190,3 +190,59 @@ def test_edge_update_cli(tmp_path, monkeypatch):
     assert ydata["edge_gateways"][0]["domain"] == "edge.roostos.cloud"
 
 
+def test_edge_sync_routes_and_verify_cli(tmp_path):
+    """Verifies 'roostos edge sync-routes' and 'roostos edge verify' CLI commands."""
+    config_dir = str(tmp_path / "config")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "network.yaml"), "w") as f:
+        yaml.dump({
+            "bridges": [{"name": "br0", "ip": "192.168.10.1/24", "isolate": False}],
+            "edge_gateways": [{"id": "edge-01", "public_ip": "198.51.100.5", "listen_port": 51820}],
+        }, f)
+
+    runner = CliRunner()
+    res_sync = runner.invoke(cli, ["edge", "sync-routes", "--config-dir", config_dir, "--mock"])
+    assert res_sync.exit_code == 0
+    assert "192.168.10.0/24" in res_sync.output
+
+    res_verify = runner.invoke(cli, ["edge", "verify", "--config-dir", config_dir, "--mock"])
+    assert res_verify.exit_code == 0
+    assert "HEALTHY" in res_verify.output
+    assert "192.168.10.0/24" in res_verify.output
+
+
+def test_firewall_and_networkd_bidirectional_lan_edge_routing(tmp_path, monkeypatch):
+    """Verifies FirewallManager and EdgeManager generate bidirectional LAN <-> wg-edge routing rules."""
+    from roostos_engine.config import load_config_directory
+    from roostos_engine.firewall_manager import FirewallManager
+    from roostos_engine.edge_manager import EdgeManager
+
+    config_dir = str(tmp_path / "config")
+    net_dir = str(tmp_path / "networkd")
+    os.makedirs(config_dir, exist_ok=True)
+    os.makedirs(net_dir, exist_ok=True)
+    monkeypatch.setenv("ROOSTOS_SYSTEMD_NETWORK_DIR", net_dir)
+
+    with open(os.path.join(config_dir, "network.yaml"), "w") as f:
+        yaml.dump({
+            "interfaces": [{"name": "eth0", "role": "wan", "mode": "dhcp"}],
+            "bridges": [{"name": "br0", "interfaces": ["eth1"], "ip": "192.168.1.1/24", "isolate": False}],
+        }, f)
+
+    cfg = load_config_directory(config_dir)
+    ruleset = FirewallManager(cfg).compile_ruleset()
+    assert 'iifname "br0" oifname "wg-edge" accept' in ruleset
+    assert 'iifname "wg-edge" oifname "br0" accept' in ruleset
+    assert 'iifname "wg-edge" tcp dport { 22, 443, 8000, 9090, 53 } accept' in ruleset
+
+    mgr = EdgeManager(config_dir=config_dir, mock=False)
+    gw_files = mgr.generate_networkd_config(
+        role="gateway", private_key="priv", peer_public_key="pub",
+        allowed_ips="10.42.0.2/32,192.168.1.0/24", routed_subnets=["192.168.1.0/24"],
+    )
+    assert "AllowedIPs=10.42.0.2/32,192.168.1.0/24" in gw_files["50-wg-edge.netdev"]
+    assert "IPForward=yes" in gw_files["50-wg-edge.network"]
+    assert "Destination=192.168.1.0/24" in gw_files["50-wg-edge.network"]
+
+
+

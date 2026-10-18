@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Header
 from roostos_engine.models.edge import (
     IngressRoute, EdgeGatewayConfig, EdgeBootstrapToken, EdgeEnrollmentPayload,
     EdgeEnrollmentResponse, EdgeInviteBundle, GenerateTokenRequest, ConnectEdgeRequest,
-    IngressRoutePayload, UpdateEdgeEndpointRequest,
+    IngressRoutePayload, UpdateEdgeEndpointRequest, EdgeRouteSyncRequest, EdgeConnectivityCheckResponse,
 )
 from roostos_engine.edge_manager import EdgeManager
 from roostos_engine.cert_manager import CertificateManager
@@ -72,12 +72,12 @@ async def enroll_home_server(
                 f.write(f"{vps_priv}:{vps_pub}")
         except Exception:
             pass
-
-    net_files = mgr.generate_networkd_config(
+    gw_allowed = ["10.42.0.2/32"] + [s for s in payload.lan_subnets if s != "10.42.0.2/32"]
+    mgr._apply_network_files(mgr.generate_networkd_config(
         role="gateway", private_key=vps_priv, peer_public_key=payload.home_public_key,
-        listen_port=51820, tunnel_ip="10.42.0.1/24", allowed_ips="10.42.0.2/32",
-    )
-    mgr._apply_network_files(net_files)
+        listen_port=51820, tunnel_ip="10.42.0.1/24", allowed_ips=",".join(gw_allowed),
+        routed_subnets=payload.lan_subnets,
+    ))
     return EdgeEnrollmentResponse(
         status="success", gateway_public_key=vps_pub, endpoint=f"{vps_ip}:51820",
         assigned_tunnel_ip="10.42.0.2/24", gateway_tunnel_ip="10.42.0.1/24",
@@ -87,15 +87,12 @@ async def enroll_home_server(
 
 @router.post("/connect", response_model=EdgeGatewayConfig)
 async def connect_to_edge_gateway(
-    payload: ConnectEdgeRequest,
-    current_user: UserSession = Depends(get_current_admin),
+    payload: ConnectEdgeRequest, current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> EdgeGatewayConfig:
     """Home server connects to Edge Gateway VPS using the invite or bootstrap token."""
     token_str = payload.token.strip()
-    config_dir = repo.config_dir if hasattr(repo, "config_dir") else "/etc/roostos"
-    mgr = EdgeManager(config_dir=config_dir)
-
+    mgr = EdgeManager(config_dir=getattr(repo, "config_dir", "/etc/roostos"))
     if token_str.startswith("roost-edge-wg://"):
         try:
             invite = EdgeInviteBundle.from_token(token_str)
@@ -107,7 +104,7 @@ async def connect_to_edge_gateway(
         edge_gw = EdgeGatewayConfig(
             id="edge-01", name=payload.name, public_ip=vps_ip, listen_port=port,
             tunnel_ip_gateway=invite.gateway_tunnel_ip, tunnel_ip_home=invite.assigned_tunnel_ip,
-            public_key=invite.gateway_public_key, status="connected",
+            public_key=invite.gateway_public_key, lan_subnets=invite.lan_subnets, status="connected",
         )
         _save_edge_gateway_record(repo, edge_gw)
         return edge_gw
@@ -115,12 +112,10 @@ async def connect_to_edge_gateway(
     endpoint_url, bearer_token = "http://127.0.0.1:8000", token_str
     if token_str.startswith("roost-edge://"):
         parts = token_str[len("roost-edge://"):].split("?token=")
-        endpoint_url = f"http://{parts[0]}"
-        bearer_token = parts[1] if len(parts) > 1 else ""
+        endpoint_url, bearer_token = f"http://{parts[0]}", (parts[1] if len(parts) > 1 else "")
     try:
         import jwt
-        unverified = jwt.decode(bearer_token, options={"verify_signature": False})
-        endpoint_url = unverified.get("endpoint_url", endpoint_url)
+        endpoint_url = jwt.decode(bearer_token, options={"verify_signature": False}).get("endpoint_url", endpoint_url)
     except Exception:
         pass
 
@@ -143,12 +138,11 @@ async def connect_to_edge_gateway(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Could not connect to Edge Gateway: {e}")
 
-    net_files = mgr.generate_networkd_config(
+    mgr._apply_network_files(mgr.generate_networkd_config(
         role="client", private_key=home_priv, peer_public_key=enroll_resp.gateway_public_key,
         endpoint=enroll_resp.endpoint, tunnel_ip=enroll_resp.assigned_tunnel_ip,
         allowed_ips=",".join(enroll_resp.allowed_ips), persistent_keepalive=enroll_resp.persistent_keepalive,
-    )
-    mgr._apply_network_files(net_files)
+    ))
     edge_gw = EdgeGatewayConfig(
         id="edge-01", name=payload.name, public_ip=enroll_resp.endpoint.split(":")[0],
         listen_port=51820, tunnel_ip_gateway=enroll_resp.gateway_tunnel_ip,
@@ -159,18 +153,15 @@ async def connect_to_edge_gateway(
 
 @router.put("/endpoint", response_model=EdgeGatewayConfig)
 async def update_edge_endpoint(
-    payload: UpdateEdgeEndpointRequest,
-    current_user: UserSession = Depends(get_current_admin),
+    payload: UpdateEdgeEndpointRequest, current_user: UserSession = Depends(get_current_admin),
     repo: ConfigRepository = Injected(ConfigRepository),
 ) -> EdgeGatewayConfig:
     """Updates the Edge Gateway endpoint host (domain or IP) and port."""
     endpoint_host = payload.domain or payload.ip
     if not endpoint_host:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Either domain or ip must be specified.")
-    config_dir = getattr(repo, "config_dir", "/etc/roostos")
-    EdgeManager(config_dir=config_dir).update_peer_endpoint(endpoint_host=endpoint_host, port=payload.port)
-    config = repo.get_config()
-    gateways = _get_active_gateways(config)
+    EdgeManager(config_dir=getattr(repo, "config_dir", "/etc/roostos")).update_peer_endpoint(endpoint_host=endpoint_host, port=payload.port)
+    gateways = _get_active_gateways(repo.get_config())
     if not gateways:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active Edge Gateway configured.")
     edge_gw = gateways[0]
@@ -187,8 +178,7 @@ def _get_active_gateways(config: Any, check_systemd: bool = False) -> List[EdgeG
     gateways = list(getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", []))
     if not gateways:
         for node in getattr(config, "nodes", []):
-            roles = [r.value if hasattr(r, "value") else str(r) for r in node.roles]
-            if "edge_gateway" in roles:
+            if "edge_gateway" in [r.value if hasattr(r, "value") else str(r) for r in node.roles]:
                 return [EdgeGatewayConfig(
                     id="edge-01", name=node.name or "VPS Edge Gateway", public_ip=node.management_ip or "10.42.0.1",
                     listen_port=51820, tunnel_ip_gateway="10.42.0.1/24", tunnel_ip_home="10.42.0.2/24", status="connected",
@@ -210,16 +200,48 @@ def _get_active_gateways(config: Any, check_systemd: bool = False) -> List[EdgeG
 async def get_edge_status(
     current_user: UserSession = Depends(get_current_user), repo: ConfigRepository = Injected(ConfigRepository),
 ) -> Dict[str, Any]:
-    """Returns linked Edge Gateway status and active ingress routes."""
+    """Returns linked Edge Gateway status, routed LAN subnets, and active ingress routes."""
     from roostos_engine.ingress_helper import read_wg_edge_traffic
+    from roostos_engine.edge_diagnostics import detect_local_lan_subnets
     config = repo.get_config()
-    cfg_dir = getattr(repo, "config_dir", getattr(getattr(repo, "active_repo", None), "config_dir", ""))
+    cfg_dir = getattr(repo, "config_dir", getattr(getattr(repo, "active_repo", None), "config_dir", "/etc/roostos"))
     gateways = _get_active_gateways(config, check_systemd=(cfg_dir == "/etc/roostos"))
     traffic = read_wg_edge_traffic()
+    lan_subnets = detect_local_lan_subnets(cfg_dir)
+    for gw in gateways:
+        if not gw.lan_subnets:
+            gw.lan_subnets = lan_subnets
     return {
         "linked": bool(gateways), "gateways": [gw.model_dump() for gw in gateways],
         "rx_bytes": traffic["rx_bytes"], "tx_bytes": traffic["tx_bytes"],
+        "lan_subnets": lan_subnets,
     }
+
+@router.post("/routes/sync-lan")
+async def sync_lan_routes(
+    payload: Optional[EdgeRouteSyncRequest] = None, current_user: UserSession = Depends(get_current_user),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> Dict[str, Any]:
+    """Applies local LAN <-> wg-edge routing and pushes LAN subnet routes to the Edge Gateway."""
+    from roostos_engine.edge_diagnostics import push_lan_routes_to_gateway
+    cfg_dir = getattr(repo, "config_dir", getattr(getattr(repo, "active_repo", None), "config_dir", "/etc/roostos"))
+    req_subnets = payload.lan_subnets if payload and payload.lan_subnets else None
+    res = push_lan_routes_to_gateway(config_dir=cfg_dir, lan_subnets=req_subnets, mock=(os.environ.get("ROOSTOS_MOCK") == "1"))
+    for gw in _get_active_gateways(repo.get_config(), check_systemd=(cfg_dir == "/etc/roostos")):
+        gw.lan_subnets = res["lan_subnets"]
+        _save_edge_gateway_record(repo, gw)
+    return res
+
+@router.get("/verify", response_model=EdgeConnectivityCheckResponse)
+async def verify_edge_connectivity(
+    current_user: UserSession = Depends(get_current_user), repo: ConfigRepository = Injected(ConfigRepository),
+) -> EdgeConnectivityCheckResponse:
+    """Probes live WireGuard handshake, ICMP reachability, LAN routing, and X.509/peer authentication."""
+    from roostos_engine.edge_diagnostics import verify_edge_connectivity_and_auth
+    cfg_dir = getattr(repo, "config_dir", getattr(getattr(repo, "active_repo", None), "config_dir", "/etc/roostos"))
+    gateways = _get_active_gateways(repo.get_config(), check_systemd=(cfg_dir == "/etc/roostos"))
+    target_ip = (gateways[0].tunnel_ip_gateway.split("/")[0] if gateways else "10.42.0.1")
+    return verify_edge_connectivity_and_auth(config_dir=cfg_dir, target_ip=target_ip, mock=(os.environ.get("ROOSTOS_MOCK") == "1"))
 
 @router.get("/routes", response_model=List[IngressRoute])
 async def list_ingress_routes(

@@ -274,6 +274,7 @@ export async function syncStateWithBackend(data, notify) {
                     handshake: gw.last_handshake || 'Active',
                     rxBytes: es.rx_bytes || data.edgeGateway.rxBytes || '0 B',
                     txBytes: es.tx_bytes || data.edgeGateway.txBytes || '0 B',
+                    lanSubnets: gw.lan_subnets || es.lan_subnets || [],
                     ingressRules: (gw.ingress_routes || []).map(r => ({
                         id: r.id, domain: r.domain, target: `${r.target_ip}:${r.target_port}`,
                         targetIp: r.target_ip, targetPort: r.target_port,
@@ -286,6 +287,7 @@ export async function syncStateWithBackend(data, notify) {
             } else {
                 data.edgeGateway.enabled = false;
                 data.edgeGateway.cgnatIspIp = data.system.wanIp || '-';
+                data.edgeGateway.lanSubnets = es.lan_subnets || [];
             }
         }
 
