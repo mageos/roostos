@@ -14,8 +14,10 @@ import { renderAdminDhcp } from './concept1/c1-admin-dhcp.js';
 import { renderAdminFirewall } from './concept1/c1-admin-firewall.js';
 import { renderAdminDns } from './concept1/c1-admin-dns.js';
 import { renderAdminSystem } from './concept1/c1-admin-system.js';
+import { renderAdminApps } from './concept1/c1-admin-apps.js';
 
 import { renderZoneDiagramSvg } from './components/zone-diagram-svg.js';
+import { updateAlertsBadge, toggleAlertsDrawer } from './components/alerts-drawer.js';
 
 let activeHouseholdTab = 'home';
 let activeAdminTab = 'cockpit';
@@ -36,6 +38,7 @@ const adminNavItems = [
     { id: 'dhcp', label: 'DHCP', icon: '📡' },
     { id: 'firewall', label: 'Firewall', icon: '🛡️' },
     { id: 'dns', label: 'DNS', icon: '🔍' },
+    { id: 'apps', label: 'Apps', icon: '📦' },
     { id: 'system', label: 'Fleet', icon: '🖥️' }
 ];
 
@@ -43,14 +46,19 @@ export async function initApp() {
     const authUser = await checkAuth();
     if (!authUser) return;
     renderAppShell();
-    store.subscribe(() => renderActiveView());
+    store.subscribe(() => {
+        renderActiveView();
+        updateAlertsBadge();
+    });
 
     // Initial background sync with FastAPI backend
     store.syncWithBackend();
+    updateAlertsBadge();
 
     // Auto-refresh pulse every 10s
     setInterval(() => {
         store.syncWithBackend();
+        updateAlertsBadge();
     }, 10000);
 
     // Initialize real-time SSE stream if available
@@ -118,6 +126,10 @@ function renderAppShell() {
             ${desktopNavHtml}
 
             <div style="display: flex; align-items: center; gap: 10px;">
+                <button id="alerts-toggle-btn" class="btn btn-secondary btn-sm" title="Cluster Alerts & Incidents" style="position: relative; padding: 4px 8px; font-size: 13px;">
+                    <span id="alerts-indicator-icon">🔔</span>
+                    <span id="alerts-count-badge" style="display: none; position: absolute; top: -4px; right: -4px; padding: 1px 5px; border-radius: 10px; font-size: 10px; font-weight: 700; line-height: 1;"></span>
+                </button>
                 <button id="theme-toggle-btn" class="btn btn-secondary btn-sm" title="Toggle Light / Dark theme" style="padding: 4px 8px; font-size: 12px;">
                     🌓
                 </button>
@@ -157,6 +169,12 @@ function renderAppShell() {
     document.addEventListener('click', () => {
         if (wsMenu) wsMenu.style.display = 'none';
     });
+
+    // Alerts toggle handler
+    const alertsBtn = frame.querySelector('#alerts-toggle-btn');
+    if (alertsBtn) {
+        alertsBtn.onclick = () => toggleAlertsDrawer();
+    }
 
     // Theme toggle handler
     const themeBtn = frame.querySelector('#theme-toggle-btn');
@@ -213,6 +231,7 @@ function renderAppShell() {
     };
 
     renderActiveView();
+    updateAlertsBadge();
 }
 
 function renderActiveView() {
@@ -238,6 +257,7 @@ function renderActiveView() {
             dhcp: renderAdminDhcp,
             firewall: renderAdminFirewall,
             dns: renderAdminDns,
+            apps: renderAdminApps,
             system: renderAdminSystem,
         };
         const renderer = adminViews[activeAdminTab] || renderAdminCockpit;
@@ -249,11 +269,11 @@ function initServerEventStream() {
     if (typeof EventSource === 'undefined') return;
     try {
         const evt = new EventSource('/api/v1/events/stream');
-        evt.onmessage = () => store.syncWithBackend();
+        evt.onmessage = () => { store.syncWithBackend(); updateAlertsBadge(); };
         evt.addEventListener('device_connected', () => store.syncWithBackend());
         evt.addEventListener('devices_updated', () => store.syncWithBackend());
         evt.addEventListener('schedules_updated', () => store.syncWithBackend());
-        evt.addEventListener('alert', () => store.syncWithBackend());
+        evt.addEventListener('alert', () => { store.syncWithBackend(); updateAlertsBadge(); });
     } catch (e) {
         console.warn('Real-time SSE event stream could not be initialized:', e);
     }

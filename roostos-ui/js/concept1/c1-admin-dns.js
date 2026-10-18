@@ -50,6 +50,24 @@ export function renderAdminDns(container) {
             </div>
         </div>
 
+        <!-- Root CA & Automated SSL Certificate Authority Card -->
+        <div class="card" style="border-left: 4px solid var(--accent-emerald);">
+            <div class="card-header" style="flex-wrap: wrap; gap: 10px;">
+                <div>
+                    <h3 class="card-title">🔒 RoostOS Internal Root Certificate Authority & ACME SSL</h3>
+                    <p class="card-subtitle">Local X.509 PKI for LAN microservices and automated Let's Encrypt TLS issuance</p>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <a href="/api/v1/system/certificates/ca.crt" download="roostos-root-ca.crt" class="btn btn-primary btn-sm" id="btn-download-ca">
+                        📥 Download Root CA (.crt)
+                    </a>
+                </div>
+            </div>
+            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px;">
+                Download and install <code>roostos-root-ca.crt</code> into your phone, tablet, or browser trust store to enable trusted HTTPS encryption for all local LAN devices (e.g. <code>*.${domainSuffix}</code>) without browser security warnings.
+            </div>
+        </div>
+
         <!-- Local DNS Records Table (Compliant with AGENTS.md) -->
         <div class="card">
             <div class="card-header">
@@ -87,6 +105,7 @@ export function renderAdminDns(container) {
                 <button class="btn btn-primary btn-sm add-dns-btn" data-position="bottom">+ Add DNS Record</button>
             </div>
         </div>
+
     `;
 
     renderBlockedFeed(container, { onReload: () => renderAdminDns(container) });

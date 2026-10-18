@@ -54,6 +54,9 @@ def test_static_asset_routes():
         "/js/concept1/c1-household-home.js",
         "/js/concept1/c1-household-devices.js",
         "/js/concept1/c1-admin-dhcp.js",
+        "/js/concept1/c1-admin-apps.js",
+        "/js/concept1/c1-admin-app-sources.js",
+        "/js/concept1/c1-admin-edge-peers.js",
     ]
     for p in critical_paths:
         res = client.get(p)

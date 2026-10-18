@@ -1,19 +1,16 @@
-/**
- * Alerts drawer component for managing live cluster incidents and notifications.
- */
-
-import { AlertsService } from '../services/alerts-service.js';
+// RoostOS Alerts Drawer - Live Cluster Incidents & Telemetry Alerts
+import { api } from '../api.js';
 
 let alertsDrawerOpen = false;
 
 export async function updateAlertsBadge() {
     try {
-        const active = await AlertsService.fetchActiveAlerts();
+        const active = await api.getActiveAlerts();
         const badge = document.getElementById('alerts-count-badge');
         const icon = document.getElementById('alerts-indicator-icon');
         if (!badge || !icon) return;
 
-        const count = active.length;
+        const count = (active || []).length;
         if (count > 0) {
             badge.textContent = `${count}`;
             badge.style.display = 'inline-block';
@@ -60,8 +57,8 @@ function createAlertsDrawerModal() {
     const drawer = document.createElement('div');
     drawer.id = 'alerts-drawer-content';
     drawer.style.cssText = `
-        width: 480px; max-width: 90vw; background: var(--card-bg, #1a1b26);
-        border-left: 1px solid var(--card-border, #2e3044);
+        width: 480px; max-width: 90vw; background: var(--bg-card, #1a1b26);
+        border-left: 1px solid var(--border-color, #2e3044);
         padding: 24px; display: flex; flex-direction: column; gap: 16px;
         overflow-y: auto; box-shadow: -4px 0 20px rgba(0,0,0,0.4);
     `;
@@ -74,52 +71,55 @@ export async function renderAlertsContent() {
     if (!container) return;
 
     container.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--card-border); padding-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
             <h2 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px;">
                 <span>🔔</span> Incident & Telemetry Alerts
             </h2>
-            <button onclick="window.toggleAlertsDrawer()" style="background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer;">✕</button>
+            <button id="close-alerts-drawer-btn" style="background: none; border: none; font-size: 20px; color: var(--text-muted); cursor: pointer;">✕</button>
         </div>
-        <div id="alerts-telemetry-status" style="font-size: 12px; color: var(--text-secondary); padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
+        <div id="alerts-telemetry-status" style="font-size: 12px; color: var(--text-muted); padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px;">
             Connecting to VictoriaMetrics...
         </div>
         <div>
-            <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-secondary); margin: 8px 0;">Active Incidents</h3>
+            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin: 8px 0; font-weight: 700;">Active Incidents</h3>
             <div id="active-alerts-list" style="display: flex; flex-direction: column; gap: 8px;">Loading...</div>
         </div>
         <div>
-            <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-secondary); margin: 16px 0 8px;">Recent History</h3>
+            <h3 style="font-size: 13px; text-transform: uppercase; color: var(--text-muted); margin: 16px 0 8px; font-weight: 700;">Recent History</h3>
             <div id="history-alerts-list" style="display: flex; flex-direction: column; gap: 8px;">Loading...</div>
         </div>
     `;
 
+    container.querySelector('#close-alerts-drawer-btn').onclick = toggleAlertsDrawer;
+
     try {
         const [health, active, history] = await Promise.all([
-            AlertsService.fetchTelemetryHealth(),
-            AlertsService.fetchActiveAlerts(),
-            AlertsService.fetchAlertHistory(10),
+            api.getTelemetryHealth().catch(() => ({ healthy: false })),
+            api.getActiveAlerts().catch(() => []),
+            api.getAlertHistory(10).catch(() => [])
         ]);
 
         const statusEl = document.getElementById('alerts-telemetry-status');
         if (statusEl) {
             statusEl.innerHTML = health.healthy
-                ? `🟢 VictoriaMetrics Engine: <strong>Online</strong> (${health.base_url})`
+                ? `🟢 VictoriaMetrics Engine: <strong>Online</strong>`
                 : `🟡 VictoriaMetrics Engine: <strong>Standby / Initializing</strong>`;
         }
 
         const activeListEl = document.getElementById('active-alerts-list');
         if (activeListEl) {
-            if (active.length === 0) {
+            if (!active || active.length === 0) {
                 activeListEl.innerHTML = `<div style="padding: 12px; border-radius: 6px; background: rgba(34, 197, 94, 0.1); color: #22c55e; font-size: 13px;">✓ All cluster systems healthy. No active firing alerts.</div>`;
             } else {
                 activeListEl.innerHTML = active.map(a => renderAlertCard(a, true)).join('');
+                bindAckButtons(activeListEl);
             }
         }
 
         const historyListEl = document.getElementById('history-alerts-list');
         if (historyListEl) {
-            if (history.length === 0) {
-                historyListEl.innerHTML = `<div style="font-size: 12px; color: var(--text-secondary); padding: 8px 0;">No alert history recorded yet.</div>`;
+            if (!history || history.length === 0) {
+                historyListEl.innerHTML = `<div style="font-size: 12px; color: var(--text-muted); padding: 8px 0;">No alert history recorded yet.</div>`;
             } else {
                 historyListEl.innerHTML = history.map(a => renderAlertCard(a, false)).join('');
             }
@@ -139,7 +139,7 @@ function renderAlertCard(alert, isFiring) {
         : `<span style="background: rgba(34, 197, 94, 0.2); color: #22c55e; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600;">RESOLVED</span>`;
 
     return `
-        <div style="padding: 12px; border: 1px solid var(--card-border); border-left: 3px solid ${borderCol}; border-radius: 6px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 6px;">
+        <div style="padding: 12px; border: 1px solid var(--border-color); border-left: 3px solid ${borderCol}; border-radius: 6px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 6px;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <span style="background: ${badgeBg}; color: ${borderCol}; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase;">${alert.severity}</span>
@@ -147,29 +147,31 @@ function renderAlertCard(alert, isFiring) {
                 </div>
                 ${stateBadge}
             </div>
-            <div style="font-size: 12px; color: var(--text-secondary);">${alert.message}</div>
-            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
-                <span>Node: <strong>${alert.node_id}</strong> | ${new Date(alert.fired_at).toLocaleTimeString()}</span>
-                ${isFiring && !alert.acknowledged ? `<button onclick="window.acknowledgeAlert('${alert.id}')" style="background: rgba(255,255,255,0.05); border: 1px solid var(--card-border); color: var(--text-primary); padding: 2px 8px; border-radius: 4px; cursor: pointer; font-size: 11px;">Ack</button>` : ''}
+            <div style="font-size: 12px; color: var(--text-muted);">${alert.message}</div>
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                <span>Node: <strong>${alert.node_id || 'Cluster'}</strong> | ${new Date(alert.fired_at).toLocaleTimeString()}</span>
+                ${isFiring && !alert.acknowledged ? `<button class="btn btn-secondary btn-sm ack-alert-btn" data-id="${alert.id}" style="padding: 2px 8px; font-size: 11px;">Ack</button>` : ''}
             </div>
         </div>
     `;
 }
 
-window.toggleAlertsDrawer = toggleAlertsDrawer;
-window.updateAlertsBadge = updateAlertsBadge;
-window.acknowledgeAlert = async (id) => {
-    try {
-        await AlertsService.acknowledgeAlert(id);
-        renderAlertsContent();
-        updateAlertsBadge();
-    } catch (e) {
-        alert(e.message);
-    }
-};
-
-if (typeof document !== 'undefined') {
-    document.addEventListener('DOMContentLoaded', () => {
-        updateAlertsBadge();
+function bindAckButtons(container) {
+    container.querySelectorAll('.ack-alert-btn').forEach(btn => {
+        btn.onclick = async () => {
+            const id = btn.dataset.id;
+            btn.disabled = true;
+            try {
+                await api.acknowledgeAlert(id);
+                renderAlertsContent();
+                updateAlertsBadge();
+            } catch (e) {
+                alert(`Failed to acknowledge alert: ${e.message}`);
+                btn.disabled = false;
+            }
+        };
     });
 }
+
+window.toggleAlertsDrawer = toggleAlertsDrawer;
+window.updateAlertsBadge = updateAlertsBadge;

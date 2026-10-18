@@ -2,6 +2,7 @@
 import { store } from '../state.js';
 import { api } from '../api.js';
 import { renderDhcpReservations } from './c1-admin-dhcp-reservations.js';
+import { renderEdgePeers } from './c1-admin-edge-peers.js';
 
 let activeNodeFilter = 'all';
 let addingIngressPos = null; // 'top' | 'bottom' | null
@@ -145,6 +146,7 @@ export function renderAdminNetwork(container) {
             <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
                 <button class="btn btn-secondary btn-sm" id="btn-add-ingress-bottom">+ Add Ingress Route</button>
             </div>
+            <div id="edge-peers-container"></div>
         </div>
 
         <!-- Cluster Fleet Node Interfaces -->
@@ -203,6 +205,10 @@ export function renderAdminNetwork(container) {
     `;
 
     renderDhcpReservations(container, () => renderAdminNetwork(container));
+    const peersContainer = container.querySelector('#edge-peers-container');
+    if (peersContainer) {
+        renderEdgePeers(peersContainer, () => renderAdminNetwork(container));
+    }
 
     container.querySelector('#btn-goto-dhcp')?.addEventListener('click', () => window.c1SwitchTab('dhcp'));
     container.querySelector('#btn-sync-lan-routes')?.addEventListener('click', async (e) => {
