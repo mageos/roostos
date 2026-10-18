@@ -285,9 +285,10 @@ export async function syncStateWithBackend(data, notify) {
                     peers: gw.peers || []
                 });
             } else {
-                data.edgeGateway.enabled = false;
-                data.edgeGateway.cgnatIspIp = data.system.wanIp || '-';
-                data.edgeGateway.lanSubnets = es.lan_subnets || [];
+                Object.assign(data.edgeGateway, {
+                    enabled: false, cgnatIspIp: data.system.wanIp || '-', lanSubnets: es.lan_subnets || [],
+                    ingressRules: [], peers: [], vpsPublicIp: '-', vpsHostname: '-', tunnelStatus: 'Not Enrolled'
+                });
             }
         }
 

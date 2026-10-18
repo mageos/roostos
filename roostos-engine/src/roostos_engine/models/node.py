@@ -11,6 +11,7 @@ class NodeRole(str, Enum):
     COMPUTE_NODE = "compute_node"
     SWITCH = "switch"
     EDGE_GATEWAY = "edge_gateway"
+    VPN_SERVER = "vpn_server"
 
 
 class InterfaceType(str, Enum):
@@ -85,6 +86,12 @@ class NodeConfig(BaseModel):
     interfaces: List[NodeInterface] = Field(default_factory=list)
     failover_priority: int = 0
     capabilities: Optional[NodeCapabilities] = Field(default_factory=NodeCapabilities)
+    is_vpn_server: bool = False
+    vpn_hostname: Optional[str] = None
+    vpn_port: int = 51820
+    vpn_public_key: Optional[str] = None
+    vpn_tunnel_ip: str = "10.43.0.1/24"
+    vpn_peers: List[Any] = Field(default_factory=list)
 
     @field_validator("roles")
     @classmethod

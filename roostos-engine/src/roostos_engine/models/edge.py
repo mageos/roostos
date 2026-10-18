@@ -36,6 +36,8 @@ class EdgePeer(BaseModel):
     created_at: str = ""
     client_config: Optional[str] = None
     qr_svg: Optional[str] = None
+    server_node_id: Optional[str] = None
+    server_node_name: Optional[str] = None
 
 
 class CreatePeerRequest(BaseModel):
@@ -43,6 +45,7 @@ class CreatePeerRequest(BaseModel):
     peer_type: EdgePeerType = EdgePeerType.MOBILE
     subnets: List[str] = Field(default_factory=list)
     route_internet: bool = False
+    server_node_id: Optional[str] = None
 
 
 class EdgeGatewayConfig(BaseModel):
@@ -109,6 +112,7 @@ class UpdateEdgeEndpointRequest(BaseModel):
 class ConnectEdgeRequest(BaseModel):
     token: str
     name: str = "VPS Edge Gateway"
+    domain: Optional[str] = None
 
 
 class IngressRoutePayload(BaseModel):
@@ -185,4 +189,24 @@ class EdgeInviteBundle(BaseModel):
             raw_json = base64.urlsafe_b64decode(b64.encode("ascii")).decode("utf-8")
             return cls.model_validate_json(raw_json)
         return cls.model_validate_json(raw)
+
+
+class VpnServerInfo(BaseModel):
+    id: str
+    name: str
+    node_type: str = "cluster_node"  # "edge_gateway" or "cluster_node"
+    is_vpn_server: bool = False
+    hostname: Optional[str] = None
+    port: int = 51820
+    tunnel_ip: str = "10.42.0.1/24"
+    public_key: Optional[str] = None
+    status: str = "online"
+    peers_count: int = 0
+
+
+class UpdateVpnServerRequest(BaseModel):
+    is_vpn_server: Optional[bool] = None
+    hostname: Optional[str] = None
+    port: Optional[int] = None
+
 

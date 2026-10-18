@@ -20,6 +20,8 @@ from roostos_engine.models.network import (
 from roostos_engine.models.edge import (
     IngressRoute, EdgeGatewayConfig, EdgeBootstrapToken,
     EdgeEnrollmentPayload, EdgeEnrollmentResponse, UpdateEdgeEndpointRequest,
+    VpnServerInfo, UpdateVpnServerRequest, EdgePeer, EdgePeerType,
+    CreatePeerRequest, ConnectEdgeRequest,
 )
 from roostos_engine.models.node import (
     NodeRole, InterfaceType, InterfaceMode, NodeInterface,

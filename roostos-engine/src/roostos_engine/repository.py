@@ -117,6 +117,10 @@ class StagingConfigRepository(ConfigRepository):
         except (PermissionError, OSError):
             pass
 
+    @property
+    def config_dir(self) -> str:
+        return self.active_repo.config_dir
+
     def get_config(self) -> RoostConfig:
         config = self.active_repo.get_config()
         if not os.path.exists(self.staged_dir):
@@ -283,17 +287,12 @@ class InMemoryConfigRepository(ConfigRepository):
 
     def save_firewall_config(self, data: FirewallConfig) -> None:
         fw = data.firewall if hasattr(data, "firewall") and data.firewall else data
-        self._config.firewall.port_forwards = getattr(fw, "port_forwards", [])
-        self._config.firewall.rules = getattr(fw, "rules", [])
-        self._config.firewall.block_doh = getattr(fw, "block_doh", False)
-        self._config.firewall.block_vpns = getattr(fw, "block_vpns", False)
-        self._config.firewall.block_quic = getattr(fw, "block_quic", False)
-        self._config.firewall.custom_doh_ips = getattr(fw, "custom_doh_ips", [])
-        self._config.firewall.custom_vpn_ips = getattr(fw, "custom_vpn_ips", [])
+        for k in ("port_forwards", "rules", "custom_doh_ips", "custom_vpn_ips"):
+            setattr(self._config.firewall, k, getattr(fw, k, []))
+        for k in ("block_doh", "block_vpns", "block_quic"):
+            setattr(self._config.firewall, k, getattr(fw, k, False))
         self.notify_change("firewall", data=data)
 
     def save_plugins_config(self, data: PluginsConfig) -> None:
         self._config.plugins = data.plugins
         self.notify_change("plugins", data=data)
-
-

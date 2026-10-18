@@ -16,22 +16,11 @@ from roostos_engine.edge_manager import EdgeManager
 from roostos_engine.cert_manager import CertificateManager
 from roostos_engine.models.certificates import ChallengeType
 from roostos_engine.repository import ConfigRepository
+from roostos_engine.edge_helpers import get_active_gateways as _get_active_gateways, save_edge_gateway_record as _save_edge_gateway_record
 from roostos_web.auth import get_current_admin, get_current_user, UserSession
-from roostos_web.services.base import get_repository
 from roostos_web.di import Injected
 
 router = APIRouter(prefix="/api/v1/edge", tags=["edge"])
-
-def _save_edge_gateway_record(repo: ConfigRepository, edge_gw: EdgeGatewayConfig) -> None:
-    """Helper to persist edge gateway record in network config."""
-    config = repo.get_config()
-    existing = [gw for gw in (getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", [])) if gw.id != edge_gw.id]
-    config.network.edge_gateways = [*existing, edge_gw]
-    config.edge_gateways = [*existing, edge_gw]
-    try:
-        repo.save_network_config(config.network)
-    except Exception as e:
-        print(f"Warning: Failed to save edge gateway: {e}")
 
 @router.post("/token", response_model=EdgeBootstrapToken)
 async def generate_bootstrap_token(
@@ -103,6 +92,7 @@ async def connect_to_edge_gateway(
         port = int(invite.endpoint.split(":")[1]) if ":" in invite.endpoint else 51820
         edge_gw = EdgeGatewayConfig(
             id="edge-01", name=payload.name, public_ip=vps_ip, listen_port=port,
+            domain=payload.domain or (vps_ip if any(c.isalpha() for c in vps_ip) else None),
             tunnel_ip_gateway=invite.gateway_tunnel_ip, tunnel_ip_home=invite.assigned_tunnel_ip,
             public_key=invite.gateway_public_key, lan_subnets=invite.lan_subnets, status="connected",
         )
@@ -143,8 +133,10 @@ async def connect_to_edge_gateway(
         endpoint=enroll_resp.endpoint, tunnel_ip=enroll_resp.assigned_tunnel_ip,
         allowed_ips=",".join(enroll_resp.allowed_ips), persistent_keepalive=enroll_resp.persistent_keepalive,
     ))
+    vps_host = enroll_resp.endpoint.split(":")[0]
     edge_gw = EdgeGatewayConfig(
-        id="edge-01", name=payload.name, public_ip=enroll_resp.endpoint.split(":")[0],
+        id="edge-01", name=payload.name, public_ip=vps_host,
+        domain=payload.domain or (vps_host if any(c.isalpha() for c in vps_host) else None),
         listen_port=51820, tunnel_ip_gateway=enroll_resp.gateway_tunnel_ip,
         tunnel_ip_home=enroll_resp.assigned_tunnel_ip, public_key=enroll_resp.gateway_public_key, status="connected",
     )
@@ -172,29 +164,6 @@ async def update_edge_endpoint(
     edge_gw.listen_port = payload.port
     _save_edge_gateway_record(repo, edge_gw)
     return edge_gw
-
-def _get_active_gateways(config: Any, check_systemd: bool = False) -> List[EdgeGatewayConfig]:
-    from roostos_engine.ingress_helper import detect_systemd_wg_edge
-    gateways = list(getattr(config.network, "edge_gateways", []) or getattr(config, "edge_gateways", []))
-    if not gateways:
-        for node in getattr(config, "nodes", []):
-            if "edge_gateway" in [r.value if hasattr(r, "value") else str(r) for r in node.roles]:
-                return [EdgeGatewayConfig(
-                    id="edge-01", name=node.name or "VPS Edge Gateway", public_ip=node.management_ip or "10.42.0.1",
-                    listen_port=51820, tunnel_ip_gateway="10.42.0.1/24", tunnel_ip_home="10.42.0.2/24", status="connected",
-                )]
-        for vpn in (getattr(config, "vpns", []) or []):
-            if getattr(vpn, "name", "") == "wg-edge" or getattr(vpn, "interface", "") == "wg-edge":
-                ep = getattr(vpn, "endpoint", "10.42.0.1:51820") or "10.42.0.1:51820"
-                return [EdgeGatewayConfig(
-                    id="edge-01", name="VPS Edge Gateway", public_ip=ep.split(":")[0], listen_port=51820,
-                    tunnel_ip_gateway="10.42.0.1/24", tunnel_ip_home="10.42.0.2/24", status="connected",
-                )]
-        if check_systemd:
-            detected = detect_systemd_wg_edge()
-            if detected:
-                return [detected]
-    return gateways
 
 @router.get("/status")
 async def get_edge_status(
@@ -298,3 +267,14 @@ async def apply_firewall_lockdown(
         "status": "success", "message": f"Port 8000 locked down on interface {wan_interface}.",
         "rules": EdgeManager().compile_lockdown_rules(wan_interface=wan_interface),
     }
+
+@router.post("/disconnect")
+@router.delete("")
+@router.delete("/gateway")
+async def disconnect_edge_gateway(
+    gateway_id: Optional[str] = None, current_user: UserSession = Depends(get_current_admin),
+    repo: ConfigRepository = Injected(ConfigRepository),
+) -> Dict[str, Any]:
+    """Tears down Edge Gateway WireGuard tunnel, purges routes and domain certificates."""
+    from roostos_engine.edge_cleanup import disconnect_and_cleanup_edge_gateway
+    return disconnect_and_cleanup_edge_gateway(repo=repo, gateway_id=gateway_id, mock=(os.environ.get("ROOSTOS_MOCK") == "1"))

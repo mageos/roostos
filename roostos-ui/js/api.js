@@ -103,8 +103,8 @@ export class RoostApiClient {
 
     // Edge Gateway APIs
     async getEdgeStatus() { return this.request('/api/v1/edge/status'); }
-    async connectEdgeGateway(token, name = 'VPS Edge Gateway') {
-        return this.request('/api/v1/edge/connect', { method: 'POST', body: JSON.stringify({ token, name }) });
+    async connectEdgeGateway(token, name = 'VPS Edge Gateway', domain = null) {
+        return this.request('/api/v1/edge/connect', { method: 'POST', body: JSON.stringify({ token, name, domain }) });
     }
     async updateEdgeEndpoint(endpointData) {
         return this.request('/api/v1/edge/endpoint', { method: 'PUT', body: JSON.stringify(endpointData) });
@@ -133,6 +133,13 @@ export class RoostApiClient {
         const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
         const res = await fetch(`/api/v1/edge/peers/${encodeURIComponent(peerId)}/config`, { headers });
         return res.text();
+    }
+    async disconnectEdgeGateway(gatewayId = null) {
+        return this.request('/api/v1/edge/disconnect', { method: 'POST', body: JSON.stringify(gatewayId ? { gateway_id: gatewayId } : {}) });
+    }
+    async getVpnServers() { return this.request('/api/v1/edge/peers/servers'); }
+    async updateVpnServer(serverId, data) {
+        return this.request(`/api/v1/edge/peers/servers/${encodeURIComponent(serverId)}`, { method: 'PUT', body: JSON.stringify(data) });
     }
     async syncEdgeLanRoutes(lanSubnets = null) {
         return this.request('/api/v1/edge/routes/sync-lan', {
