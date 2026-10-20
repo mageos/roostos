@@ -39,6 +39,7 @@ class NodeHealthReport(BaseModel):
     telemetry: TelemetryMetrics = Field(default_factory=TelemetryMetrics)
     subsystems: Dict[str, SubsystemStatus] = Field(default_factory=dict)
     mqtt_bus: Optional[MqttHealthResult] = None
+    orphaned_records: List[Dict[str, Any]] = Field(default_factory=list)
     warnings: List[str] = Field(default_factory=list)
 
 
@@ -67,46 +68,40 @@ class HealthChecker:
         
         mqtt_result = None
         if check_mqtt:
-            mqtt_result = self.perform_mqtt_health_check(
-                broker_host=broker_host,
-                broker_port=broker_port,
-                known_nodes=known_nodes,
-            )
+            mqtt_result = self.perform_mqtt_health_check(broker_host=broker_host, broker_port=broker_port, known_nodes=known_nodes)
 
-        # Aggregate warnings and overall status
-        warnings = []
-        has_failure = False
-        has_warning = False
+        warnings: List[str] = []
+        has_failure = any(s.status == "FAIL" for s in subsystems.values())
+        has_warning = any(s.status == "WARN" for s in subsystems.values())
 
         for name, sub in subsystems.items():
-            if sub.status == "FAIL":
-                has_failure = True
-                warnings.append(f"Subsystem '{name}' failed: {sub.message}")
-            elif sub.status == "WARN":
-                has_warning = True
-                warnings.append(f"Subsystem '{name}' warning: {sub.message}")
+            if sub.status in ("FAIL", "WARN"):
+                warnings.append(f"Subsystem '{name}': {sub.message}")
 
         if mqtt_result:
-            if mqtt_result.status == "FAIL":
-                has_failure = True
-                warnings.append(f"MQTT Bus Error: {mqtt_result.message}")
-            elif mqtt_result.status == "WARN":
-                has_warning = True
-                warnings.append(f"MQTT Bus Warning: {mqtt_result.message}")
+            if mqtt_result.status == "FAIL": has_failure = True
+            elif mqtt_result.status == "WARN": has_warning = True
+            if mqtt_result.status != "PASS": warnings.append(f"MQTT Bus: {mqtt_result.message}")
 
         if telemetry.ram_usage > 90.0:
             has_warning = True
             warnings.append(f"High RAM usage: {telemetry.ram_usage:.1f}%")
-
         if telemetry.cpu_load > 95.0:
             has_warning = True
             warnings.append(f"High CPU load: {telemetry.cpu_load:.1f}%")
 
-        overall_status = "healthy"
-        if has_failure:
-            overall_status = "unhealthy"
-        elif has_warning:
-            overall_status = "degraded"
+        orphans_list: List[Dict[str, Any]] = []
+        try:
+            from roostos_engine.orphan_detector import scan_orphaned_records
+            scan_res = scan_orphaned_records(self.config_dir)
+            if scan_res.total_orphans > 0:
+                has_warning = True
+                warnings.append(f"{scan_res.total_orphans} orphaned record(s) detected across configuration and credentials.")
+                orphans_list = [o.model_dump() for o in scan_res.orphans]
+        except Exception:
+            pass
+
+        overall_status = "unhealthy" if has_failure else ("degraded" if has_warning else "healthy")
 
         return NodeHealthReport(
             node_id=node_id,
@@ -116,6 +111,7 @@ class HealthChecker:
             telemetry=telemetry,
             subsystems=subsystems,
             mqtt_bus=mqtt_result,
+            orphaned_records=orphans_list,
             warnings=warnings,
         )
 

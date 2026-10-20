@@ -263,10 +263,12 @@ from roostos_engine.cli_firewall import (
 )
 from roostos_engine.cli_certs import register_certs_commands
 from roostos_engine.cli_cluster import register_cluster_commands
+from roostos_engine.cli_health import register_health_commands
 
 register_firewall_commands(main, call_dbus_method, run_async)
 register_certs_commands(main, call_dbus_method, run_async)
 register_cluster_commands(main, call_dbus_method, run_async)
+register_health_commands(main, call_dbus_method, run_async)
 
 if __name__ == "__main__":
     main()

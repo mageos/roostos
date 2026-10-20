@@ -44,6 +44,7 @@ class NetworkBridge(BaseModel):
     dhcp_enabled: bool = True
     dhcp_pool_start: Optional[str] = None
     dhcp_pool_end: Optional[str] = None
+    ha_standby_node: Optional[str] = "none"
 
 class NetworkVlan(BaseModel):
     name: str
@@ -54,6 +55,7 @@ class NetworkVlan(BaseModel):
     dhcp_enabled: bool = True
     dhcp_pool_start: Optional[str] = None
     dhcp_pool_end: Optional[str] = None
+    ha_standby_node: Optional[str] = "none"
 
 class NetworkGateway(BaseModel):
     id: str

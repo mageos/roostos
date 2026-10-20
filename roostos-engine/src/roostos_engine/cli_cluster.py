@@ -117,3 +117,13 @@ def register_cluster_commands(main_group: click.Group, call_dbus_method_fn, run_
             click.echo(f"Cluster Join Token: {token}")
             click.echo(f"Run on joining node: sudo roostos cluster join --token {token}")
         run_async_fn(run())
+
+    @cluster_group.command(name="healthcheck")
+    @click.option("--config-dir", default="/etc/roostos", help="Path to config files directory")
+    @click.option("--fix", is_flag=True, help="Automatically clean up detected orphaned records")
+    @click.option("--mqtt", is_flag=True, help="Include active MQTT broker ping health check")
+    def cluster_healthcheck(config_dir, fix, mqtt):
+        """Executes cluster diagnostic healthcheck and scans for orphaned records."""
+        from roostos_engine.cli_health import run_healthcheck
+        run_healthcheck(config_dir=config_dir, fix=fix, mqtt=mqtt)
+
