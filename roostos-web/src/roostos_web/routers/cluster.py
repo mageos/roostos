@@ -86,10 +86,34 @@ async def remove_node(
     node_id: str,
     current_user: UserSession = Depends(get_current_admin),
     cluster_service: ClusterService = Injected(ClusterService)
-):
-    """Decommissions a node from the cluster."""
-    await cluster_service.remove_node(node_id)
-    return {"status": "success", "message": f"Node '{node_id}' removed successfully."}
+) -> Dict[str, Any]:
+    """Decommissions a node from the cluster and invalidates credentials."""
+    try:
+        return await cluster_service.remove_node(node_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/nodes/{node_id}/evict")
+async def evict_node(
+    node_id: str,
+    current_user: UserSession = Depends(get_current_admin),
+    cluster_service: ClusterService = Injected(ClusterService)
+) -> Dict[str, Any]:
+    """Explicitly evicts a node from the cluster and invalidates credentials."""
+    try:
+        return await cluster_service.remove_node(node_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/leave")
+async def leave_cluster(
+    current_user: UserSession = Depends(get_current_admin),
+    cluster_service: ClusterService = Injected(ClusterService)
+) -> Dict[str, Any]:
+    """Instructs the current node to cleanly leave the cluster and return to standalone."""
+    return await cluster_service.leave_cluster()
 
 
 @router.post("/token")

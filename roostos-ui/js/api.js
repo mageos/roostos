@@ -100,6 +100,15 @@ export class RoostApiClient {
     // Cluster Fleet APIs
     async getClusterStatus() { return this.request('/api/v1/cluster/status'); }
     async getClusterNodes() { return this.request('/api/v1/cluster/nodes'); }
+    async removeClusterNode(nodeId) {
+        return this.request(`/api/v1/cluster/nodes/${encodeURIComponent(nodeId)}`, { method: 'DELETE' });
+    }
+    async evictClusterNode(nodeId) {
+        return this.request(`/api/v1/cluster/nodes/${encodeURIComponent(nodeId)}/evict`, { method: 'POST' });
+    }
+    async leaveCluster() {
+        return this.request('/api/v1/cluster/leave', { method: 'POST' });
+    }
 
     // Edge Gateway APIs
     async getEdgeStatus() { return this.request('/api/v1/edge/status'); }

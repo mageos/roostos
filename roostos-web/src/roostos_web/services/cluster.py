@@ -73,16 +73,25 @@ class ClusterService:
         except Exception:
             pass
 
-    async def remove_node(self, node_id: str) -> None:
-        """Decommissions a node from nodes.yaml."""
-        config = self.repo.get_config()
-        filtered = [n.model_dump() for n in config.nodes if n.id != node_id]
-        nodes_config = NodesConfigFile(nodes=[NodeConfig.model_validate(n) for n in filtered])
-        self.repo.save_nodes_config(nodes_config)
+    async def remove_node(self, node_id: str) -> Dict[str, Any]:
+        """Decommissions a node from the cluster and invalidates credentials."""
+        from roostos_engine.node_decommission import decommission_cluster_node
+        res = decommission_cluster_node(self.repo, node_id, self.cluster_manager)
         try:
-            await self.dbus.save_nodes(filtered)
+            await self.dbus.save_nodes([n.model_dump() for n in self.repo.get_config().nodes])
         except Exception:
             pass
+        return res.model_dump()
+
+    async def leave_cluster(self, notify_controller: bool = True) -> Dict[str, Any]:
+        """Executes a clean self-leave on the current node."""
+        from roostos_engine.node_decommission import leave_cluster_locally
+        res = leave_cluster_locally(self.repo, self.cluster_manager, notify_controller=notify_controller)
+        try:
+            await self.dbus.save_nodes([n.model_dump() for n in self.repo.get_config().nodes])
+        except Exception:
+            pass
+        return res.model_dump()
 
     async def generate_join_token(self) -> str:
         """Generates a pairing join token."""
