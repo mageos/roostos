@@ -97,6 +97,8 @@ class EdgeGatewayConfigParams(BaseModel):
     listen_port: int = 51820
     tunnel_subnet: str = "10.42.0.0/24"
     enable_nginx_ingress: bool = True
+    allow_ssh: bool = True
+
 
 
 class SetupResult(BaseModel):

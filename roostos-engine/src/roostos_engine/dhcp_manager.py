@@ -98,10 +98,14 @@ class DHCPManager:
             reservations: List[Dict[str, Any]] = []
             for device in self.config.devices:
                 if device.static_ip and self._ip_in_subnet(device.static_ip, subnet_str):
-                    reservations.append({
+                    res: Dict[str, Any] = {
                         "hw-address": device.mac,
                         "ip-address": device.static_ip
-                    })
+                    }
+                    host = getattr(device, "hostname", None) or (device.name if device.name and not device.name.startswith("Device-") else None)
+                    if host:
+                        res["hostname"] = host
+                    reservations.append(res)
 
             subnets_config.append({
                 "id": subnet_id,
@@ -150,10 +154,14 @@ class DHCPManager:
             reservations = []
             for device in self.config.devices:
                 if device.static_ip and self._ip_in_subnet(device.static_ip, subnet_str):
-                    reservations.append({
+                    res = {
                         "hw-address": device.mac,
                         "ip-address": device.static_ip
-                    })
+                    }
+                    host = getattr(device, "hostname", None) or (device.name if device.name and not device.name.startswith("Device-") else None)
+                    if host:
+                        res["hostname"] = host
+                    reservations.append(res)
 
             subnets_config.append({
                 "id": subnet_id,
@@ -207,6 +215,9 @@ class DHCPManager:
                 "persist": True,
                 "name": "/var/lib/kea/kea-leases4.csv"
             },
+            "host-reservation-identifiers": ["hw-address", "duid", "client-id"],
+            "hostname-char-set": "[^A-Za-z0-9.-]",
+            "hostname-char-replacement": "-",
             "subnet4": subnets_config
         }
         if hooks_libraries:

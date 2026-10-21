@@ -14,7 +14,7 @@ export function renderDirectoryView(container) {
                     <span>${d.icon}</span>
                     <div>
                         <strong>${d.name}</strong>
-                        ${isExpert ? `<div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.mac}</div>` : ''}
+                        ${isExpert ? `<div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.hostname && d.hostname !== d.name ? `${d.hostname} • ` : ''}${d.mac}</div>` : ''}
                     </div>
                 </div>
             </td>

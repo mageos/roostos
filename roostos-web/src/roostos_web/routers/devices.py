@@ -21,8 +21,28 @@ async def get_devices(
     config = device_service.get_devices_config()
     active_leases = await device_service.get_active_leases()
     active_arp = device_service.get_active_arp()
+
+    lease_by_mac = {l.get("mac", "").lower(): l for l in active_leases if l.get("mac")}
+    arp_by_mac = {a.get("mac", "").lower(): a for a in active_arp if a.get("mac")}
+
+    enriched_devices = []
+    for d in config.devices:
+        d_dict = d.model_dump()
+        norm = d.mac.lower()
+        lease = lease_by_mac.get(norm)
+        arp = arp_by_mac.get(norm)
+        lease_host = lease.get("hostname") if lease and lease.get("hostname") != "Unknown" else None
+        arp_host = arp.get("hostname") if arp and arp.get("hostname") != "Unknown" else None
+        host = lease_host or arp_host or d_dict.get("hostname")
+        d_dict["hostname"] = host
+        cur_name = d_dict.get("name")
+        if not cur_name or cur_name.startswith("Device-") or cur_name.startswith("Device ") or cur_name.lower() == norm:
+            if host:
+                d_dict["name"] = host
+        enriched_devices.append(d_dict)
+
     return {
-        "devices": [d.model_dump() for d in config.devices],
+        "devices": enriched_devices,
         "active_leases": active_leases,
         "active_arp": active_arp
     }
@@ -38,6 +58,7 @@ async def register_device(
     upnp_trusted: bool = Body(False),
     max_upload_kbps: Optional[int] = Body(None),
     max_download_kbps: Optional[int] = Body(None),
+    hostname: Optional[str] = Body(None),
     current_user: UserSession = Depends(get_current_parent),
     device_service: DeviceService = Injected(DeviceService)
 ):
@@ -53,6 +74,7 @@ async def register_device(
             upnp_trusted=upnp_trusted,
             max_upload_kbps=max_upload_kbps,
             max_download_kbps=max_download_kbps,
+            hostname=hostname,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

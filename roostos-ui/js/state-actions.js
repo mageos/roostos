@@ -139,10 +139,11 @@ export const dhcpActions = {
             const lease = store.data.admin.activeLeases.find(l => l.mac === mac);
             let d = store.data.devices.find(x => x.mac === mac);
             if (d && lease) d.staticIp = lease.ip;
-            else if (lease) {
+                const bestHost = hostname || (lease.hostname && lease.hostname !== 'Unknown' ? lease.hostname : '');
                 store.data.devices.push({
                     mac: lease.mac,
-                    name: hostname || lease.hostname || 'Reserved Device',
+                    name: bestHost || 'Reserved Device',
+                    hostname: bestHost,
                     owner: '',
                     location: 'Living Room',
                     ip: lease.ip,

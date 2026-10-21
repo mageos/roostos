@@ -23,13 +23,8 @@ export async function syncStateWithBackend(data, notify) {
                 pingMs: p.ping_ms ?? data.system.pingMs, unassignedDeviceAlert: p.unassigned_device_alert ?? false,
                 unassignedDevice: p.unassigned_device || null,
             });
-            if (p.cpu_percent !== undefined) data.system.cpuPercent = p.cpu_percent;
-            if (p.ram_percent !== undefined) data.system.ramPercent = p.ram_percent;
-            if (p.cpu_cores !== undefined) data.system.cpuCores = p.cpu_cores;
-            if (p.kernel_version) data.system.kernelVersion = p.kernel_version;
-            if (p.ram_total_gb !== undefined) data.system.ramTotalGb = p.ram_total_gb;
-            if (p.ram_used_gb !== undefined) data.system.ramUsedGb = p.ram_used_gb;
-            if (p.temp_c !== undefined) data.system.tempC = p.temp_c;
+            const sysMap = { cpu_percent: 'cpuPercent', ram_percent: 'ramPercent', cpu_cores: 'cpuCores', kernel_version: 'kernelVersion', ram_total_gb: 'ramTotalGb', ram_used_gb: 'ramUsedGb', temp_c: 'tempC' };
+            Object.entries(sysMap).forEach(([k, v]) => { if (p[k] !== undefined) data.system[v] = p[k]; });
         }
 
         if (sysConfig.status === 'fulfilled' && sysConfig.value) {
@@ -65,7 +60,19 @@ export async function syncStateWithBackend(data, notify) {
         if (devData.status === 'fulfilled' && devData.value) {
             const registered = devData.value.devices || [];
             const activeArp = devData.value.active_arp || [];
-            const activeLeases = devData.value.active_leases || (leases.status === 'fulfilled' ? leases.value : []) || [];
+            const rawLeases = [
+                ...(devData.value.active_leases || []),
+                ...((leases.status === 'fulfilled' && Array.isArray(leases.value)) ? leases.value : [])
+            ];
+            const leaseMap = new Map();
+            rawLeases.forEach(l => {
+                if (!l.mac) return;
+                const m = l.mac.toLowerCase();
+                const ex = leaseMap.get(m);
+                const h = (l.hostname && l.hostname !== 'Unknown') ? l.hostname : (ex?.hostname && ex.hostname !== 'Unknown' ? ex.hostname : (l.hostname || ex?.hostname || ''));
+                leaseMap.set(m, { ...ex, ...l, hostname: h });
+            });
+
             const onlineMacs = new Set(activeArp.map(a => (a.mac || '').toLowerCase()));
             const seenMacs = new Set();
             const deviceList = [];
@@ -74,39 +81,45 @@ export async function syncStateWithBackend(data, notify) {
                 const normMac = (d.mac || '').toLowerCase();
                 seenMacs.add(normMac);
                 const matchingArp = activeArp.find(a => (a.mac || '').toLowerCase() === normMac);
-                const matchingLease = activeLeases.find(l => (l.mac || '').toLowerCase() === normMac);
+                const matchingLease = leaseMap.get(normMac);
+                const leaseHost = (matchingLease?.hostname && matchingLease.hostname !== 'Unknown') ? matchingLease.hostname : '';
+                const arpHost = (matchingArp?.hostname && matchingArp.hostname !== 'Unknown') ? matchingArp.hostname : '';
+                const resolvedHost = leaseHost || arpHost || (d.hostname && d.hostname !== 'Unknown' ? d.hostname : '') || '';
+
+                let name = d.name;
+                if (!name || name.startsWith('Device-') || name.startsWith('Device ') || name.toLowerCase() === normMac) {
+                    name = resolvedHost || name || (matchingLease?.vendor ? `${matchingLease.vendor} Client` : `Device ${normMac.slice(-5)}`);
+                }
+
                 deviceList.push({
-                    mac: d.mac, name: d.name, owner: d.owner || '', location: d.location || '',
+                    mac: d.mac, name: name, hostname: resolvedHost, owner: d.owner || '', location: d.location || '',
                     ip: d.static_ip || matchingArp?.ip || matchingLease?.ip || '-',
                     staticIp: d.static_ip || '', tags: d.tags || ['personal'],
                     zone: (d.tags || []).includes('iot') ? 'iot' : ((d.tags || []).includes('guest') ? 'guest' : 'lan'),
-                    status: onlineMacs.has(normMac) ? 'online' : 'offline',
-                    signal: -50, rxMbps: 0, txMbps: 0,
+                    status: onlineMacs.has(normMac) ? 'online' : 'offline', signal: -50, rxMbps: 0, txMbps: 0,
                     icon: (d.tags || []).includes('laptop') ? '💻' : ((d.tags || []).includes('iot') ? '💡' : '📱'),
                     vendor: matchingLease?.vendor || 'Hardware Client', isRegistered: true,
                 });
             }
 
-            for (const client of [...activeArp, ...activeLeases]) {
+            for (const client of [...activeArp, ...leaseMap.values()]) {
                 const mac = (client.mac || '').toLowerCase();
                 if (!mac || mac === '00:00:00:00:00:00' || seenMacs.has(mac)) continue;
                 seenMacs.add(mac);
-                const matchingLease = activeLeases.find(l => (l.mac || '').toLowerCase() === mac);
+                const matchingLease = leaseMap.get(mac);
                 const matchingArp = activeArp.find(a => (a.mac || '').toLowerCase() === mac);
-                const vendor = matchingLease?.vendor || 'Network Device';
-                const name = matchingLease?.hostname || matchingArp?.hostname || (vendor !== 'Network Device' ? `${vendor} Client` : `Device ${mac.slice(-5)}`);
+                const leaseHost = (matchingLease?.hostname && matchingLease.hostname !== 'Unknown') ? matchingLease.hostname : '';
+                const arpHost = (matchingArp?.hostname && matchingArp.hostname !== 'Unknown') ? matchingArp.hostname : '';
+                const clientHost = (client.hostname && client.hostname !== 'Unknown') ? client.hostname : '';
+                const resolvedHost = leaseHost || arpHost || clientHost || '';
+                const vendor = matchingLease?.vendor || client.vendor || 'Network Device';
+                const name = resolvedHost || (vendor !== 'Network Device' ? `${vendor} Client` : `Device ${mac.slice(-5)}`);
                 const lower = `${name} ${vendor}`.toLowerCase();
-                const icon = lower.includes('laptop') || lower.includes('macbook') || lower.includes('pc') ? '💻'
-                    : lower.includes('tv') || lower.includes('roku') ? '📺'
-                    : lower.includes('pad') || lower.includes('tablet') ? '📲'
-                    : lower.includes('switch') || lower.includes('playstation') || lower.includes('xbox') ? '🎮'
-                    : lower.includes('thermostat') || lower.includes('plug') || lower.includes('cam') ? '💡' : '📱';
+                const icon = /laptop|macbook|pc/.test(lower) ? '💻' : /tv|roku/.test(lower) ? '📺' : /pad|tablet/.test(lower) ? '📲' : /switch|playstation|xbox/.test(lower) ? '🎮' : /thermostat|plug|cam/.test(lower) ? '💡' : '📱';
                 deviceList.push({
-                    mac: client.mac, name, owner: '', location: '',
-                    ip: client.ip || matchingLease?.ip || matchingArp?.ip || '-',
-                    staticIp: '', tags: ['discovered', 'unregistered'],
-                    zone: 'lan', status: 'online', signal: -50, rxMbps: 0, txMbps: 0,
-                    icon, vendor, isRegistered: false,
+                    mac: client.mac, name: name, hostname: resolvedHost, owner: '', location: '',
+                    ip: client.ip || matchingLease?.ip || matchingArp?.ip || '-', staticIp: '', tags: ['discovered', 'unregistered'],
+                    zone: 'lan', status: 'online', signal: -50, rxMbps: 0, txMbps: 0, icon, vendor, isRegistered: false,
                 });
             }
             data.devices = deviceList;
@@ -115,20 +128,15 @@ export async function syncStateWithBackend(data, notify) {
         if (netConfig.status === 'fulfilled' && netConfig.value?.network) {
             const net = netConfig.value.network;
             data.admin.network.interfaces = (net.interfaces || []).map(i => ({
-                name: i.name, role: i.role || 'unassigned', ip: i.ip || '-',
-                gateway: i.gateway || '-', mac: i.mac || '-', mtu: i.mtu || 1500,
-                status: i.status || 'unknown', speed: i.speed || 'Unknown',
-                rxBytes: i.rx_bytes || '0 B', txBytes: i.tx_bytes || '0 B'
+                name: i.name, role: i.role || 'unassigned', ip: i.ip || '-', gateway: i.gateway || '-', mac: i.mac || '-',
+                mtu: i.mtu || 1500, status: i.status || 'unknown', speed: i.speed || 'Unknown', rxBytes: i.rx_bytes || '0 B', txBytes: i.tx_bytes || '0 B'
             }));
             data.admin.bridgesVlans = (net.bridges || []).map(b => ({
-                name: b.name, type: 'Bridge', ip: b.ip || '-',
-                ports: (b.interfaces || []).join(', ') || '-', dhcp: 'Active (Kea)', isolate: b.isolate || false
+                name: b.name, type: 'Bridge', ip: b.ip || '-', ports: (b.interfaces || []).join(', ') || '-', dhcp: 'Active (Kea)', isolate: b.isolate || false
             }));
             data.wifiNetworks = (netConfig.value.wifi?.access_points || []).map(ap => ({
-                ssid: ap.ssid, band: ap.band || 'Dual-Band (2.4/5GHz)',
-                security: ap.security || 'WPA2/WPA3-Personal', clients: 0,
-                channel: ap.channel || 'Auto', status: ap.enabled !== false ? 'Active' : 'Disabled',
-                isolate: ap.isolate || false, qr: ap.passphrase ? `WIFI:S:${ap.ssid};T:WPA;P:${ap.passphrase};;` : ''
+                ssid: ap.ssid, band: ap.band || 'Dual-Band (2.4/5GHz)', security: ap.security || 'WPA2/WPA3-Personal', clients: 0,
+                channel: ap.channel || 'Auto', status: ap.enabled !== false ? 'Active' : 'Disabled', isolate: ap.isolate || false, qr: ap.passphrase ? `WIFI:S:${ap.ssid};T:WPA;P:${ap.passphrase};;` : ''
             }));
         }
 
@@ -220,34 +228,25 @@ export async function syncStateWithBackend(data, notify) {
 
         if (leases.status === 'fulfilled' && Array.isArray(leases.value)) {
             data.admin.activeLeases = leases.value.map(l => ({
-                ip: l.ip, mac: l.mac, hostname: l.hostname || 'Unknown',
-                network: l.network_interface || 'lan',
-                expires: `${Math.round(l.expires_in_seconds / 3600)}h ${Math.round((l.expires_in_seconds % 3600) / 60)}m`,
+                ip: l.ip, mac: l.mac, hostname: (l.hostname && l.hostname !== 'Unknown') ? l.hostname : 'Unknown',
+                network: l.network_interface || 'lan', expires: `${Math.round(l.expires_in_seconds / 3600)}h ${Math.round((l.expires_in_seconds % 3600) / 60)}m`,
                 vendor: l.vendor || 'Network Device',
             }));
         }
 
         if (reservations.status === 'fulfilled' && Array.isArray(reservations.value)) {
-            data.admin.dhcpReservations = reservations.value.map(r => ({
-                id: r.id || r.mac, mac: r.mac, ip: r.ip || r.reserved_ip,
-                hostname: r.hostname || '', description: r.description || ''
-            }));
+            data.admin.dhcpReservations = reservations.value.map(r => ({ id: r.id || r.mac, mac: r.mac, ip: r.ip || r.reserved_ip, hostname: r.hostname || '', description: r.description || '' }));
         }
 
         if (portForwards.status === 'fulfilled' && Array.isArray(portForwards.value)) {
             data.admin.portForwards = portForwards.value.map(pf => ({
-                id: pf.name.toLowerCase().replace(/\s+/g, '-'), name: pf.name,
-                proto: (pf.protocol || 'TCP').toUpperCase(), wanPort: pf.external_port || pf.wan_port || 0,
-                lanIp: pf.internal_ip || pf.lan_ip || '', lanPort: pf.internal_port || pf.lan_port || 0,
-                hits: 0, enabled: pf.enabled ?? true,
+                id: pf.name.toLowerCase().replace(/\s+/g, '-'), name: pf.name, proto: (pf.protocol || 'TCP').toUpperCase(),
+                wanPort: pf.external_port || pf.wan_port || 0, lanIp: pf.internal_ip || pf.lan_ip || '', lanPort: pf.internal_port || pf.lan_port || 0, hits: 0, enabled: pf.enabled ?? true,
             }));
         }
 
         if (dnsRecords.status === 'fulfilled' && Array.isArray(dnsRecords.value)) {
-            data.admin.dnsRecords = dnsRecords.value.map(r => ({
-                id: r.id || r.domain.toLowerCase().replace(/\s+/g, '-'),
-                domain: r.domain, type: r.type || 'A', ip: r.ip,
-            }));
+            data.admin.dnsRecords = dnsRecords.value.map(r => ({ id: r.id || r.domain.toLowerCase().replace(/\s+/g, '-'), domain: r.domain, type: r.type || 'A', ip: r.ip }));
         }
 
         if (dnsConfig.status === 'fulfilled' && dnsConfig.value) {

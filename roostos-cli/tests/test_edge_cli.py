@@ -34,6 +34,53 @@ def test_wizard_setup_edge_gateway():
         assert net_data["network"]["interfaces"][0]["name"] == "eth0"
         assert net_data["network"]["interfaces"][0]["role"] == "wan"
 
+        # Verify firewall.yaml allows SSH and HTTP/HTTPS on WAN
+        fw_path = os.path.join(tmpdir, "firewall.yaml")
+        assert os.path.exists(fw_path)
+        with open(fw_path, "r") as f:
+            fw_data = yaml.safe_load(f)
+        rules = fw_data["firewall"]["rules"]
+        ssh_rule = next((r for r in rules if r["name"] == "Allow SSH (WAN)"), None)
+        assert ssh_rule is not None
+        assert ssh_rule["port"] == 22
+        assert ssh_rule["action"] == "accept"
+        assert ssh_rule["enabled"] is True
+
+
+def test_wizard_setup_edge_gateway_ssh_disabled():
+    """Verifies setup wizard respects allow_ssh=False."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wizard = SetupWizard(config_dir=tmpdir, mock_install=True)
+        params = EdgeGatewayConfigParams(wan_interface="eth0", allow_ssh=False)
+        res = wizard.run_setup(role=NodeRole.EDGE_GATEWAY, edge_params=params)
+        assert res.success is True
+
+        fw_path = os.path.join(tmpdir, "firewall.yaml")
+        assert os.path.exists(fw_path)
+        with open(fw_path, "r") as f:
+            fw_data = yaml.safe_load(f)
+        rules = fw_data["firewall"]["rules"]
+        assert not any(r["name"] == "Allow SSH (WAN)" for r in rules)
+        assert any(r["name"] == "Allow HTTP Ingress (WAN)" for r in rules)
+
+
+def test_edge_gateway_setup_cli_ssh_prompt():
+    """Verifies CLI prompts for WAN SSH when configuring Edge Gateway role."""
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # User confirms SSH prompt with 'y'
+        res = runner.invoke(cli, [
+            "setup", "--role", "edge-gateway", "--wan", "eth0",
+            "--config-dir", tmpdir, "--mock"
+        ], input="eth0\ny\n")
+        assert res.exit_code == 0
+        assert "Allow SSH remote management on WAN?" in res.output
+
+        with open(os.path.join(tmpdir, "firewall.yaml"), "r") as f:
+            fw_data = yaml.safe_load(f)
+        assert any(r["name"] == "Allow SSH (WAN)" for r in fw_data["firewall"]["rules"])
+
+
 
 def test_edge_token_cli_wireguard_command():
     """Verifies default 'roostos edge token' command generates a WireGuard invite token."""

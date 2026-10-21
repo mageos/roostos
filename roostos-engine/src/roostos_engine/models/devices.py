@@ -29,6 +29,7 @@ class UPnPAllowedPort(BaseModel):
 class DeviceConfig(BaseModel):
     mac: str
     name: str
+    hostname: Optional[str] = None
     owner: Optional[str] = None
     location: Optional[str] = None
     tags: List[str] = Field(default_factory=list)

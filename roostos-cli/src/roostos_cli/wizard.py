@@ -236,13 +236,22 @@ class SetupWizard:
 
         sys_cfg = {"system": {"hostname": "roost-edge", "cluster": {"roles": ["edge_gateway"]}}}
         net_cfg = {"network": {"interfaces": [{"name": wan, "role": "wan", "dhcp": True}], "gateways": [{"id": "default", "name": "VPS Gateway", "interface": wan}]}}
-        created_files = [self._save_yaml("system.yaml", sys_cfg), self._save_yaml("network.yaml", net_cfg)]
+        fw_rules = []
+        if not params or getattr(params, "allow_ssh", True):
+            fw_rules.append({"name": "Allow SSH (WAN)", "interface": wan, "protocol": "tcp", "port": 22, "action": "accept", "enabled": True})
+        fw_rules.extend([
+            {"name": "Allow HTTP Ingress (WAN)", "interface": wan, "protocol": "tcp", "port": 80, "action": "accept", "enabled": True},
+            {"name": "Allow HTTPS Ingress (WAN)", "interface": wan, "protocol": "tcp", "port": 443, "action": "accept", "enabled": True},
+        ])
+        fw_cfg = {"firewall": {"rules": fw_rules, "port_forwards": []}}
+        created_files = [self._save_yaml("system.yaml", sys_cfg), self._save_yaml("network.yaml", net_cfg), self._save_yaml("firewall.yaml", fw_cfg)]
         self._enable_service("roostos-node.service")
 
         return SetupResult(
             success=True, role=NodeRole.EDGE_GATEWAY, installed_packages=packages, created_configs=created_files,
             dashboard_url="http://localhost:8000", message="Edge Gateway configured. Generate bootstrap token with: roostos edge token"
         )
+
 
     def _apply_dns_resolv(self, dns_servers: Optional[List[str]]) -> None:
         """Applies initial DNS forwarders to /etc/resolv.conf during bootstrap."""

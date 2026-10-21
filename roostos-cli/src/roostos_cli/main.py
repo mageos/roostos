@@ -98,12 +98,14 @@ def discover_cmd() -> None:
 
 
 @cli.command(name="setup")
-@click.option("--role", type=click.Choice([r.value for r in NodeRole]), help="Force deployment role")
+@click.option("--role", type=click.Choice([r.value for r in NodeRole] + [r.value.replace("_", "-") for r in NodeRole if "_" in r.value]), help="Force deployment role")
+
 @click.option("--wan", help="WAN interface for Gateway role")
 @click.option("--lan", help="LAN interfaces (comma-separated) for Gateway role")
 @click.option("--subnet", default="192.168.1.0/24", help="LAN subnet for Gateway role")
 @click.option("--dns-subsystem", type=click.Choice(["local", "technitium"], case_sensitive=False), default="local", help="DNS subsystem to use (local or technitium)")
-@click.option("--allow-wan-ssh", is_flag=True, help="Allow SSH on WAN interface")
+@click.option("--allow-wan-ssh", is_flag=True, default=None, help="Allow SSH on WAN interface")
+@click.option("--allow-ssh", is_flag=True, default=None, help="Allow SSH remote management on WAN")
 @click.option("--allow-wan-web", is_flag=True, help="Allow RoostOS Web on WAN interface")
 @click.option("--controller", help="Controller host/IP for Workstation role")
 @click.option("--token", help="Join token for Workstation role")
@@ -116,7 +118,8 @@ def setup_cmd(
     lan: Optional[str],
     subnet: str,
     dns_subsystem: str,
-    allow_wan_ssh: bool,
+    allow_wan_ssh: Optional[bool],
+    allow_ssh: Optional[bool],
     allow_wan_web: bool,
     controller: Optional[str],
     token: Optional[str],
@@ -144,7 +147,7 @@ def setup_cmd(
     click.echo(f"Adapters:     {', '.join([i.name for i in env.interfaces])}")
     click.secho(f"Auto-Detect:  {env.recommendation_reason}", fg="yellow")
 
-    target_role: Optional[NodeRole] = NodeRole(role) if role else None
+    target_role: Optional[NodeRole] = NodeRole(role.replace("-", "_")) if role else None
 
     # Interactive role selection if not supplied
     if not target_role and not non_interactive:
@@ -208,8 +211,7 @@ def setup_cmd(
             lan_ip = f"{prefix}.1"
             dhcp_start = f"{prefix}.100"
             dhcp_end = f"{prefix}.250"
-            dns_sub = dns_subsystem
-            allow_ssh = allow_wan_ssh
+            allow_ssh = allow_wan_ssh if allow_wan_ssh is not None else (allow_ssh if allow_ssh is not None else False)
             allow_web = allow_wan_web
 
         gw_params = GatewayConfigParams(
@@ -239,8 +241,15 @@ def setup_cmd(
 
     edge_params = None
     if target_role == NodeRole.EDGE_GATEWAY:
-        wan_if = wan or "eth0"
-        edge_params = EdgeGatewayConfigParams(wan_interface=wan_if)
+        wan_if = wan or (env.interfaces[0].name if env.interfaces else "eth0")
+        if not non_interactive:
+            click.echo("\n--- Edge Gateway Remote Access & Firewall ---")
+            wan_if = click.prompt("Public WAN interface", default=wan or wan_if)
+            ssh_allowed = click.confirm("Allow SSH remote management on WAN? (Essential for cloud VPS)", default=True)
+        else:
+            ssh_allowed = allow_wan_ssh if allow_wan_ssh is not None else (allow_ssh if allow_ssh is not None else True)
+        edge_params = EdgeGatewayConfigParams(wan_interface=wan_if, allow_ssh=ssh_allowed)
+
 
     wizard = SetupWizard(config_dir=config_dir, mock_install=mock)
     result = wizard.run_setup(

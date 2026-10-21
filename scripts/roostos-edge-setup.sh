@@ -7,9 +7,10 @@ set -euo pipefail
 WAN_IF=""
 TTL_MINUTES="15"
 PORT="8000"
+ALLOW_SSH="true"
 
 usage() {
-    echo "Usage: sudo $0 [--wan <INTERFACE>] [--port <PORT>] [--ttl <MINUTES>]"
+    echo "Usage: sudo $0 [--wan <INTERFACE>] [--port <PORT>] [--ttl <MINUTES>] [--allow-ssh | --no-ssh]"
     echo "Example: sudo $0 --wan eth0 --ttl 15"
     exit 1
 }
@@ -27,6 +28,14 @@ while [[ $# -gt 0 ]]; do
         --ttl)
             TTL_MINUTES="$2"
             shift 2
+            ;;
+        --allow-ssh)
+            ALLOW_SSH="true"
+            shift
+            ;;
+        --no-ssh)
+            ALLOW_SSH="false"
+            shift
             ;;
         -h|--help)
             usage
@@ -105,11 +114,16 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 # 6. Configure RoostOS Node role
-echo "[4/5] Configuring RoostOS Edge Gateway role..."
+echo "[4/5] Configuring RoostOS Edge Gateway role (WAN SSH allowed: $ALLOW_SSH)..."
 if command -v roostos >/dev/null 2>&1; then
-    roostos setup --role edge-gateway --wan "$WAN_IF" --non-interactive || true
+    SSH_FLAG=""
+    if [[ "$ALLOW_SSH" == "true" ]]; then
+        SSH_FLAG="--allow-wan-ssh"
+    fi
+    roostos setup --role edge-gateway --wan "$WAN_IF" $SSH_FLAG --non-interactive || true
     systemctl restart roostos-node 2>/dev/null || true
 fi
+
 
 # 7. Generate Bootstrap Token
 echo "[5/5] Generating single-use bootstrap enrollment token..."

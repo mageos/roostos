@@ -43,6 +43,7 @@ class DeviceService:
         upnp_trusted: bool = False,
         max_upload_kbps: Optional[int] = None,
         max_download_kbps: Optional[int] = None,
+        hostname: Optional[str] = None,
     ) -> DeviceConfig:
         """Registers or updates a device profile, validating linkages and persisting via repository."""
         config = self.get_devices_config()
@@ -57,6 +58,8 @@ class DeviceService:
         device = next((d for d in config.devices if d.mac == norm_mac), None)
         if device:
             device.name = name
+            if hostname:
+                device.hostname = hostname
             device.owner = owner if owner else None
             device.location = location if location else None
             device.tags = tags_list
@@ -69,6 +72,7 @@ class DeviceService:
             target_device = DeviceConfig(
                 mac=norm_mac,
                 name=name,
+                hostname=hostname,
                 owner=owner if owner else None,
                 location=location if location else None,
                 tags=tags_list,
@@ -154,6 +158,7 @@ class DeviceService:
 
         try:
             if os.path.exists("/proc/net/arp"):
+                import socket
                 with open("/proc/net/arp", "r") as f:
                     lines = f.readlines()
                     for line in lines[1:]:
@@ -165,7 +170,12 @@ class DeviceService:
                             iface = parts[5]
                             is_wan = iface in wan_interfaces or iface.startswith("ppp")
                             if flags != "0x0" and mac != "00:00:00:00:00:00" and ":" in mac and not is_wan:
-                                devices.append({"ip": ip, "mac": mac, "interface": iface})
+                                host = None
+                                try:
+                                    host = socket.gethostbyaddr(ip)[0]
+                                except Exception:
+                                    pass
+                                devices.append({"ip": ip, "mac": mac, "interface": iface, "hostname": host})
         except Exception:
             pass
 
@@ -173,8 +183,8 @@ class DeviceService:
             is_mock = getattr(self.dbus, "mock", False) or os.environ.get("ROOSTOS_MOCK", "false").lower() in ("true", "1")
             if is_mock:
                 devices = [
-                    {"ip": "192.168.1.10", "mac": "a4:83:e7:12:34:56", "interface": "br0"},
-                    {"ip": "192.168.1.50", "mac": "4c:32:75:98:76:54", "interface": "br0"},
+                    {"ip": "192.168.1.10", "mac": "a4:83:e7:12:34:56", "interface": "br0", "hostname": "smart-tv"},
+                    {"ip": "192.168.1.50", "mac": "4c:32:75:98:76:54", "interface": "br0", "hostname": "game-console"},
                 ]
         return devices
 

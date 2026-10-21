@@ -70,11 +70,15 @@ async def get_household_pulse(
         mac = arp.get("mac", "").lower()
         if mac and mac not in registered_macs:
             has_unassigned_alert = True
+            matching_l = next((l for l in active_leases if l.get("mac", "").lower() == mac), None)
+            host = matching_l.get("hostname") if matching_l and matching_l.get("hostname") != "Unknown" else arp.get("hostname")
             unassigned = {
                 "mac": mac,
                 "ip": arp.get("ip", "Unknown"),
+                "hostname": host,
+                "name": host or f"Device {mac[-5:]}",
                 "interface": arp.get("interface", "wlan0"),
-                "vendor": "Unknown Device",
+                "vendor": matching_l.get("vendor") if matching_l else "Unknown Device",
                 "status": "quarantined"
             }
             break

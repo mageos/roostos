@@ -204,10 +204,11 @@ class KeaService:
         for dev in getattr(config, "devices", []):
             if dev.static_ip:
                 zone = "iot" if "iot" in getattr(dev, "tags", []) else "lan"
+                h_name = getattr(dev, "hostname", None) or dev.name
                 reservations.append(DhcpReservationDTO(
                     mac=dev.mac,
                     reserved_ip=dev.static_ip,
-                    hostname=dev.name,
+                    hostname=h_name,
                     zone=zone,
                     description=f"Assigned to {dev.owner}" if dev.owner else None,
                 ))
@@ -223,16 +224,23 @@ class KeaService:
 
         config = self.repo.get_config()
         dev = next((d for d in config.devices if d.mac.lower() == norm_mac), None)
-        host_name = hostname or target_lease.hostname or f"Device-{norm_mac.replace(':', '')[-4:]}"
+        target_host = target_lease.hostname if target_lease.hostname and target_lease.hostname != "Unknown" else None
+        host_name = hostname or target_host or f"Device-{norm_mac.replace(':', '')[-4:]}"
 
         if dev:
             dev.static_ip = target_lease.ip
+            if target_host:
+                dev.hostname = target_host
             if hostname:
                 dev.name = hostname
+            elif not dev.name or dev.name.startswith("Device-") or dev.name.startswith("Device ") or dev.name.lower() == norm_mac:
+                if target_host:
+                    dev.name = target_host
         else:
             new_dev = DeviceConfig(
                 mac=norm_mac,
                 name=host_name,
+                hostname=target_host,
                 static_ip=target_lease.ip,
                 tags=["converted_reservation"],
             )

@@ -36,7 +36,7 @@ export function renderHouseholdDevices(container) {
                             <span style="font-size: 20px;">${d.icon}</span>
                             <div>
                                 <strong class="dev-name-link" data-mac="${d.mac}" style="cursor: pointer; color: var(--brand-primary);">${d.name}</strong>
-                                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.mac}</div>
+                                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">${d.hostname && d.hostname !== d.name ? `${d.hostname} • ` : ''}${d.mac}</div>
                             </div>
                         </div>
                     </td>

@@ -54,16 +54,24 @@ class StateDB:
     def register_lease(self, mac: str, ip: str, hostname: Optional[str], quarantined: bool = True) -> bool:
         """Upserts a DHCP lease record in the SQLite cache."""
         try:
+            norm_host = hostname.strip() if hostname else None
+            if not norm_host or norm_host.lower() == "unknown":
+                try:
+                    import socket
+                    norm_host = socket.gethostbyaddr(ip)[0] if ip else None
+                except Exception:
+                    norm_host = None
+
             with self._get_connection() as conn:
                 conn.execute("""
                     INSERT INTO active_leases (mac, ip, hostname, quarantined, last_seen)
                     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(mac) DO UPDATE SET
                         ip = excluded.ip,
-                        hostname = excluded.hostname,
+                        hostname = COALESCE(NULLIF(excluded.hostname, ''), active_leases.hostname),
                         quarantined = excluded.quarantined,
                         last_seen = CURRENT_TIMESTAMP
-                """, (mac.lower(), ip, hostname, 1 if quarantined else 0))
+                """, (mac.lower(), ip, norm_host, 1 if quarantined else 0))
                 conn.commit()
             return True
         except Exception as e:
@@ -121,10 +129,18 @@ class StateDB:
                         valid_sec = int(row.get("valid_lifetime", 3600) or 3600)
                         last_seen_ts = expire - valid_sec if expire else now
                         last_seen_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(last_seen_ts))
+                        ip_addr = row.get("address", "")
+                        h_name = (row.get("hostname") or "").strip()
+                        if not h_name or h_name.lower() == "unknown":
+                            try:
+                                import socket
+                                h_name = socket.gethostbyaddr(ip_addr)[0] if ip_addr else None
+                            except Exception:
+                                h_name = None
                         leases.append({
                             "mac": (row.get("hwaddr") or "").lower(),
-                            "ip": row.get("address", ""),
-                            "hostname": row.get("hostname") or "Unknown",
+                            "ip": ip_addr,
+                            "hostname": h_name or "Unknown",
                             "quarantined": False,
                             "last_seen": last_seen_str
                         })

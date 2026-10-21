@@ -64,6 +64,19 @@ class ConfigDBusMixin:
             if not success:
                 return False
             if registered:
+                dev = next((d for d in self._config.devices if d.mac == norm_mac), None)
+                if dev and hostname and hostname.lower() != "unknown":
+                    dev.hostname = hostname
+                    if not dev.name or dev.name.startswith("Device-") or dev.name.startswith("Device ") or dev.name.lower() == norm_mac:
+                        dev.name = hostname
+                        if hasattr(self, "repository") and hasattr(self.repository, "save_devices_config"):
+                            dev_cfg = DevicesConfig(
+                                people=self._config.people,
+                                buildings=self._config.buildings,
+                                rooms=self._config.rooms,
+                                devices=self._config.devices,
+                            )
+                            self.repository.save_devices_config(dev_cfg)
                 self.DeviceConnected(norm_mac, ip, hostname)
             else:
                 self.UnknownDeviceDiscovered(norm_mac, ip, hostname)

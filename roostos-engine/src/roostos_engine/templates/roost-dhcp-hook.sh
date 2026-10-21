@@ -18,11 +18,22 @@ fi
 EVENT="$1" # Kea passes the event name as the first argument to the script
 
 # Translate Kea variables (passed as env variables)
-# Support the array-based format: LEASES4_AT0_HWADDR
-# Fallback to KEA_LEASE_HWADDR and KEA_LEASE4_HWADDR
-MAC="${LEASES4_AT0_HWADDR:-${KEA_LEASE_HWADDR:-$KEA_LEASE4_HWADDR}}"
-IP="${LEASES4_AT0_ADDRESS:-${KEA_LEASE_ADDRESS:-$KEA_LEASE4_ADDRESS}}"
-HOSTNAME="${LEASES4_AT0_HOSTNAME:-${KEA_LEASE_HOSTNAME:-${KEA_LEASE4_HOSTNAME:-""}}}"
+# Support the array-based format: LEASES4_AT0_HWADDR, KEA_LEASES4_0_HWADDR
+# Fallback to KEA_LEASE_HWADDR, KEA_LEASE4_HWADDR, and Query Option 12
+MAC="${LEASES4_AT0_HWADDR:-${KEA_LEASES4_0_HWADDR:-${KEA_LEASE_HWADDR:-${KEA_LEASE4_HWADDR:-""}}}}"
+IP="${LEASES4_AT0_ADDRESS:-${KEA_LEASES4_0_ADDRESS:-${KEA_LEASE_ADDRESS:-${KEA_LEASE4_ADDRESS:-""}}}}"
+HOSTNAME="${LEASES4_AT0_HOSTNAME:-${KEA_LEASES4_0_HOSTNAME:-${KEA_LEASE_HOSTNAME:-${KEA_LEASE4_HOSTNAME:-${KEA_QUERY4_OPTION12_DATA:-${KEA_QUERY4_OPTION_12_DATA:-${QUERY4_OPTION12_DATA:-""}}}}}}}"
+
+# Clean up any quotes or trailing control characters
+HOSTNAME="$(printf '%s' "$HOSTNAME" | tr -d '\0\r\n\"\'')"
+
+# If hostname is empty or Unknown, attempt reverse DNS resolution
+if [ -z "$HOSTNAME" ] || [ "$HOSTNAME" = "Unknown" ]; then
+    RESOLVED_HOST="$(getent hosts "$IP" 2>/dev/null | awk '{print $2}')"
+    if [ -n "$RESOLVED_HOST" ]; then
+        HOSTNAME="$RESOLVED_HOST"
+    fi
+fi
 
 if [ -z "$MAC" ] || [ -z "$IP" ]; then
     echo "Warning: DHCP hook triggered with empty MAC or IP (Event: $EVENT). Skipping." >&2
